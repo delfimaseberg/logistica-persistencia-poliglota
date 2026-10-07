@@ -1,0 +1,35 @@
+services:
+  mongodb:
+    image: mongo:8.0
+    container_name: tp_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+
+  cassandra:
+    image: cassandra:5.0
+    container_name: tp_cassandra
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    restart: unless-stopped
+
+  neo4j:
+    image: neo4j:5
+    container_name: tp_neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+  cassandra_data:
+  neo4j_data:
