@@ -1,4 +1,5 @@
 import os
+from functools import lru_cache
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
@@ -8,16 +9,34 @@ MONGO_URI = os.getenv("MONGO_URI")
 MONGO_DB = os.getenv("MONGO_DB")
 
 
+@lru_cache(maxsize=1)
+def get_mongo_client():
+    if not MONGO_URI:
+        raise ValueError("Falta configurar MONGO_URI en .env")
+
+    return MongoClient(
+        MONGO_URI,
+        serverSelectionTimeoutMS=5000
+    )
+
+
 def get_mongo_database():
-    client = MongoClient(MONGO_URI)
-    return client[MONGO_DB]
+    if not MONGO_DB:
+        raise ValueError("Falta configurar MONGO_DB en .env")
+
+    return get_mongo_client()[MONGO_DB]
+
+
+def cerrar_conexion_mongo():
+    if get_mongo_client.cache_info().currsize:
+        get_mongo_client().close()
+        get_mongo_client.cache_clear()
 
 
 def probar_conexion_mongo():
     try:
-        client = MongoClient(MONGO_URI)
-        client.admin.command("ping")
+        get_mongo_client().admin.command("ping")
         print("Conexión a MongoDB exitosa.")
-        client.close()
-    except Exception as e:
-        print(f"Error al conectar con MongoDB: {e}")
+
+    except Exception as error:
+        print(f"Error al conectar con MongoDB: {error}")

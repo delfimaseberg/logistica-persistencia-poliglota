@@ -6,9 +6,17 @@ from app.services.rol_service import (
     eliminar_rol_service
 )
 
+from app.services.autenticacion import verificar_permiso
+
 
 def mostrar_menu_roles():
+    if not verificar_permiso(5):
+        return
+
     while True:
+        if not verificar_permiso(5):
+            return
+
         print("\n==========================================")
         print("            GESTIÓN DE ROLES")
         print("==========================================")
@@ -19,7 +27,7 @@ def mostrar_menu_roles():
         print("5. Eliminar rol")
         print("0. Volver a gestión de usuarios")
 
-        opcion = input("\nSeleccione una opción: ")
+        opcion = input("\nSeleccione una opción: ").strip()
 
         if opcion == "1":
             registrar_rol()
