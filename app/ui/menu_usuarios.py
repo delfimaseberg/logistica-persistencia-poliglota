@@ -5,10 +5,29 @@ from app.services.usuario_service import (
     modificar_usuario_service,
     eliminar_usuario_service
 )
+
+from app.services.sesion_service import (
+    consultar_sesiones_activas_service
+)
+
+from app.services.autenticacion import verificar_permiso
+
 from app.ui.menu_roles import mostrar_menu_roles
 
+
+def ejecutar_operacion(funcion, nivel_minimo):
+    if verificar_permiso(nivel_minimo):
+        funcion()
+
+
 def mostrar_menu_usuarios():
+    if not verificar_permiso(3):
+        return
+
     while True:
+        if not verificar_permiso(3):
+            return
+
         print("\n==========================================")
         print("          GESTIÓN DE USUARIOS")
         print("==========================================")
@@ -21,23 +40,34 @@ def mostrar_menu_usuarios():
         print("7. Consultar sesiones activas")
         print("0. Volver al menú principal")
 
-        opcion = input("\nSeleccione una opción: ")
+        opcion = input("\nSeleccione una opción: ").strip()
 
         if opcion == "1":
-            registrar_usuario()
+            ejecutar_operacion(registrar_usuario, 5)
+
         elif opcion == "2":
-            listar_usuarios_service()
+            ejecutar_operacion(listar_usuarios_service, 3)
+
         elif opcion == "3":
-            buscar_usuario_service()
+            ejecutar_operacion(buscar_usuario_service, 3)
+
         elif opcion == "4":
-            modificar_usuario_service()
+            ejecutar_operacion(modificar_usuario_service, 5)
+
         elif opcion == "5":
-            eliminar_usuario_service()
+            ejecutar_operacion(eliminar_usuario_service, 5)
+
         elif opcion == "6":
-            mostrar_menu_roles()
+            ejecutar_operacion(mostrar_menu_roles, 5)
+
         elif opcion == "7":
-            print("\n>> Sesiones activas")
+            ejecutar_operacion(
+                consultar_sesiones_activas_service,
+                5
+            )
+
         elif opcion == "0":
             break
+
         else:
-            print("\nOpción inválida. Intente nuevamente.")
+            print("\nOpción inválida.")

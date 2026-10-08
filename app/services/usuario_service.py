@@ -1,5 +1,3 @@
-import hashlib
-
 from app.models.usuario import Usuario
 from app.repositories.usuario_repository import (
     crear_usuario,
@@ -16,6 +14,7 @@ from app.utils.validaciones import (
     texto_obligatorio,
     validar_email
 )
+from app.utils.seguridad import generar_hash_contrasena
 
 
 def pedir_dato(mensaje, validador, *args):
@@ -105,13 +104,6 @@ def seleccionar_estado():
             return "INACTIVO"
 
         print("Error: seleccione una opción válida.")
-
-
-def generar_hash_contrasena(contrasena):
-    return hashlib.sha256(
-        contrasena.encode("utf-8")
-    ).hexdigest()
-
 
 def mostrar_usuario(usuario):
     if usuario is None:
