@@ -97,7 +97,10 @@ def eliminar_sensor_db(id_sensor):
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute("""
-                DELETE FROM sensor_iot
+                UPDATE sensor_iot
+                SET estado = 'Inactivo'
                 WHERE id_sensor = %s
+                  AND LOWER(estado) <> 'inactivo'
             """, (id_sensor,))
+
             return cursor.rowcount > 0

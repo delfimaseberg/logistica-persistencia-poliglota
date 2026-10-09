@@ -36,7 +36,7 @@ def mostrar_menu_contenedores():
         print("8. Buscar sensor")
         print("9. Consultar sensores de un contenedor")
         print("10. Modificar sensor")
-        print("11. Eliminar sensor")
+        print("11. Dar de baja sensor")
 
         print("\n0. Volver al menú principal")
 
