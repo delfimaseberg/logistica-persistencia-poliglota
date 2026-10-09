@@ -2,6 +2,7 @@ from app.ui.menu_clientes import mostrar_menu_clientes
 from app.ui.menu_usuarios import mostrar_menu_usuarios
 from app.ui.menu_envios import mostrar_menu_envios
 from app.ui.menu_contenedores import mostrar_menu_contenedores
+from app.ui.menu_monitoreo import mostrar_menu_monitoreo
 
 from app.services.sesion_service import (
     iniciar_sesion_service,
@@ -83,10 +84,8 @@ def mostrar_menu():
             ejecutar_modulo(mostrar_menu_contenedores, 1)
 
         elif opcion == "5":
-            if verificar_permiso(1):
-                print("\n>> Monitoreo IoT")
-                print("Módulo pendiente de implementación.")
-
+            ejecutar_modulo(mostrar_menu_monitoreo, 1)
+            
         elif opcion == "6":
             if verificar_permiso(1):
                 print("\n>> Trazabilidad de envíos")

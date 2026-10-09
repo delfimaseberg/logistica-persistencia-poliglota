@@ -1,6 +1,10 @@
 
 from app.models.sensor_iot import SensorIoT
 
+from app.repositories.lectura_iot_repository import (
+    consultar_ultima_lectura_db
+)
+
 from app.repositories.sensor_repository import (
     crear_sensor,
     listar_sensores,
@@ -258,6 +262,19 @@ def modificar_sensor_service():
         estado = actual[6]
 
         if opcion == "1":
+            ultima_lectura = consultar_ultima_lectura_db(id_sensor)
+
+            if ultima_lectura is not None:
+                print(
+                    "\nNo se puede cambiar el contenedor "
+                    "de un sensor que ya tiene lecturas."
+                )
+                print(
+                    "Para conservar la trazabilidad, "
+                    "dé de baja este sensor y registre uno nuevo."
+                )
+                return
+
             nuevo_contenedor = pedir_contenedor()
 
             if nuevo_contenedor is None:
@@ -265,11 +282,26 @@ def modificar_sensor_service():
 
             id_contenedor = nuevo_contenedor
 
+
         elif opcion == "2":
+            ultima_lectura = consultar_ultima_lectura_db(id_sensor)
+
+            if ultima_lectura is not None:
+                print(
+                    "\nNo se puede cambiar el tipo "
+                    "de un sensor que ya tiene lecturas."
+                )
+                print(
+                    "Dé de baja este sensor y registre "
+                    "otro con el nuevo tipo."
+                )
+                return
+
             tipo = pedir(
                 "Nuevo tipo: ",
                 validar_tipo_sensor
             )
+
 
         elif opcion == "3":
             fabricante = pedir(
@@ -313,7 +345,7 @@ def modificar_sensor_service():
 
 
 def eliminar_sensor_service():
-    print("\n--- ELIMINAR SENSOR ---")
+    print("\n--- DAR DE BAJA SENSOR ---")
 
     try:
         id_sensor = pedir(
@@ -327,29 +359,35 @@ def eliminar_sensor_service():
             print("No existe un sensor con ese ID.")
             return
 
+        print("\nDatos del sensor:")
         mostrar_sensor(sensor)
 
+        if str(sensor[6]).strip().lower() == "inactivo":
+            print("\nEl sensor ya se encuentra inactivo.")
+            return
+
         print(
-            "\nAdvertencia: la eliminación no borra "
-            "automáticamente posibles lecturas históricas "
-            "almacenadas en Cassandra."
+            "\nEl sensor no se borrará de la base de datos."
+            "\nSu estado cambiará a Inactivo."
+            "\nSus lecturas históricas se conservarán en Cassandra."
         )
 
         confirmacion = input(
-            "\n¿Confirmar eliminación? (S/N): "
+            "\n¿Confirmar baja del sensor? (S/N): "
         ).strip().upper()
 
         if confirmacion != "S":
-            print("Eliminación cancelada.")
+            print("\nOperación cancelada.")
             return
 
         if eliminar_sensor_db(id_sensor):
-            print("Sensor eliminado correctamente.")
+            print("\nSensor dado de baja correctamente.")
+            print("Estado actual: Inactivo")
         else:
-            print("No se pudo eliminar.")
+            print("\nNo se pudo dar de baja el sensor.")
 
     except Exception as error:
-        print(f"\nError al eliminar sensor: {error}")
+        print(f"\nError al dar de baja el sensor: {error}")
 
     finally:
         pausar()
