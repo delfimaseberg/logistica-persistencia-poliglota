@@ -1,5 +1,8 @@
+
 from datetime import datetime, timezone
 from uuid import uuid4
+
+from cassandra.query import BatchStatement, BatchType
 
 from app.database.cassandra_connection import get_cassandra_session
 
@@ -77,7 +80,13 @@ def registrar_lectura_db(
             bateria
         )
 
-        session.execute(
+        # Agrupar las tres escrituras de una misma lectura IoT.
+        batch = BatchStatement(
+            batch_type=BatchType.LOGGED
+        )
+
+        # Guardar en el historial por sensor.
+        batch.add(
             insertar_sensor,
             (
                 int(id_sensor),
@@ -88,7 +97,8 @@ def registrar_lectura_db(
             )
         )
 
-        session.execute(
+        # Guardar en el historial por contenedor.
+        batch.add(
             insertar_contenedor,
             (
                 int(id_contenedor),
@@ -100,7 +110,8 @@ def registrar_lectura_db(
             )
         )
 
-        session.execute(
+        # Actualizar la última lectura del sensor.
+        batch.add(
             insertar_ultima,
             (
                 int(id_sensor),
@@ -110,6 +121,9 @@ def registrar_lectura_db(
                 *valores
             )
         )
+
+        # Ejecutar el batch en Cassandra.
+        session.execute(batch)
 
         return id_lectura
 
