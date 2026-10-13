@@ -4,6 +4,8 @@ from app.ui.menu_envios import mostrar_menu_envios
 from app.ui.menu_contenedores import mostrar_menu_contenedores
 from app.ui.menu_monitoreo import mostrar_menu_monitoreo
 
+from app.ui.menu_trazabilidad import mostrar_menu_trazabilidad
+
 from app.services.sesion_service import (
     iniciar_sesion_service,
     cerrar_sesion_service
@@ -85,11 +87,9 @@ def mostrar_menu():
 
         elif opcion == "5":
             ejecutar_modulo(mostrar_menu_monitoreo, 1)
-            
+
         elif opcion == "6":
-            if verificar_permiso(1):
-                print("\n>> Trazabilidad de envíos")
-                print("Módulo pendiente de implementación.")
+            ejecutar_modulo(mostrar_menu_trazabilidad, 1)
 
         elif opcion == "7":
             if verificar_permiso(1):

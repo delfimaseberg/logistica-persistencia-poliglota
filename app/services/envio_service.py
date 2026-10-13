@@ -16,6 +16,8 @@ from app.utils.validaciones import (
     validar_opcion
 )
 
+from app.services.sincronizacion_service import sincronizar_envio_neo4j
+
 
 ESTADOS = [
     "Pendiente",
@@ -131,6 +133,9 @@ def registrar_envio():
         )
 
         id_envio = crear_envio(envio)
+
+        # Sincronizar el nuevo envío con Neo4j.
+        sincronizar_envio_neo4j(id_envio)
 
         print("\nEnvío registrado correctamente.")
         print(f"ID del envío generado: {id_envio}")
@@ -302,10 +307,15 @@ def modificar_envio_service():
         )
 
         if actualizado:
+            # Sincronizar los cambios del envío con Neo4j.
+            sincronizar_envio_neo4j(id_envio)
+
             print("\nEnvío modificado correctamente.")
 
             envio_actualizado = buscar_envio_por_id(id_envio)
-            mostrar_envio(envio_actualizado)
+
+            if envio_actualizado:
+                mostrar_envio(envio_actualizado)
         else:
             print("\nNo se pudo modificar el envío.")
 
@@ -346,6 +356,10 @@ def eliminar_envio_service():
         eliminado = eliminar_envio_db(id_envio)
 
         if eliminado:
+            # El envío ya no existe en PostgreSQL.
+            # La sincronización elimina su proyección de Neo4j.
+            sincronizar_envio_neo4j(id_envio)
+
             print("\nEnvío eliminado correctamente.")
         else:
             print("\nNo se pudo eliminar el envío.")

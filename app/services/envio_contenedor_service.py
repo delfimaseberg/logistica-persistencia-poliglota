@@ -16,6 +16,8 @@ from app.utils.validaciones_logistica import (
     validar_entero_positivo_logistica
 )
 
+from app.services.sincronizacion_service import sincronizar_envio_neo4j
+
 
 def pedir_id(mensaje, nombre):
     while True:
@@ -105,7 +107,12 @@ def asociar_contenedor_service():
             return
 
         if asociar_contenedor_db(id_envio, id_contenedor):
+
             print("\nContenedor asociado correctamente.")
+
+            # Actualizar la asociación en Neo4j.
+            sincronizar_envio_neo4j(id_envio)
+
         else:
             print(
                 "No se pudo asociar. Puede que el contenedor "
@@ -205,7 +212,12 @@ def desasociar_contenedor_service():
             return
 
         if desasociar_contenedor_db(id_envio, id_contenedor):
-            print("Contenedor desasociado correctamente.")
+
+            print("\nContenedor desasociado correctamente.")
+
+            # Actualizar Neo4j para quitar la asociación.
+            sincronizar_envio_neo4j(id_envio)
+
         else:
             print("No se pudo desasociar.")
 

@@ -1,5 +1,6 @@
 import os
 from functools import lru_cache
+
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
@@ -16,6 +17,7 @@ def get_mongo_client():
 
     return MongoClient(
         MONGO_URI,
+        tz_aware=True,
         serverSelectionTimeoutMS=5000
     )
 
@@ -37,6 +39,5 @@ def probar_conexion_mongo():
     try:
         get_mongo_client().admin.command("ping")
         print("Conexión a MongoDB exitosa.")
-
     except Exception as error:
         print(f"Error al conectar con MongoDB: {error}")
