@@ -18,6 +18,8 @@ from app.utils.validaciones_logistica import (
     normalizar
 )
 
+from app.services.sincronizacion_service import sincronizar_envio_neo4j
+
 
 def pedir(mensaje, funcion, *args):
     while True:
@@ -155,7 +157,7 @@ def registrar_tramo():
         print(f"Identificación: {vehiculo[2]}")
         print(f"Medio de transporte: {medio} (automático)")
 
-        # El origen debe continuar el recorrido registrado.
+        # El origen continúa el recorrido registrado.
         origen = origen_sugerido
 
         print(f"\nOrigen del tramo: {origen} (automático)")
@@ -172,8 +174,7 @@ def registrar_tramo():
             )
             return
 
-        # No permitimos agregar tramos después de llegar
-        # al destino final del envío.
+        # No permitir nuevos tramos si ya se llegó al destino final.
         if tramos_existentes:
             if normalizar(ultimo_tramo[6]) == normalizar(envio[4]):
                 print(
@@ -248,6 +249,10 @@ def registrar_tramo():
 
         print("\nTramo registrado correctamente.")
         print(f"ID generado: {id_tramo}")
+
+        # Sincronizar el nuevo tramo con Neo4j.
+        # Se ejecuta después de guardar correctamente en PostgreSQL.
+        sincronizar_envio_neo4j(id_envio)
 
         if normalizar(destino) == normalizar(envio[4]):
             print(
