@@ -1,0 +1,389 @@
+
+from datetime import datetime, timezone, timedelta
+from random import uniform
+from zoneinfo import ZoneInfo
+from urllib.parse import urlencode
+import webbrowser
+
+from app.repositories.sensor_repository import listar_sensores
+from app.repositories.lectura_iot_repository import (
+    registrar_lectura_db,
+    consultar_ultima_lectura_db,
+    consultar_lecturas_sensor_db
+)
+
+
+def pausar():
+    input("\nPresione Enter para continuar...")
+
+
+def sensores_activos():
+    return [
+        sensor for sensor in listar_sensores()
+        if str(sensor[6]).strip().lower() == "activo"
+    ]
+
+
+def generar_valores_simulados(tipo):
+    tipo = str(tipo).strip().lower()
+
+    valores = {
+        "temperatura": None,
+        "humedad": None,
+        "vibracion": None,
+        "gps_latitud": None,
+        "gps_longitud": None,
+        "bateria": round(uniform(30, 100), 2)
+    }
+
+    if tipo == "temperatura":
+        valores["temperatura"] = round(uniform(2, 10), 2)
+
+    elif tipo == "humedad":
+        valores["humedad"] = round(uniform(40, 85), 2)
+
+    elif tipo in ("vibracion", "vibración"):
+        valores["vibracion"] = round(uniform(0, 20), 2)
+
+    elif tipo == "gps":
+        # Coordenadas ficticias cercanas a Buenos Aires.
+        valores["gps_latitud"] = round(
+            uniform(-34.65, -34.45), 6
+        )
+        valores["gps_longitud"] = round(
+            uniform(-58.55, -58.35), 6
+        )
+
+    else:
+        return None
+
+    return valores
+
+
+def simular_lecturas_service():
+    print("\n--- SIMULAR LECTURAS IoT ---")
+
+    try:
+        sensores = sensores_activos()
+
+        if not sensores:
+            print("\nNo hay sensores activos.")
+            return
+
+        print(f"\nSensores activos: {len(sensores)}")
+        print(
+            "Se generarán lecturas ficticias para "
+            "los sensores compatibles."
+        )
+
+        while True:
+            try:
+                cantidad = int(input(
+                    "\nCantidad de rondas (1 a 20): "
+                ).strip())
+
+                if 1 <= cantidad <= 20:
+                    break
+
+                print("Ingrese un número entre 1 y 20.")
+
+            except ValueError:
+                print("Ingrese un número entero válido.")
+
+        confirmacion = input(
+            "\n¿Registrar estas lecturas en Cassandra? (S/N): "
+        ).strip().upper()
+
+        if confirmacion != "S":
+            print("\nSimulación cancelada.")
+            return
+
+        total = 0
+        omitidos = set()
+        errores = []
+
+        for ronda in range(1, cantidad + 1):
+            print(f"\nRonda {ronda} de {cantidad}")
+
+            for sensor in sensores:
+                id_sensor = sensor[0]
+                id_contenedor = sensor[1]
+                tipo = sensor[3]
+
+                valores = generar_valores_simulados(tipo)
+
+                if valores is None:
+                    omitidos.add(id_sensor)
+                    continue
+
+                try:
+                    id_lectura = registrar_lectura_db(
+                        id_sensor=id_sensor,
+                        id_contenedor=id_contenedor,
+                        **valores
+                    )
+
+                    total += 1
+
+                    print(
+                        f"Sensor {id_sensor} ({tipo}): "
+                        f"lectura {id_lectura}"
+                    )
+
+                except Exception as error:
+                    errores.append(
+                        f"Sensor {id_sensor}: {error}"
+                    )
+
+        print("\n--- RESULTADO DE LA SIMULACIÓN ---")
+        print(f"Lecturas registradas: {total}")
+        print(f"Sensores omitidos: {len(omitidos)}")
+        print(f"Errores: {len(errores)}")
+
+        if omitidos:
+            print(
+                "Sensores con tipo no compatible: "
+                + ", ".join(map(str, sorted(omitidos)))
+            )
+
+        for error in errores:
+            print(f"Error: {error}")
+
+        print(
+            "\nNota: son datos simulados, "
+            "no mediciones de dispositivos reales."
+        )
+
+    except Exception as error:
+        print(f"\nError en la simulación: {error}")
+
+    finally:
+        pausar()
+
+
+def detectar_sensores_inactivos_service():
+    print("\n--- DETECTAR SENSORES SIN LECTURAS RECIENTES ---")
+
+    try:
+        while True:
+            try:
+                horas = float(
+                    input(
+                        "Horas máximas sin transmitir "
+                        "(ejemplo 24): "
+                    ).strip().replace(",", ".")
+                )
+
+                if 0 < horas <= 8760:
+                    break
+
+                print(
+                    "Ingrese un valor mayor que 0 "
+                    "y menor o igual a 8760."
+                )
+
+            except ValueError:
+                print("Ingrese una cantidad de horas válida.")
+
+        sensores = sensores_activos()
+        ahora = datetime.now(timezone.utc)
+        limite = ahora - timedelta(hours=horas)
+
+        sin_lecturas = []
+        atrasados = []
+        al_dia = []
+
+        for sensor in sensores:
+            id_sensor = sensor[0]
+            lectura = consultar_ultima_lectura_db(id_sensor)
+
+            if lectura is None:
+                sin_lecturas.append(sensor)
+                continue
+
+            fecha = lectura.fecha_hora
+
+            if fecha.tzinfo is None:
+                fecha = fecha.replace(tzinfo=timezone.utc)
+
+            if fecha < limite:
+                atrasados.append((sensor, fecha))
+            else:
+                al_dia.append(sensor)
+
+        print("\n--- RESULTADOS ---")
+        print(f"Sensores activos en PostgreSQL: {len(sensores)}")
+        print(f"Con lecturas recientes: {len(al_dia)}")
+        print(f"Sin lecturas registradas: {len(sin_lecturas)}")
+        print(f"Con lecturas atrasadas: {len(atrasados)}")
+
+        if sin_lecturas:
+            print("\nSENSORES SIN LECTURAS:")
+            for sensor in sin_lecturas:
+                print(
+                    f"Sensor {sensor[0]} | "
+                    f"Tipo: {sensor[3]} | "
+                    f"Contenedor: {sensor[2]}"
+                )
+
+        if atrasados:
+            print("\nSENSORES CON LECTURAS ATRASADAS:")
+            zona = ZoneInfo("America/Argentina/Buenos_Aires")
+
+            for sensor, fecha in atrasados:
+                fecha_local = fecha.astimezone(zona)
+
+                print(
+                    f"Sensor {sensor[0]} | "
+                    f"Contenedor: {sensor[2]} | "
+                    f"Última lectura: "
+                    f"{fecha_local.strftime('%d/%m/%Y %H:%M:%S')}"
+                )
+
+        print(
+            "\nEsta consulta no cambia automáticamente "
+            "el estado del sensor en PostgreSQL."
+        )
+
+    except Exception as error:
+        print(f"\nError al detectar sensores inactivos: {error}")
+
+    finally:
+        pausar()
+
+
+def consultar_posiciones_gps_service():
+    print("\n--- CONSULTAR POSICIONES GPS ---")
+
+    try:
+        while True:
+            try:
+                id_sensor = int(
+                    input("ID del sensor GPS: ").strip()
+                )
+
+                if id_sensor > 0:
+                    break
+
+                print("El ID debe ser positivo.")
+
+            except ValueError:
+                print("Ingrese un ID válido.")
+
+        sensor = next(
+            (
+                s for s in listar_sensores()
+                if s[0] == id_sensor
+            ),
+            None
+        )
+
+        if sensor is None:
+            print("\nEl sensor no existe en PostgreSQL.")
+            return
+
+        if str(sensor[3]).strip().lower() != "gps":
+            print("\nEl sensor seleccionado no es de tipo GPS.")
+            return
+
+        mes = input(
+            "Mes (AAAA-MM, Enter = mes UTC actual): "
+        ).strip()
+
+        if not mes:
+            mes = datetime.now(timezone.utc).strftime("%Y-%m")
+
+        try:
+            fecha_mes = datetime.strptime(mes, "%Y-%m")
+
+            if fecha_mes.strftime("%Y-%m") != mes:
+                raise ValueError
+
+        except ValueError:
+            print("\nMes inválido. Use AAAA-MM.")
+            return
+
+        lecturas = consultar_lecturas_sensor_db(
+            id_sensor, mes, limite=100
+        )
+
+        posiciones = [
+            lectura for lectura in lecturas
+            if lectura.gps_latitud is not None
+            and lectura.gps_longitud is not None
+        ]
+
+        if not posiciones:
+            print("\nNo se encontraron posiciones GPS.")
+            return
+
+        print(
+            f"\nPosiciones encontradas: {len(posiciones)}"
+        )
+
+        zona = ZoneInfo("America/Argentina/Buenos_Aires")
+
+        for numero, lectura in enumerate(posiciones, 1):
+            fecha = lectura.fecha_hora
+
+            if fecha.tzinfo is None:
+                fecha = fecha.replace(tzinfo=timezone.utc)
+
+            fecha_local = fecha.astimezone(zona)
+
+            print(
+                f"{numero}. "
+                f"{fecha_local.strftime('%d/%m/%Y %H:%M:%S')} | "
+                f"Lat: {lectura.gps_latitud} | "
+                f"Lon: {lectura.gps_longitud}"
+            )
+
+        print(
+            "\nPodés abrir una posición en Google Maps."
+        )
+
+        opcion = input(
+            "Número de posición (Enter para volver): "
+        ).strip()
+
+        if not opcion:
+            return
+
+        try:
+            indice = int(opcion)
+
+            if not 1 <= indice <= len(posiciones):
+                print("\nNúmero fuera de rango.")
+                return
+
+        except ValueError:
+            print("\nNúmero inválido.")
+            return
+
+        posicion = posiciones[indice - 1]
+
+        coordenadas = (
+            f"{posicion.gps_latitud},"
+            f"{posicion.gps_longitud}"
+        )
+
+        url = (
+            "https://www.google.com/maps/search/?"
+            + urlencode({
+                "api": "1",
+                "query": coordenadas
+            })
+        )
+
+        print(f"\nMapa: {url}")
+
+        if webbrowser.open(url):
+            print("Se solicitó abrir el mapa en el navegador.")
+        else:
+            print("Abrí el enlace manualmente.")
+
+    except Exception as error:
+        print(f"\nError al consultar GPS: {error}")
+
+    finally:
+        pausar()
