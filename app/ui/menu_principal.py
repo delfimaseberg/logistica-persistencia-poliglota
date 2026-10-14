@@ -1,4 +1,3 @@
-
 from app.ui.menu_clientes import mostrar_menu_clientes
 from app.ui.menu_usuarios import mostrar_menu_usuarios
 from app.ui.menu_envios import mostrar_menu_envios
@@ -6,6 +5,7 @@ from app.ui.menu_contenedores import mostrar_menu_contenedores
 from app.ui.menu_monitoreo import mostrar_menu_monitoreo
 from app.ui.menu_trazabilidad import mostrar_menu_trazabilidad
 from app.ui.menu_incidentes import mostrar_menu_incidentes
+from app.ui.menu_mensajeria import mostrar_menu_mensajeria
 
 from app.services.sesion_service import (
     iniciar_sesion_service,
@@ -96,9 +96,7 @@ def mostrar_menu():
             ejecutar_modulo(mostrar_menu_incidentes, 1)
 
         elif opcion == "8":
-            if verificar_permiso(1):
-                print("\n>> Mensajería")
-                print("Módulo pendiente de implementación.")
+            ejecutar_modulo(mostrar_menu_mensajeria, 1)
 
         elif opcion == "9":
             if verificar_permiso(1):
