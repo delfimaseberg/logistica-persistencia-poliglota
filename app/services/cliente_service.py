@@ -1,3 +1,4 @@
+
 from app.models.cliente import Cliente
 from app.repositories.cliente_repository import (
     crear_cliente,
@@ -29,6 +30,23 @@ def pedir_id_cliente():
             return int(valor)
 
         print("Error: el ID debe ser un número entero positivo.")
+
+
+def pedir_estado_cliente():
+    while True:
+        print("\nEstado del cliente:")
+        print("1. ACTIVO")
+        print("2. INACTIVO")
+
+        opcion = input("Seleccione una opción: ").strip()
+
+        if opcion == "1":
+            return "ACTIVO"
+
+        if opcion == "2":
+            return "INACTIVO"
+
+        print("Opción inválida. Seleccione 1 o 2.")
 
 
 def mostrar_cliente(cliente):
@@ -85,11 +103,7 @@ def registrar_cliente():
         "El país"
     )
 
-    estado = pedir_dato(
-        "Estado: ",
-        texto_obligatorio,
-        "El estado"
-    )
+    estado = pedir_estado_cliente()
 
     cliente = Cliente(
         razon_social,
@@ -199,11 +213,7 @@ def modificar_cliente_service():
             "El país"
         )
 
-        estado = pedir_dato(
-            "Estado: ",
-            texto_obligatorio,
-            "El estado"
-        )
+        estado = pedir_estado_cliente()
 
         cliente_modificado = Cliente(
             razon_social,

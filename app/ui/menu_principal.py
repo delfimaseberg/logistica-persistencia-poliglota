@@ -1,3 +1,4 @@
+
 from app.ui.menu_clientes import mostrar_menu_clientes
 from app.ui.menu_usuarios import mostrar_menu_usuarios
 from app.ui.menu_envios import mostrar_menu_envios
@@ -6,6 +7,7 @@ from app.ui.menu_monitoreo import mostrar_menu_monitoreo
 from app.ui.menu_trazabilidad import mostrar_menu_trazabilidad
 from app.ui.menu_incidentes import mostrar_menu_incidentes
 from app.ui.menu_mensajeria import mostrar_menu_mensajeria
+from app.ui.menu_facturacion import mostrar_menu_facturacion
 
 from app.services.sesion_service import (
     iniciar_sesion_service,
@@ -42,14 +44,11 @@ def mostrar_menu():
 
             if opcion == "1":
                 iniciar_sesion_service()
-
             elif opcion == "0":
                 print("\nCerrando el sistema...")
                 break
-
             else:
                 print("\nOpción inválida.")
-
             continue
 
         print("\n==========================================")
@@ -76,46 +75,32 @@ def mostrar_menu():
 
         if opcion == "1":
             ejecutar_modulo(mostrar_menu_clientes, 1)
-
         elif opcion == "2":
             ejecutar_modulo(mostrar_menu_usuarios, 3)
-
         elif opcion == "3":
             ejecutar_modulo(mostrar_menu_envios, 1)
-
         elif opcion == "4":
             ejecutar_modulo(mostrar_menu_contenedores, 1)
-
         elif opcion == "5":
             ejecutar_modulo(mostrar_menu_monitoreo, 1)
-
         elif opcion == "6":
             ejecutar_modulo(mostrar_menu_trazabilidad, 1)
-
         elif opcion == "7":
             ejecutar_modulo(mostrar_menu_incidentes, 1)
-
         elif opcion == "8":
             ejecutar_modulo(mostrar_menu_mensajeria, 1)
-
         elif opcion == "9":
-            if verificar_permiso(1):
-                print("\n>> Reportes y facturación")
-                print("Módulo pendiente de implementación.")
-
+            ejecutar_modulo(mostrar_menu_facturacion, 1)
         elif opcion == "10":
             if verificar_permiso(1):
                 print("\n>> Análisis y predicciones")
                 print("Módulo pendiente de implementación.")
-
         elif opcion == "11":
             cerrar_sesion_service()
-
         elif opcion == "0":
             if cerrar_sesion_service():
                 print("\nCerrando el sistema...")
                 break
             print("No se pudo cerrar la sesión. Intente nuevamente.")
-
         else:
             print("\nOpción inválida.")
