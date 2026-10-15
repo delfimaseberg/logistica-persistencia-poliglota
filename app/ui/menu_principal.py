@@ -8,6 +8,7 @@ from app.ui.menu_trazabilidad import mostrar_menu_trazabilidad
 from app.ui.menu_incidentes import mostrar_menu_incidentes
 from app.ui.menu_mensajeria import mostrar_menu_mensajeria
 from app.ui.menu_facturacion import mostrar_menu_facturacion
+from app.ui.menu_predicciones import mostrar_menu_predicciones
 
 from app.services.sesion_service import (
     iniciar_sesion_service,
@@ -92,9 +93,7 @@ def mostrar_menu():
         elif opcion == "9":
             ejecutar_modulo(mostrar_menu_facturacion, 1)
         elif opcion == "10":
-            if verificar_permiso(1):
-                print("\n>> Análisis y predicciones")
-                print("Módulo pendiente de implementación.")
+            ejecutar_modulo(mostrar_menu_predicciones, 1)
         elif opcion == "11":
             cerrar_sesion_service()
         elif opcion == "0":
