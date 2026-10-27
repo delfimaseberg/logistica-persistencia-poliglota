@@ -3,8 +3,12 @@
 // Modelo físico MongoDB
 // =========================================================
 
-// Seleccionar la base de datos
-db = db.getSiblingDB("logistica_poliglota");
+// mongosh permite definir targetDatabaseName con --eval antes de cargar
+// este archivo. En instalaciones habituales se conserva la base original.
+const databaseName = typeof targetDatabaseName !== "undefined"
+    ? targetDatabaseName
+    : "logistica_poliglota";
+db = db.getSiblingDB(databaseName);
 
 
 // =========================

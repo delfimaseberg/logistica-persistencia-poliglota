@@ -4,10 +4,13 @@ from uuid import uuid4
 
 from cassandra.query import BatchStatement, BatchType
 
-from app.database.cassandra_connection import get_cassandra_session
+from app.database.cassandra_connection import (
+    CASSANDRA_KEYSPACE,
+    get_cassandra_session,
+)
 
 
-KEYSPACE = "logistica_poliglota"
+KEYSPACE = CASSANDRA_KEYSPACE
 
 
 def abrir_conexion():

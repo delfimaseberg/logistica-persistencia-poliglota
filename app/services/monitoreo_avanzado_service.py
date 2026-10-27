@@ -5,7 +5,12 @@ from zoneinfo import ZoneInfo
 from urllib.parse import urlencode
 import webbrowser
 
-from app.repositories.sensor_repository import listar_sensores
+from app.repositories.sensor_repository import (
+    listar_sensores,
+    buscar_sensor_por_id,
+    listar_sensores_por_contenedor,
+)
+from app.repositories.contenedor_repository import buscar_contenedor_por_id
 from app.repositories.lectura_iot_repository import (
     registrar_lectura_db,
     consultar_ultima_lectura_db,
@@ -255,36 +260,94 @@ def detectar_sensores_inactivos_service():
 def consultar_posiciones_gps_service():
     print("\n--- CONSULTAR POSICIONES GPS ---")
 
-    try:
+    def pedir_id_positivo(mensaje):
         while True:
             try:
-                id_sensor = int(
-                    input("ID del sensor GPS: ").strip()
-                )
-
-                if id_sensor > 0:
-                    break
-
-                print("El ID debe ser positivo.")
-
+                valor = int(input(mensaje).strip())
+                if valor > 0:
+                    return valor
             except ValueError:
-                print("Ingrese un ID válido.")
+                pass
+            print("Ingrese un ID positivo válido.")
 
-        sensor = next(
-            (
-                s for s in listar_sensores()
-                if s[0] == id_sensor
-            ),
-            None
-        )
+    try:
+        modo = input(
+            "Consultar por: 1. Contenedor | 2. Sensor GPS: "
+        ).strip()
 
-        if sensor is None:
-            print("\nEl sensor no existe en PostgreSQL.")
+        if modo not in {"1", "2"}:
+            print("\nOpción inválida.")
             return
+
+        if modo == "1":
+            id_contenedor = pedir_id_positivo("ID del contenedor: ")
+            contenedor = buscar_contenedor_por_id(id_contenedor)
+
+            if contenedor is None:
+                print("\nNo existe ese contenedor.")
+                return
+
+            sensores = listar_sensores_por_contenedor(id_contenedor)
+            sensores_gps = [
+                sensor for sensor in sensores
+                if str(sensor[3]).strip().lower() == "gps"
+            ]
+
+            if not sensores_gps:
+                print(
+                    "\nEl contenedor no tiene un sensor GPS asociado; "
+                    "no se puede consultar su ubicación."
+                )
+                return
+
+            if len(sensores_gps) == 1:
+                sensor = sensores_gps[0]
+            else:
+                print(
+                    "\nEl contenedor tiene varios sensores GPS asociados. "
+                    "Seleccione explícitamente uno:"
+                )
+                for sensor_gps in sensores_gps:
+                    print(f"  Sensor GPS ID: {sensor_gps[0]}")
+
+                id_sensor = pedir_id_positivo("ID del sensor GPS: ")
+                sensor = next(
+                    (
+                        item for item in sensores_gps
+                        if item[0] == id_sensor
+                    ),
+                    None,
+                )
+                if sensor is None:
+                    print(
+                        "\nEl sensor seleccionado no es un sensor GPS "
+                        "asociado a este contenedor."
+                    )
+                    return
+        else:
+            id_sensor = pedir_id_positivo("ID del sensor GPS: ")
+            sensor = buscar_sensor_por_id(id_sensor)
+
+            if sensor is None:
+                print("\nEl sensor no existe.")
+                return
+
+            if str(sensor[3]).strip().lower() != "gps":
+                print("\nEl sensor seleccionado no es de tipo GPS.")
+                return
+
+            contenedor = buscar_contenedor_por_id(sensor[1])
+            if contenedor is None:
+                print("\nEl contenedor asociado al sensor no existe.")
+                return
 
         if str(sensor[3]).strip().lower() != "gps":
-            print("\nEl sensor seleccionado no es de tipo GPS.")
+            print("\nEl sensor asociado no es de tipo GPS.")
             return
+
+        print(f"\nContenedor ID: {contenedor[0]}")
+        print(f"Código del contenedor: {contenedor[1]}")
+        print(f"Sensor GPS asociado: {sensor[0]}")
 
         mes = input(
             "Mes (AAAA-MM, Enter = mes UTC actual): "
@@ -295,18 +358,15 @@ def consultar_posiciones_gps_service():
 
         try:
             fecha_mes = datetime.strptime(mes, "%Y-%m")
-
             if fecha_mes.strftime("%Y-%m") != mes:
                 raise ValueError
-
         except ValueError:
             print("\nMes inválido. Use AAAA-MM.")
             return
 
         lecturas = consultar_lecturas_sensor_db(
-            id_sensor, mes, limite=100
+            sensor[0], mes, limite=100
         )
-
         posiciones = [
             lectura for lectura in lecturas
             if lectura.gps_latitud is not None
@@ -314,21 +374,16 @@ def consultar_posiciones_gps_service():
         ]
 
         if not posiciones:
-            print("\nNo se encontraron posiciones GPS.")
+            print("\nNo hay posiciones GPS registradas para ese sensor.")
             return
 
-        print(
-            f"\nPosiciones encontradas: {len(posiciones)}"
-        )
-
+        print(f"\nPosiciones encontradas: {len(posiciones)}")
         zona = ZoneInfo("America/Argentina/Buenos_Aires")
 
         for numero, lectura in enumerate(posiciones, 1):
             fecha = lectura.fecha_hora
-
             if fecha.tzinfo is None:
                 fecha = fecha.replace(tzinfo=timezone.utc)
-
             fecha_local = fecha.astimezone(zona)
 
             print(
@@ -338,52 +393,39 @@ def consultar_posiciones_gps_service():
                 f"Lon: {lectura.gps_longitud}"
             )
 
-        print(
-            "\nPodés abrir una posición en Google Maps."
-        )
-
+        print("\nPodés abrir una posición en Google Maps.")
         opcion = input(
             "Número de posición (Enter para volver): "
         ).strip()
-
         if not opcion:
             return
 
         try:
             indice = int(opcion)
-
             if not 1 <= indice <= len(posiciones):
                 print("\nNúmero fuera de rango.")
                 return
-
         except ValueError:
             print("\nNúmero inválido.")
             return
 
         posicion = posiciones[indice - 1]
-
         coordenadas = (
-            f"{posicion.gps_latitud},"
-            f"{posicion.gps_longitud}"
+            f"{posicion.gps_latitud},{posicion.gps_longitud}"
         )
-
         url = (
             "https://www.google.com/maps/search/?"
-            + urlencode({
-                "api": "1",
-                "query": coordenadas
-            })
+            + urlencode({"api": "1", "query": coordenadas})
         )
 
         print(f"\nMapa: {url}")
-
         if webbrowser.open(url):
             print("Se solicitó abrir el mapa en el navegador.")
         else:
             print("Abrí el enlace manualmente.")
 
     except Exception as error:
-        print(f"\nError al consultar GPS: {error}")
+        print(f"\nError al consultar posiciones GPS: {error}")
 
     finally:
         pausar()

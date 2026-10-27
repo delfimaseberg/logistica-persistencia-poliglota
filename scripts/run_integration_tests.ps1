@@ -1,0 +1,20 @@
+$ErrorActionPreference = "Stop"
+$env:INTEGRATION_TESTS = "1"
+$env:POSTGRES_HOST = "127.0.0.1"
+$env:POSTGRES_PORT = "15432"
+$env:POSTGRES_DB = "logistica_poliglota_integration"
+$env:POSTGRES_USER = "integration"
+$env:POSTGRES_PASSWORD = "integration-only-not-a-real-secret"
+$env:MONGO_URI = "mongodb://127.0.0.1:27018"
+$env:MONGO_DB = "logistica_poliglota_integration"
+$env:CASSANDRA_HOST = "127.0.0.1"
+$env:CASSANDRA_PORT = "19042"
+$env:CASSANDRA_KEYSPACE = "logistica_poliglota_integration"
+$env:NEO4J_URI = "bolt://127.0.0.1:17687"
+$env:NEO4J_USER = "neo4j"
+$env:NEO4J_PASSWORD = "integration-only-not-a-real-secret"
+$env:NEO4J_DATABASE = "neo4j"
+
+$python = Join-Path $PSScriptRoot "..\.venv\Scripts\python.exe"
+& $python -m pytest -q -p no:cacheprovider tests\integration
+exit $LASTEXITCODE

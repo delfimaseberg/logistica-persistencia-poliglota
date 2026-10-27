@@ -1,4 +1,4 @@
-from app.database.neo4j_connection import obtener_driver_neo4j
+from app.database.neo4j_connection import abrir_sesion_neo4j
 from app.utils.validaciones_trazabilidad import normalizar_nombre_grafo
 
 
@@ -111,7 +111,7 @@ def _sincronizar_tx(tx, datos):
 
 
 def sincronizar_envio_grafo(datos):
-    with obtener_driver_neo4j().session() as sesion:
+    with abrir_sesion_neo4j() as sesion:
         sesion.execute_write(_sincronizar_tx, datos)
 
 
@@ -124,7 +124,7 @@ def _eliminar_tx(tx, id_envio):
 
 
 def eliminar_envio_grafo(id_envio):
-    with obtener_driver_neo4j().session() as sesion:
+    with abrir_sesion_neo4j() as sesion:
         sesion.execute_write(_eliminar_tx, id_envio)
 
 
@@ -160,5 +160,5 @@ def obtener_ruta_envio(id_envio):
     """Filas de la ruta (una por tramo). Lista vacía si el envío no está
     en el grafo.
     """
-    with obtener_driver_neo4j().session() as sesion:
+    with abrir_sesion_neo4j() as sesion:
         return sesion.execute_read(_ruta_tx, id_envio)
