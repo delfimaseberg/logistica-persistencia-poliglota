@@ -6,6 +6,9 @@ load_dotenv()
 
 CASSANDRA_HOST = os.getenv("CASSANDRA_HOST")
 CASSANDRA_PORT = int(os.getenv("CASSANDRA_PORT", "9042"))
+CASSANDRA_KEYSPACE = os.getenv(
+    "CASSANDRA_KEYSPACE", "logistica_poliglota"
+)
 
 
 def get_cassandra_session():

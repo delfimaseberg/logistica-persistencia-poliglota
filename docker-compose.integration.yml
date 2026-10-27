@@ -1,0 +1,84 @@
+name: tp-bdd2-integration
+
+services:
+  postgres-integration:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: logistica_poliglota_integration
+      POSTGRES_USER: integration
+      POSTGRES_PASSWORD: integration-only-not-a-real-secret
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - postgres_integration_data:/var/lib/postgresql/data
+      - ./scripts:/integration-scripts:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U integration -d logistica_poliglota_integration"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+    networks:
+      - integration
+
+  mongodb-integration:
+    image: mongo:8.0
+    ports:
+      - "127.0.0.1:27018:27017"
+    volumes:
+      - mongodb_integration_data:/data/db
+      - ./scripts:/integration-scripts:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+    networks:
+      - integration
+
+  cassandra-integration:
+    image: cassandra:5.0
+    environment:
+      # El heap automático de la imagen eligió ~4 GB en este host y el kernel
+      # mató el proceso durante el primer arranque (exit 137).
+      MAX_HEAP_SIZE: 1024M
+    ports:
+      - "127.0.0.1:19042:9042"
+    volumes:
+      - cassandra_integration_data:/var/lib/cassandra
+      - ./scripts:/integration-scripts:ro
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh 127.0.0.1 9042 -e 'SELECT release_version FROM system.local' >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 90s
+    networks:
+      - integration
+
+  neo4j-integration:
+    image: neo4j:5
+    environment:
+      NEO4J_AUTH: neo4j/integration-only-not-a-real-secret
+    ports:
+      - "127.0.0.1:17474:7474"
+      - "127.0.0.1:17687:7687"
+    volumes:
+      - neo4j_integration_data:/data
+      - ./scripts:/integration-scripts:ro
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p integration-only-not-a-real-secret 'RETURN 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+    networks:
+      - integration
+
+volumes:
+  postgres_integration_data:
+  mongodb_integration_data:
+  cassandra_integration_data:
+  neo4j_integration_data:
+
+networks:
+  integration:
+    driver: bridge

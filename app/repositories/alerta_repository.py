@@ -22,9 +22,16 @@ def coleccion_alertas():
     return coleccion
 
 
+
 def registrar_alerta(
-    sensor_id, contenedor_id, tipo, severidad,
-    descripcion, lectura_id=None, envio_id=None
+    sensor_id,
+    contenedor_id,
+    tipo,
+    severidad,
+    descripcion,
+    lectura_id=None,
+    envio_id=None,
+    clave_deteccion=None,
 ):
     coleccion = coleccion_alertas()
 
@@ -38,24 +45,27 @@ def registrar_alerta(
         "descripcion": descripcion,
         "fecha": datetime.now(timezone.utc),
         "estado": "Activa",
-        "lectura_id": str(lectura_id) if lectura_id is not None else None,
-        "incidente_id": None
+        "lectura_id": (
+            str(lectura_id) if lectura_id is not None else None
+        ),
+        "incidente_id": None,
     }
 
-    if lectura_id is None:
+    if clave_deteccion is None and lectura_id is not None:
+        clave_deteccion = f"{sensor_id}:{lectura_id}:{tipo}"
+
+    if clave_deteccion is None:
         resultado = coleccion.insert_one(documento)
         documento["_id"] = resultado.inserted_id
         return documento
 
-    documento["clave_deteccion"] = (
-        f"{sensor_id}:{lectura_id}:{tipo}"
-    )
+    documento["clave_deteccion"] = clave_deteccion
 
     return coleccion.find_one_and_update(
-        {"clave_deteccion": documento["clave_deteccion"]},
+        {"clave_deteccion": clave_deteccion},
         {"$setOnInsert": documento},
         upsert=True,
-        return_document=ReturnDocument.AFTER
+        return_document=ReturnDocument.AFTER,
     )
 
 

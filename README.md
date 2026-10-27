@@ -113,6 +113,132 @@ Este script comprueba las conexiones a PostgreSQL, MongoDB, Cassandra y Neo4j.
 python main.py
 ```
 
+## Procesos periódicos de sensores y predicciones
+
+Los procesos se ejecutan una vez por invocación. En Windows se pueden
+programar con el Programador de tareas; no requieren mantener la aplicación
+abierta ni instalar un scheduler de Python.
+
+El lanzador admite estos trabajos:
+
+- `sensores`: revisa sensores activos cada vez que se invoca. El umbral
+  predeterminado es de 24 horas sin lecturas. La clave de deduplicación de
+  alertas usa el día calendario de `America/Argentina/Buenos_Aires`.
+- `predicciones`: actualiza las predicciones de envíos activos. La fecha diaria
+  se determina en `America/Argentina/Buenos_Aires` y se conserva una predicción
+  por envío y día, actualizando el registro de ese día si se vuelve a ejecutar.
+- `todos`: ejecuta predicciones y luego la revisión de sensores. Se conserva
+  como opción manual general; para las tareas programadas se recomienda elegir
+  el trabajo específico.
+
+Ejemplos de ejecución manual desde la raíz del proyecto:
+
+```powershell
+.\.venv\Scripts\python.exe .\ejecutar_procesos.py --job sensores --horas-sensores 24
+.\.venv\Scripts\python.exe .\ejecutar_procesos.py --job predicciones
+```
+
+Estas invocaciones realizan las operaciones normales del sistema: leen
+PostgreSQL y Cassandra y pueden escribir alertas o predicciones en MongoDB.
+No son comandos de prueba; para probar lógica se deben usar las pruebas
+unitarias con mocks.
+
+### Programador de tareas de Windows
+
+Crear dos tareas independientes. En ambas, configurar **Iniciar en** con la
+ruta absoluta de la raíz del proyecto y **Si la tarea ya se está ejecutando**
+con **No iniciar una instancia nueva**.
+
+| Tarea | Desencadenador | Programa | Argumentos |
+|---|---|---|---|
+| Revisión de sensores | Repetir cada 1 hora | `<raíz>\.venv\Scripts\python.exe` | `<raíz>\ejecutar_procesos.py --job sensores --horas-sensores 24` |
+| Predicciones diarias | Todos los días a las 09:00, hora de Argentina | `<raíz>\.venv\Scripts\python.exe` | `<raíz>\ejecutar_procesos.py --job predicciones` |
+
+Reemplazar `<raíz>` por la ruta absoluta del workspace. La acción debe usar la
+ruta de Python de `.venv`, no el alias global `python`. Confirmar que Windows
+esté configurado con la zona horaria de Argentina para que el horario diario
+coincida con las 09:00 indicadas.
+
+Los errores generales y por sensor/envío se registran en `logs/app.log`. El
+lanzador devuelve código de salida `1` si falla un proceso o algún elemento, y
+`0` si finaliza sin errores; esto permite que el Programador de tareas refleje
+fallos parciales.
+
+Antes de ejecutar cualquier versión nueva que guarde predicciones —desde el
+menú de la aplicación, el lanzador o el Programador de tareas— revisar y aplicar
+la migración `scripts/migrations/001_predicciones_unicas_por_dia.js` contra la
+base prevista. Detener las ejecuciones de predicciones y hacer una copia de
+seguridad antes de aplicarla. La migración comprueba primero documentos
+inválidos y duplicados por envío y día argentino; si encuentra duplicados,
+aborta antes de actualizar documentos o crear índices. Resolverlos y volver a
+revisar la migración antes de activar la versión nueva.
+
+Para la configuración local predeterminada, desde la raíz del proyecto:
+
+```powershell
+mongosh "mongodb://localhost:27017/logistica_poliglota" --file .\scripts\migrations\001_predicciones_unicas_por_dia.js
+```
+
+Si `MONGO_URI` apunta a otro servidor, sustituir la URI del comando por la de
+la base prevista; no aplicar la migración a una base de uso cotidiano por error.
+
+### Estado de facturación automática y cierre mensual
+
+`revisar_envios_potencialmente_facturables()` conserva una vista preliminar de
+solo lectura basada en el estado PostgreSQL. `procesar_facturacion_automatica()`
+usa evidencia de entrega y validaciones financieras, pero permanece deshabilitado
+y fuera del lanzador mientras no exista el flujo de carga y aprobación de
+tarifas, moneda y configuración fiscal.
+
+La migración `scripts/migrations/002_cierres_cuenta_corriente.sql` prepara una
+tabla de cierres con unicidad por cliente y período y una referencia al saldo
+inicial utilizado. No la apliques hasta revisar y autorizar el esquema. La
+`cerrar_cuenta_mensual()` prepara un snapshot solo cuando existe una apertura
+aprobada, moneda explícita, documentos conciliados con el ledger y el saldo
+acumulado coincide. El servicio no modifica el saldo de la cuenta y no está
+integrado al lanzador. Los flujos manuales actuales de factura y pago todavía
+no escriben ledger, por lo que sus documentos bloquean el cierre hasta
+conciliarlos. Ajustes, reversos de pagos y anulaciones sin crédito íntegro quedan
+bloqueados: el esquema actual no registra aprobación de ajustes ni un flujo de
+reverso. Las migraciones `003` y `004` deben estar aplicadas antes de invocar el
+servicio, porque utiliza el ledger, las aperturas y las correcciones. Para
+proteger los snapshots contra cambios directos, preparar y revisar también
+`006_cierres_inmutables.sql` después de crear la tabla; el servicio y la tabla
+única ya evitan reemplazar cierres por reejecución. Ninguna migración fue
+aplicada por la aplicación y su estado en cada instalación debe verificarse por
+separado.
+
+Las migraciones `003_cierres_y_movimientos_financieros.sql`,
+`004_tarifas_facturacion_auditable.sql` y
+`005_facturacion_periodica_auditoria.sql` preparan extensiones aditivas para
+aperturas aprobadas, movimientos, cierres, perfiles fiscales, tarifas por envío,
+facturas enlazadas a eventos y correcciones auditables. No insertan tarifas,
+códigos de moneda ni reglas fiscales. Los archivos del proyecto no permiten
+determinar si las migraciones anteriores se aplicaron en alguna instalación;
+cada entorno debe revisar su historial antes de decidir el orden de aplicación. Estas
+migraciones no están aplicadas por la aplicación.
+
+Las validaciones financieras de `app.utils.validaciones_financieras` son puras
+y no acceden a bases de datos. Bloquean tarifas incompletas, moneda no
+configurada, desacuerdos entre evento y estado, facturas originales duplicadas,
+aperturas sin respaldo y diferencias de conciliación sin aprobación. Todavía
+no existe una pantalla ni una operación de la aplicación para cargar y aprobar
+tarifas, moneda y configuración fiscal. Por eso
+`procesar_facturacion_automatica()` permanece deshabilitado en el código hasta
+que exista y se valide ese flujo y se apliquen las migraciones requeridas.
+
+El proceso compara los eventos `ENTREGADO` de MongoDB con el estado de
+PostgreSQL y bloquea eventos duplicados, sincronizaciones pendientes o estados
+discordantes. Los bloqueos y errores se registran en
+`auditoria_facturacion_periodica` cuando la estructura está disponible; los
+fallos de auditoría también se registran en `logs/app.log`. Las facturas
+manuales históricas no identifican al envío, por lo que la emisión automática
+se bloquea para clientes con facturas sin vínculo hasta que se concilien.
+
+La frecuencia propuesta es facturación diaria y cierre mensual. La facturación
+no está integrada al lanzador; el cierre mensual tampoco. Ninguna
+tarea está configurada en Windows.
+
 ## Funcionalidades implementadas
 
 ### Clientes — PostgreSQL

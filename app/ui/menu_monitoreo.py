@@ -34,7 +34,7 @@ def mostrar_menu_monitoreo():
         print("4. Consultar última lectura de un sensor")
         print("5. Simular lecturas IoT")
         print("6. Detectar sensores sin lecturas recientes")
-        print("7. Consultar posiciones GPS")
+        print("7. Consultar posiciones GPS por contenedor o sensor")
         print("8. Iniciar monitoreo automático")
         print("0. Volver al menú principal")
 

@@ -42,6 +42,16 @@ def listar_eventos_envios(ids_envio):
     )
 
 
+def listar_eventos_entregados():
+    """Lista eventos de entrega para conciliarlos con PostgreSQL."""
+    db = get_mongo_database()
+    return list(
+        db[COLECCION_EVENTOS]
+        .find({"tipo": "ENTREGADO"})
+        .sort("fecha_hora", 1)
+    )
+
+
 def tipos_registrados(id_envio):
     db = get_mongo_database()
 

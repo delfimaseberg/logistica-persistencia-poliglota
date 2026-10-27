@@ -1,8 +1,13 @@
 
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from app.database.postgres_connection import get_postgres_connection
 from app.database.mongo_connection import get_mongo_database
+from pymongo import ReturnDocument
+
+
+ZONA_PREDICCIONES = ZoneInfo("America/Argentina/Buenos_Aires")
 
 
 def listar_envios_analisis():
@@ -61,13 +66,29 @@ def obtener_datos_riesgo(id_envio):
 
 
 def guardar_prediccion(prediccion):
+    documento = dict(prediccion)
+    fecha_calculo = documento.get("fecha_calculo")
+
+    if not isinstance(fecha_calculo, datetime) or fecha_calculo.tzinfo is None:
+        raise ValueError(
+            "La fecha de cálculo debe ser un datetime con zona horaria."
+        )
+
+    envio_id = int(documento["envio_id"])
+    dia_calculo = fecha_calculo.astimezone(
+        ZONA_PREDICCIONES
+    ).date().isoformat()
+    documento["envio_id"] = envio_id
+    documento["dia_calculo"] = dia_calculo
+
     coleccion = get_mongo_database()["predicciones_riesgo"]
-    coleccion.create_index(
-        [("envio_id", 1), ("fecha_calculo", -1)],
-        name="idx_predicciones_envio_fecha"
+    resultado = coleccion.find_one_and_update(
+        {"envio_id": envio_id, "dia_calculo": dia_calculo},
+        {"$set": documento},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
     )
-    resultado = coleccion.insert_one(prediccion)
-    return str(resultado.inserted_id)
+    return str(resultado["_id"])
 
 
 def obtener_historial_predicciones(id_envio, limite=10):
