@@ -19,7 +19,11 @@ from app.repositories.trazabilidad_repository import (
     actualizar_estado_envio,
     listar_envios_de_contenedor
 )
-from app.repositories.grafo_repository import obtener_ruta_envio
+from app.repositories.grafo_repository import (
+    obtener_ruta_envio,
+    operadores_de_contenedor,
+    red_operadores_cliente
+)
 from app.repositories.recorrido_repository import (
     consultar_gps_contenedor
 )
@@ -225,6 +229,15 @@ def registrar_evento_service():
             parsear_fecha_hora
         )
 
+        # La fecha del evento ENTREGADO es la fecha real de entrega; no
+        # puede ser anterior a la creación del envío (CHECK de la 013).
+        if tipo == "ENTREGADO" and envio[7] and fecha_hora < envio[7]:
+            print(
+                "\nLa entrega no puede ser anterior a la creación del envío "
+                f"({formatear_fecha(envio[7])})."
+            )
+            return
+
         ubicacion = {
             "nombre": pedir(
                 "Ubicación: ", validar_texto, "La ubicación", 150
@@ -283,9 +296,20 @@ def registrar_evento_service():
         nuevo_estado = estado_nuevo_por_evento(tipo, envio[5])
 
         if nuevo_estado:
+            # La fecha real de entrega es la del evento ENTREGADO.
+            fecha_entrega = fecha_hora if tipo == "ENTREGADO" else None
             try:
-                if not actualizar_estado_envio(id_envio, nuevo_estado):
-                    raise RuntimeError("No se encontró el envío al actualizar su estado")
+                if not actualizar_estado_envio(
+                    id_envio, nuevo_estado, fecha_entrega
+                ):
+                    raise RuntimeError(
+                        "No se encontró el envío o ya estaba Entregado"
+                    )
+                if fecha_entrega is not None:
+                    print(
+                        "Fecha real de entrega registrada: "
+                        f"{formatear_fecha(fecha_entrega)}"
+                    )
                 print(f"Estado del envío actualizado a: {nuevo_estado}")
                 sincronizar_envio_neo4j(id_envio)
             except Exception as error:
@@ -295,7 +319,10 @@ def registrar_evento_service():
                     id_evento, id_envio, error
                 )
                 try:
-                    registrar_pendiente_estado(id_envio, nuevo_estado, id_evento, error)
+                    registrar_pendiente_estado(
+                        id_envio, nuevo_estado, id_evento, error,
+                        fecha_entrega=fecha_entrega,
+                    )
                     print("\nAdvertencia: evento guardado; actualización de estado pendiente en MongoDB.")
                 except Exception as error_pendiente:
                     logger.exception("No se pudo persistir el pendiente de estado: %s", error_pendiente)
@@ -313,11 +340,12 @@ def registrar_evento_service():
 # 2. Historial completo de un envío (MongoDB)
 # ------------------------------------------------------------------
 
-def historial_envio_service():
+def historial_envio_service(envio=None):
+    """envio: fila ya verificada (portal del cliente); si falta, se pide."""
     print("\n--- HISTORIAL DE EVENTOS DE UN ENVÍO ---")
 
     try:
-        envio = pedir_envio()
+        envio = envio or pedir_envio()
 
         if envio is None:
             return
@@ -350,11 +378,12 @@ def historial_envio_service():
 # 3. Seguimiento temporal (PostgreSQL + MongoDB)
 # ------------------------------------------------------------------
 
-def seguimiento_temporal_service():
+def seguimiento_temporal_service(envio=None):
+    """envio: fila ya verificada (portal del cliente); si falta, se pide."""
     print("\n--- SEGUIMIENTO TEMPORAL DE UN ENVÍO ---")
 
     try:
-        envio = pedir_envio()
+        envio = envio or pedir_envio()
 
         if envio is None:
             return
@@ -434,11 +463,12 @@ def seguimiento_temporal_service():
 # 4. Ruta completa de un envío (Neo4j)
 # ------------------------------------------------------------------
 
-def ruta_completa_service():
+def ruta_completa_service(envio=None):
+    """envio: fila ya verificada (portal del cliente); si falta, se pide."""
     print("\n--- RUTA COMPLETA DE UN ENVÍO (Neo4j) ---")
 
     try:
-        envio = pedir_envio()
+        envio = envio or pedir_envio()
 
         if envio is None:
             return
@@ -647,8 +677,13 @@ def sincronizar_proyeccion_service():
             ok, fallos = 0, 0
             for pendiente in listar_pendientes_estado():
                 try:
-                    if not actualizar_estado_envio(pendiente["envio_id"], pendiente["estado"]):
-                        raise ValueError("El envío ya no existe en PostgreSQL")
+                    if not actualizar_estado_envio(
+                        pendiente["envio_id"], pendiente["estado"],
+                        fecha_entrega_de_pendiente(pendiente),
+                    ):
+                        raise ValueError(
+                            "El envío ya no existe en PostgreSQL o ya está Entregado"
+                        )
                     resolver_pendiente_estado(pendiente["evento_id"])
                     sincronizar_envio_neo4j(pendiente["envio_id"])
                     ok += 1
@@ -662,6 +697,138 @@ def sincronizar_proyeccion_service():
     except Exception as error:
         logger.exception("Error al sincronizar: %s", error)
         print(f"\nError al sincronizar: {error}")
+
+    finally:
+        pausar()
+
+
+# ------------------------------------------------------------------
+# 7 y 8. Operadores en la red (Neo4j)
+# ------------------------------------------------------------------
+
+def fecha_entrega_de_pendiente(pendiente):
+    """Fecha real de entrega de un estado pendiente de aplicar.
+
+    Usa la guardada en el pendiente; si es un pendiente anterior que no la
+    tiene, la toma del evento ENTREGADO original en MongoDB.
+    """
+    if str(pendiente.get("estado", "")).strip().casefold() != "entregado":
+        return None
+    if pendiente.get("fecha_entrega") is not None:
+        return pendiente["fecha_entrega"]
+    for evento in listar_eventos_envio(pendiente["envio_id"]):
+        if str(evento.get("_id")) == str(pendiente.get("evento_id")):
+            return evento.get("fecha_hora")
+    raise ValueError(
+        "No se encontró el evento ENTREGADO para obtener la fecha de entrega."
+    )
+
+
+def cliente_visible(sesion):
+    """Cliente al que se restringen las consultas, o None si ve todo.
+
+    Depende de la PARTE del usuario, no de su nivel de permisos:
+    - Usuario de un cliente: solo los datos de su cliente.
+    - Usuario de proveedor u operador: no accede a datos de clientes.
+    - Usuario interno (sin parte): todos.
+    """
+    if sesion is None:
+        raise PermissionError("Debe iniciar sesión.")
+
+    if sesion.get("id_cliente") is not None:
+        return sesion["id_cliente"]
+
+    if (
+        sesion.get("id_proveedor") is not None
+        or sesion.get("id_operador") is not None
+    ):
+        raise PermissionError(
+            "Los usuarios de proveedores u operadores no consultan "
+            "datos de clientes."
+        )
+
+    return None
+
+
+def quien_llevo_contenedor_service():
+    print("\n--- ¿QUIÉN LLEVÓ EL CONTENEDOR? (Neo4j) ---")
+
+    try:
+        restringido = cliente_visible(obtener_sesion_actual())
+
+        id_contenedor = pedir(
+            "ID del contenedor: ",
+            validar_entero_positivo_logistica,
+            "El ID del contenedor"
+        )
+
+        filas = operadores_de_contenedor(id_contenedor, restringido)
+
+        if not filas:
+            print(
+                "\nNo hay tramos para ese contenedor"
+                + (" en sus envíos." if restringido else ".")
+                + " Si los datos son nuevos, sincronice Neo4j (opción 6)."
+            )
+            return
+
+        for fila in filas:
+            print(
+                f"Envío {fila['id_envio']} ({fila['cliente']}) | "
+                f"Tramo {fila['id_tramo']} | {fila['medio']} | "
+                f"{fila['origen']} -> {fila['destino']} | "
+                f"Salida {(fila['salida'] or '-')[:10]} | "
+                f"Operador: {fila['operador'] or 'sin asignar'}"
+            )
+
+    except PermissionError as error:
+        print(f"\n{error}")
+    except Exception as error:
+        logger.exception("Error al consultar operadores del contenedor")
+        print(f"\nError al consultar Neo4j: {error}")
+
+    finally:
+        pausar()
+
+
+def red_operadores_cliente_service():
+    print("\n--- RED CLIENTE - OPERADORES - ENVÍOS (Neo4j) ---")
+
+    try:
+        restringido = cliente_visible(obtener_sesion_actual())
+
+        if restringido is not None:
+            id_cliente = restringido
+        else:
+            id_cliente = pedir(
+                "ID del cliente: ",
+                validar_entero_positivo_logistica,
+                "El ID del cliente"
+            )
+
+        filas = red_operadores_cliente(id_cliente)
+
+        if not filas:
+            print(
+                "\nNingún envío del cliente tiene tramos con operador en "
+                "el grafo."
+            )
+            return
+
+        for fila in filas:
+            print(
+                f"{fila['operador']} ({', '.join(fila['modalidades'] or [])}) "
+                f"| Envíos del cliente: "
+                f"{', '.join(str(e) for e in fila['envios'])} "
+                f"| Otros clientes que usan este operador: "
+                f"{fila['otros_clientes']}"
+            )
+
+    except PermissionError as error:
+        print(f"\n{error}")
+    except Exception as error:
+        logger.exception("Error al consultar la red del cliente")
+        print(f"\nError al consultar Neo4j: {error}")
 
     finally:
         pausar()

@@ -23,21 +23,25 @@ def obtener_cliente_por_id(id_cliente):
             return cursor.fetchone()
 
 
-def crear_envio(envio):
+def crear_envio(envio, fecha_creacion=None):
+    """fecha_creacion es opcional (carga histórica); por defecto, ahora."""
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute("""
                 INSERT INTO envio (
-                    id_cliente, origen, destino, estado, prioridad
+                    id_cliente, origen, destino, estado, prioridad,
+                    fecha_creacion
                 )
-                VALUES (%s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s,
+                        COALESCE(%s, CURRENT_TIMESTAMP))
                 RETURNING id_envio
             """, (
                 envio.id_cliente,
                 envio.origen,
                 envio.destino,
                 envio.estado,
-                envio.prioridad
+                envio.prioridad,
+                fecha_creacion
             ))
             return cursor.fetchone()[0]
 
@@ -54,7 +58,8 @@ def listar_envios():
                     e.destino,
                     e.estado,
                     e.prioridad,
-                    e.fecha_creacion
+                    e.fecha_creacion,
+                    e.fecha_entrega
                 FROM envio e
                 JOIN cliente c ON e.id_cliente = c.id_cliente
                 ORDER BY e.id_envio
@@ -74,7 +79,8 @@ def buscar_envio_por_id(id_envio):
                     e.destino,
                     e.estado,
                     e.prioridad,
-                    e.fecha_creacion
+                    e.fecha_creacion,
+                    e.fecha_entrega
                 FROM envio e
                 JOIN cliente c ON e.id_cliente = c.id_cliente
                 WHERE e.id_envio = %s

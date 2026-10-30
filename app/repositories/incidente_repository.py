@@ -2,15 +2,17 @@
 from app.database.postgres_connection import get_postgres_connection
 
 
-def crear_incidente(id_envio, tipo, severidad, descripcion):
+def crear_incidente(id_envio, tipo, severidad, descripcion, fecha=None):
+    """fecha es opcional (carga histórica); por defecto, ahora."""
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute("""
                 INSERT INTO incidente
-                    (id_envio, tipo, severidad, estado, descripcion)
-                VALUES (%s, %s, %s, 'Abierto', %s)
+                    (id_envio, tipo, severidad, estado, descripcion, fecha)
+                VALUES (%s, %s, %s, 'Abierto', %s,
+                        COALESCE(%s, CURRENT_TIMESTAMP))
                 RETURNING id_incidente
-            """, (id_envio, tipo, severidad, descripcion))
+            """, (id_envio, tipo, severidad, descripcion, fecha))
             return cursor.fetchone()[0]
 
 

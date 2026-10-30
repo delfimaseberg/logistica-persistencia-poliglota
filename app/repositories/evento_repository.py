@@ -112,12 +112,14 @@ def resolver_pendientes_envio(id_envio):
 
 
 # Pendientes de actualización de estado PostgreSQL después de registrar evento Mongo.
-def registrar_pendiente_estado(id_envio, estado, evento_id, error):
+def registrar_pendiente_estado(id_envio, estado, evento_id, error,
+                               fecha_entrega=None):
     db = get_mongo_database()
     ahora = datetime.now(timezone.utc)
     db["estado_pendientes"].update_one(
         {"evento_id": str(evento_id)},
         {"$set": {"envio_id": int(id_envio), "estado": estado,
+                  "fecha_entrega": fecha_entrega,
                   "ultimo_error": str(error)[:500], "resuelto": False,
                   "fecha_actualizacion": ahora},
          "$setOnInsert": {"fecha_creacion": ahora}},

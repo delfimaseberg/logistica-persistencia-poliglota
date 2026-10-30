@@ -1,4 +1,7 @@
+import atexit
 import os
+import threading
+
 from cassandra.cluster import Cluster
 from dotenv import load_dotenv
 
@@ -12,6 +15,10 @@ CASSANDRA_KEYSPACE = os.getenv(
 
 
 def get_cassandra_session():
+    """Conexión nueva e independiente (solo para pruebas de conexión).
+
+    Las operaciones de la aplicación usan obtener_sesion_cassandra().
+    """
     cluster = Cluster(
         [CASSANDRA_HOST],
         port=CASSANDRA_PORT
@@ -19,6 +26,47 @@ def get_cassandra_session():
 
     session = cluster.connect()
     return cluster, session
+
+
+# ------------------------------------------------------------------
+# Sesión compartida
+#
+# Abrir un Cluster por operación agota conexiones con volumen (por ejemplo,
+# el registro continuo de lecturas). El driver de Cassandra está pensado
+# para una sesión por proceso: es thread-safe, mantiene su propio pool y se
+# reconecta sola. Se crea la primera vez que se usa y se cierra al salir.
+# ------------------------------------------------------------------
+
+_cluster = None
+_session = None
+_lock = threading.Lock()
+
+
+def obtener_sesion_cassandra():
+    """Sesión compartida, con el keyspace del proyecto ya seleccionado."""
+    global _cluster, _session
+
+    with _lock:
+        if _session is None or _session.is_shutdown:
+            if _cluster is not None:
+                _cluster.shutdown()
+            _cluster = Cluster([CASSANDRA_HOST], port=CASSANDRA_PORT)
+            _session = _cluster.connect(CASSANDRA_KEYSPACE)
+        return _session
+
+
+def cerrar_sesion_cassandra():
+    """Cierra la sesión compartida (se llama sola al terminar el proceso)."""
+    global _cluster, _session
+
+    with _lock:
+        if _cluster is not None:
+            _cluster.shutdown()
+        _cluster = None
+        _session = None
+
+
+atexit.register(cerrar_sesion_cassandra)
 
 
 def probar_conexion_cassandra():

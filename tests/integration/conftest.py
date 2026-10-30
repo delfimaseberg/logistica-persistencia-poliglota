@@ -150,7 +150,7 @@ def synthetic_logistics(integration_guard):
     from app.database.postgres_connection import get_postgres_connection
     from app.database.mongo_connection import get_mongo_database
     from app.repositories.grafo_repository import eliminar_envio_grafo
-    from app.repositories.lectura_iot_repository import abrir_conexion
+    from app.repositories.lectura_iot_repository import abrir_conexion, cerrar_conexion
 
     token = uuid4().hex[:12]
     cuit = f"9{uuid4().int % 10**12:012d}"
@@ -267,8 +267,8 @@ def synthetic_logistics(integration_guard):
                 (container_id, data["month"]),
             )
         finally:
-            session.shutdown()
-            cluster.shutdown()
+            # Sesión compartida: cerrar_conexion no la cierra.
+            cerrar_conexion(cluster, session)
 
         eliminar_envio_grafo(shipment_id)
         with get_postgres_connection() as connection:

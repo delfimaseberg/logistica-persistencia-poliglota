@@ -15,6 +15,11 @@ from app.utils.validaciones import (
     validar_email
 )
 from app.utils.seguridad import generar_hash_contrasena
+from app.utils.validaciones_terceros import describir_parte
+from app.repositories.terceros_repository import (
+    listar_proveedores,
+    listar_operadores
+)
 
 
 def pedir_dato(mensaje, validador, *args):
@@ -59,6 +64,56 @@ def seleccionar_cliente():
             return id_cliente
 
         print("Error: seleccione uno de los clientes disponibles.")
+
+
+def _seleccionar_de(filas, titulo):
+    """Lista terceros activos (id, razón social, CUIT, ...) y pide un ID."""
+    activas = [fila for fila in filas if fila[8] == "ACTIVO"]
+
+    if not activas:
+        print(f"\nNo hay {titulo} activos.")
+        return None
+
+    print(f"\n{titulo.capitalize()} disponibles:")
+    for fila in activas:
+        print(f"{fila[0]}. {fila[1]} (CUIT: {fila[2]})")
+
+    ids = {fila[0] for fila in activas}
+    while True:
+        elegido = pedir_id("\nSeleccione el ID: ")
+        if elegido in ids:
+            return elegido
+        print("Error: seleccione uno de la lista.")
+
+
+def seleccionar_parte():
+    """Devuelve (id_cliente, id_proveedor, id_operador) o None si se cancela.
+
+    Las tres en None = usuario interno.
+    """
+    while True:
+        print("\nEl usuario pertenece a:")
+        print("1. Un cliente")
+        print("2. Un proveedor")
+        print("3. Un operador logístico")
+        print("4. Ninguno (usuario interno)")
+        opcion = input("\nSeleccione una opción: ").strip()
+
+        if opcion == "1":
+            id_cliente = seleccionar_cliente()
+            return None if id_cliente is None else (id_cliente, None, None)
+        if opcion == "2":
+            id_proveedor = _seleccionar_de(listar_proveedores(), "proveedores")
+            return None if id_proveedor is None else (None, id_proveedor, None)
+        if opcion == "3":
+            id_operador = _seleccionar_de(
+                listar_operadores(), "operadores logísticos"
+            )
+            return None if id_operador is None else (None, None, id_operador)
+        if opcion == "4":
+            return (None, None, None)
+
+        print("Error: seleccione una opción válida.")
 
 
 def seleccionar_rol():
@@ -110,9 +165,16 @@ def mostrar_usuario(usuario):
         print("Usuario no encontrado.")
         return
 
+    # Columnas 8-10 (proveedor, operador, nombre de la parte) existen desde la
+    # migración 012; se toleran filas más cortas.
+    id_proveedor = usuario[8] if len(usuario) > 8 else None
+    id_operador = usuario[9] if len(usuario) > 9 else None
+    nombre_parte = usuario[10] if len(usuario) > 10 else None
+    parte = describir_parte(usuario[1], id_proveedor, id_operador, nombre_parte)
+
     print(f"""
 ID: {usuario[0]}
-Cliente ID: {usuario[1]}
+Parte: {parte}
 Rol ID: {usuario[2]}
 Nombre: {usuario[3]}
 Apellido: {usuario[4]}
@@ -125,11 +187,13 @@ Fecha de registro: {usuario[7]}
 def registrar_usuario():
     print("\n--- REGISTRAR USUARIO ---")
 
-    id_cliente = seleccionar_cliente()
+    parte = seleccionar_parte()
 
-    if id_cliente is None:
+    if parte is None:
         input("\nPresione Enter para continuar...")
         return
+
+    id_cliente, id_proveedor, id_operador = parte
 
     id_rol = seleccionar_rol()
 
@@ -173,7 +237,9 @@ def registrar_usuario():
         apellido,
         email,
         contrasena_hash,
-        estado
+        estado,
+        id_proveedor=id_proveedor,
+        id_operador=id_operador
     )
 
     try:
@@ -252,11 +318,13 @@ def modificar_usuario_service():
 
         print("\nIngrese los nuevos datos:")
 
-        id_cliente = seleccionar_cliente()
+        parte = seleccionar_parte()
 
-        if id_cliente is None:
+        if parte is None:
             input("\nPresione Enter para continuar...")
             return
+
+        id_cliente, id_proveedor, id_operador = parte
 
         id_rol = seleccionar_rol()
 
@@ -300,7 +368,9 @@ def modificar_usuario_service():
             apellido,
             email,
             contrasena_hash,
-            estado
+            estado,
+            id_proveedor=id_proveedor,
+            id_operador=id_operador
         )
 
         modificado = modificar_usuario(

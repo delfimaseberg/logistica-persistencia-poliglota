@@ -1,12 +1,28 @@
 from app.database.postgres_connection import get_postgres_connection
 
 
-def actualizar_estado_envio(id_envio, estado):
+def actualizar_estado_envio(id_envio, estado, fecha_entrega=None):
+    """Actualiza el estado por un evento logístico.
+
+    Pasar a Entregado exige la fecha real de entrega (la del evento) y se
+    guarda junto con el estado. Un envío Entregado ya no cambia (estado
+    final; también lo impide el trigger de la migración 013).
+    """
+    entregado = str(estado).strip().casefold() == "entregado"
+    if entregado and fecha_entrega is None:
+        raise ValueError("Pasar a Entregado requiere la fecha real de entrega.")
+
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute(
-                "UPDATE envio SET estado = %s WHERE id_envio = %s",
-                (estado, id_envio)
+                """
+                UPDATE envio
+                SET estado = %s,
+                    fecha_entrega = %s
+                WHERE id_envio = %s
+                  AND LOWER(BTRIM(estado)) <> 'entregado'
+                """,
+                (estado, fecha_entrega if entregado else None, id_envio)
             )
             return cursor.rowcount > 0
 
@@ -34,6 +50,18 @@ def listar_envios_de_contenedor(id_contenedor):
             return cursor.fetchall()
 
 
+def _operador(columnas):
+    id_operador, razon_social, modalidades, estado = columnas
+    if id_operador is None:
+        return None
+    return {
+        "id_operador": id_operador,
+        "razon_social": razon_social,
+        "modalidades": list(modalidades or []),
+        "estado": estado,
+    }
+
+
 def obtener_datos_proyeccion(id_envio):
     """Datos de PostgreSQL necesarios para proyectar un envío en Neo4j.
 
@@ -59,9 +87,16 @@ def obtener_datos_proyeccion(id_envio):
                        t.destino, t.fecha_salida,
                        t.fecha_estimada_llegada,
                        v.id_vehiculo, v.identificacion, v.tipo,
-                       v.empresa_operadora
+                       ot.id_operador, ot.razon_social, ot.modalidades,
+                       ot.estado,
+                       ov.id_operador, ov.razon_social, ov.modalidades,
+                       ov.estado
                 FROM tramo t
                 JOIN vehiculo v ON v.id_vehiculo = t.id_vehiculo
+                LEFT JOIN operador_logistico ot
+                       ON ot.id_operador = t.id_operador
+                LEFT JOIN operador_logistico ov
+                       ON ov.id_operador = v.id_operador
                 WHERE t.id_envio = %s
                 ORDER BY t.fecha_salida, t.id_tramo
             """, (id_envio,))
@@ -101,7 +136,10 @@ def obtener_datos_proyeccion(id_envio):
                 "id_vehiculo": t[6],
                 "identificacion": t[7],
                 "tipo_vehiculo": t[8],
-                "empresa_operadora": t[9]
+                # Operador que realizó el tramo y operador actual del
+                # vehículo (pueden diferir). None si no hay asignado.
+                "operador": _operador(t[9:13]),
+                "operador_vehiculo": _operador(t[13:17])
             }
             for t in tramos
         ],

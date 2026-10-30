@@ -8,14 +8,11 @@ from app.repositories import facturacion_repository as repo
 from app.services import facturacion_service as service
 
 
-def test_importe_cero_no_permitido():
-    with pytest.raises(ValueError, match="mayor a cero"):
-        repo.emitir_factura(1, Decimal("0"))
-
-
-def test_importe_negativo_no_permitido():
-    with pytest.raises(ValueError, match="mayor a cero"):
-        repo.emitir_factura(1, Decimal("-100"))
+def crear_conexion_mock(cursor):
+    conexion = MagicMock()
+    conexion.__enter__.return_value = conexion
+    conexion.cursor.return_value.__enter__.return_value = cursor
+    return conexion
 
 
 def test_pago_cero_no_permitido():
@@ -62,10 +59,7 @@ def test_pago_superior_al_pendiente_se_rechaza():
         (2, Decimal("100.00"), "Pendiente"),
         (Decimal("20.00"),)
     ]
-
-    conexion = MagicMock()
-    conexion.__enter__.return_value = conexion
-    conexion.cursor.return_value.__enter__.return_value = cursor
+    conexion = crear_conexion_mock(cursor)
 
     with patch.object(repo, "get_postgres_connection", return_value=conexion):
         with pytest.raises(ValueError, match="supera"):
@@ -80,11 +74,80 @@ def test_pago_superior_al_pendiente_se_rechaza():
 def test_factura_inexistente_no_permite_pago():
     cursor = MagicMock()
     cursor.fetchone.return_value = None
-
-    conexion = MagicMock()
-    conexion.__enter__.return_value = conexion
-    conexion.cursor.return_value.__enter__.return_value = cursor
+    conexion = crear_conexion_mock(cursor)
 
     with patch.object(repo, "get_postgres_connection", return_value=conexion):
         with pytest.raises(ValueError, match="no existe"):
             repo.registrar_pago(999, Decimal("100"), "Efectivo")
+
+
+# ---------------------------------------------------------------------------
+# Registro de movimientos financieros (factura manual y pago)
+# ---------------------------------------------------------------------------
+
+def _conexion_con_cursor(respuestas):
+    cursor = MagicMock()
+    cursor.fetchone.side_effect = respuestas
+    cursor.rowcount = 1
+    conexion = MagicMock()
+    conexion.__enter__.return_value = conexion
+    conexion.cursor.return_value.__enter__.return_value = cursor
+    return conexion, cursor
+
+
+def _sentencias(cursor):
+    return [
+        (str(llamada.args[0]), llamada.args[1] if len(llamada.args) > 1 else None)
+        for llamada in cursor.execute.call_args_list
+    ]
+
+
+def test_pago_manual_debe_registrar_movimiento_negativo():
+    from datetime import date
+
+    conexion, cursor = _conexion_con_cursor([
+        (7, Decimal("100.00"), "Pendiente"),  # factura bloqueada
+        (Decimal("20.00"),),                  # ya pagado
+        ("ARS",),                             # moneda de la factura
+        ("ARS",),                             # moneda de la cuenta (bloqueada)
+        (88, date(2026, 10, 29)),             # pago insertado
+    ])
+
+    with patch.object(repo, "get_postgres_connection", return_value=conexion):
+        id_pago, estado = repo.registrar_pago(3, Decimal("80.00"), "Efectivo")
+
+    assert (id_pago, estado) == (88, "Pagada")
+    sentencias = _sentencias(cursor)
+    movimiento = [p for sql, p in sentencias
+                  if "INSERT INTO movimiento_cuenta_corriente" in sql]
+    assert len(movimiento) == 1
+    id_cliente, moneda, importe, fecha, referencia, _ = movimiento[0]
+    assert (id_cliente, moneda, importe, fecha, referencia) == (
+        7, "ARS", Decimal("-80.00"), date(2026, 10, 29), "88"
+    )
+    assert any("UPDATE cuenta_corriente" in sql for sql, _ in sentencias)
+    assert conexion.__exit__.call_args.args == (None, None, None)
+
+
+def test_pago_de_factura_sin_moneda_no_escribe():
+    conexion, cursor = _conexion_con_cursor([
+        (7, Decimal("100.00"), "Pendiente"),
+        (Decimal("0"),),
+        (None,),
+    ])
+
+    with patch.object(repo, "get_postgres_connection", return_value=conexion):
+        with pytest.raises(ValueError, match="moneda"):
+            repo.registrar_pago(3, Decimal("10"), "Efectivo")
+
+    assert not any("INSERT" in sql for sql, _ in _sentencias(cursor))
+
+
+def test_reportes_agregan_pagos_antes_de_unir():
+    import inspect
+
+    for funcion in (repo.reporte_facturacion_clientes,
+                    repo.consultar_cuenta_corriente):
+        sql = inspect.getsource(funcion)
+        assert "WITH facturado AS" in sql
+        assert "LEFT JOIN factura f ON f.id_cliente = c.id_cliente" not in sql

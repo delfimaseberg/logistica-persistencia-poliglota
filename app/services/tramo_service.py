@@ -9,6 +9,9 @@ from app.repositories.tramo_repository import (
     crear_tramo,
     listar_tramos_de_envio
 )
+from app.repositories.terceros_repository import (
+    listar_operadores_por_modalidad
+)
 
 from app.utils.validaciones_logistica import (
     validar_texto,
@@ -49,6 +52,39 @@ def pedir_ubicacion(mensaje, valor_sugerido=None):
             return validar_texto(valor, mensaje, 150)
         except ValueError as error:
             print(f"Error: {error}")
+
+
+def elegir_operador_tramo(vehiculo, medio):
+    """Devuelve (id_operador, razón social) o None si no hay ninguno válido.
+
+    Usa el operador del vehículo cuando está activo y tiene la modalidad;
+    si no, pide elegir entre los operadores activos de esa modalidad.
+    """
+    operadores = listar_operadores_por_modalidad(medio)
+    por_id = {operador[0]: operador[1] for operador in operadores}
+
+    id_del_vehiculo = vehiculo[5] if len(vehiculo) > 5 else None
+    if id_del_vehiculo in por_id:
+        return id_del_vehiculo, por_id[id_del_vehiculo]
+
+    if id_del_vehiculo is not None:
+        print(
+            "\nEl operador del vehículo está inactivo o no tiene la "
+            f"modalidad {medio}. Elija otro."
+        )
+
+    if not operadores:
+        return None
+
+    print(f"\nOperadores logísticos con modalidad {medio}:")
+    for operador in operadores:
+        print(f"  {operador[0]}. {operador[1]}")
+
+    while True:
+        valor = input("ID del operador que realiza el tramo: ").strip()
+        if valor.isdigit() and int(valor) in por_id:
+            return int(valor), por_id[int(valor)]
+        print("Error: elija uno de los operadores listados.")
 
 
 def registrar_tramo():
@@ -157,6 +193,20 @@ def registrar_tramo():
         print(f"Identificación: {vehiculo[2]}")
         print(f"Medio de transporte: {medio} (automático)")
 
+        # El operador del tramo es obligatorio: se toma del vehículo si lo
+        # tiene (activo y con la modalidad); si no, se elige uno.
+        operador = elegir_operador_tramo(vehiculo, medio)
+
+        if operador is None:
+            print(
+                f"\nNo se puede registrar el tramo sin operador. Registre "
+                f"un operador logístico activo con modalidad {medio}."
+            )
+            return
+
+        id_operador, nombre_operador = operador
+        print(f"Operador logístico: {nombre_operador}")
+
         # El origen continúa el recorrido registrado.
         origen = origen_sugerido
 
@@ -225,12 +275,14 @@ def registrar_tramo():
             origen,
             destino,
             fecha_salida,
-            fecha_llegada
+            fecha_llegada,
+            id_operador
         )
 
         print("\n--- RESUMEN DEL TRAMO ---")
         print(f"Envío: {id_envio}")
         print(f"Vehículo: {vehiculo[2]}")
+        print(f"Operador: {nombre_operador}")
         print(f"Medio: {medio}")
         print(f"Origen: {origen}")
         print(f"Destino: {destino}")
@@ -303,6 +355,10 @@ def consultar_tramos_service():
             print(f"Destino: {tramo[6]}")
             print(f"Salida: {tramo[7]}")
             print(f"Llegada estimada: {tramo[8]}")
+            print(
+                f"Operador: {tramo[10]} (ID {tramo[9]})"
+                if tramo[9] is not None else "Operador: sin asignar"
+            )
 
     except Exception as error:
         print(f"Error al consultar tramos: {error}")

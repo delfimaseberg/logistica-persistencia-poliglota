@@ -1,15 +1,26 @@
-
 from app.services.autenticacion import verificar_permiso
 
-from app.services.facturacion_service import (
-    emitir_factura_service,
-    consultar_facturas_service,
-    registrar_pago_service,
-    consultar_cuenta_corriente_service,
-    reporte_facturacion_service,
-    reporte_envios_service,
-    reporte_ingresos_service
-)
+from app.services import facturacion_service as servicio
+
+
+# (texto, función, nivel mínimo). Solo usuarios internos (verificar_permiso).
+OPCIONES = {
+    "1": ("Cotizar un envío (sin facturar)", servicio.cotizar_envio_service, 3),
+    "2": ("Emitir factura de un envío entregado", servicio.emitir_factura_service, 3),
+    "3": ("Facturación automática (envíos entregados hasta una fecha de corte)",
+          servicio.facturacion_automatica_service, 3),
+    "4": ("Consultar facturas de un cliente", servicio.consultar_facturas_service, 3),
+    "5": ("Ver detalle de una factura", servicio.detalle_factura_service, 3),
+    "6": ("Registrar pago de un cliente", servicio.registrar_pago_service, 3),
+    "7": ("Consultar cuenta corriente de un cliente",
+          servicio.consultar_cuenta_corriente_service, 3),
+    "8": ("Envíos entregados: estado de facturación (cliente y operadores)",
+          servicio.estado_entregados_service, 3),
+    "9": ("Precios de transporte (tarifa estándar)",
+          servicio.precios_transporte_service, 3),
+    "10": ("Apertura de cuenta corriente", servicio.apertura_cuenta_service, 3),
+    "11": ("Cierre mensual de cuentas corrientes", servicio.cierre_mensual_service, 3),
+}
 
 
 def mostrar_menu_facturacion():
@@ -21,15 +32,11 @@ def mostrar_menu_facturacion():
             return
 
         print("\n==========================================")
-        print("          REPORTES Y FACTURACIÓN")
+        print("        FACTURACIÓN Y COBRANZAS")
         print("==========================================")
-        print("1. Emitir factura")
-        print("2. Consultar facturas de un cliente")
-        print("3. Registrar pago")
-        print("4. Consultar cuenta corriente")
-        print("5. Reporte de facturación por cliente")
-        print("6. Reporte de envíos por estado")
-        print("7. Reporte de ingresos mensuales")
+        for clave, (texto, _, _) in OPCIONES.items():
+            print(f"{clave}. {texto}")
+        print("12. Reglas tarifarias y datos de carga (avanzado)")
         print("0. Volver al menú principal")
 
         opcion = input("\nSeleccione una opción: ").strip()
@@ -37,33 +44,15 @@ def mostrar_menu_facturacion():
         if opcion == "0":
             break
 
-        elif opcion == "1":
-            if verificar_permiso(3):
-                emitir_factura_service()
+        if opcion in OPCIONES:
+            _, funcion, nivel = OPCIONES[opcion]
+            if verificar_permiso(nivel):
+                funcion()
 
-        elif opcion == "2":
+        elif opcion == "12":
             if verificar_permiso(3):
-                consultar_facturas_service()
-
-        elif opcion == "3":
-            if verificar_permiso(3):
-                registrar_pago_service()
-
-        elif opcion == "4":
-            if verificar_permiso(3):
-                consultar_cuenta_corriente_service()
-
-        elif opcion == "5":
-            if verificar_permiso(3):
-                reporte_facturacion_service()
-
-        elif opcion == "6":
-            if verificar_permiso(1):
-                reporte_envios_service()
-
-        elif opcion == "7":
-            if verificar_permiso(3):
-                reporte_ingresos_service()
+                from app.ui.menu_tarifas import mostrar_menu_tarifas
+                mostrar_menu_tarifas()
 
         else:
             print("\nOpción inválida. Intente nuevamente.")

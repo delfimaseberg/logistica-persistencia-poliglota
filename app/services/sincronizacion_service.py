@@ -5,7 +5,8 @@ from app.repositories.evento_repository import (
 )
 from app.repositories.grafo_repository import (
     sincronizar_envio_grafo,
-    eliminar_envio_grafo
+    eliminar_envio_grafo,
+    eliminar_operadores_legados
 )
 from app.repositories.trazabilidad_repository import (
     obtener_datos_proyeccion,
@@ -123,5 +124,19 @@ def resincronizar_todos():
                 "Resincronización fallida del envío %s: %s",
                 id_envio, error
             )
+
+    # Los :Operador viejos (creados desde el texto libre del vehículo, sin
+    # id_operador) ya no tienen relaciones tras proyectar todos los envíos.
+    # Solo se borran si todos los envíos se proyectaron bien.
+    if not errores:
+        try:
+            eliminados = eliminar_operadores_legados()
+            if eliminados:
+                logger.info(
+                    "Operadores legados eliminados de Neo4j: %s", eliminados
+                )
+        except Exception as error:
+            errores.append(("operadores_legados", str(error)))
+            logger.error("No se pudieron limpiar operadores legados: %s", error)
 
     return correctos, errores

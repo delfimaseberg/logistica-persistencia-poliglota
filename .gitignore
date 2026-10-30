@@ -26,3 +26,6 @@ Thumbs.db
 *.key
 *.sqlite3
 .pytest_cache/
+*.dump
+INFORME_REVISION_FACTURACION.md
+ANALISIS_PROMOCION.md
