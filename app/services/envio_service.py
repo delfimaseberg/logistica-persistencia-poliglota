@@ -26,6 +26,24 @@ ESTADOS = [
     "Cancelado"
 ]
 
+# Entregado solo se alcanza registrando el evento ENTREGADO en Trazabilidad,
+# que guarda la fecha real de entrega. No se elige a mano.
+ESTADOS_EDITABLES = [
+    "Pendiente",
+    "En tránsito",
+    "Cancelado"
+]
+
+MENSAJE_ENTREGA = (
+    "Para marcar un envío como Entregado registre el evento ENTREGADO en "
+    "Trazabilidad (guarda la fecha real de entrega)."
+)
+
+
+def es_entregado(estado):
+    return str(estado or "").strip().casefold() == "entregado"
+
+
 PRIORIDADES = [
     "Baja",
     "Media",
@@ -55,6 +73,8 @@ def mostrar_envio(envio):
     print(f"Estado: {envio[5]}")
     print(f"Prioridad: {envio[6]}")
     print(f"Fecha de creación: {envio[7]}")
+    if len(envio) > 8 and envio[8] is not None:
+        print(f"Fecha real de entrega: {envio[8]}")
 
 
 def seleccionar_cliente():
@@ -111,9 +131,9 @@ def registrar_envio():
         )
 
         estado = pedir_dato(
-            "Estado (Pendiente/En tránsito/Entregado/Cancelado): ",
+            "Estado (Pendiente/En tránsito/Cancelado): ",
             validar_opcion,
-            ESTADOS,
+            ESTADOS_EDITABLES,
             "El estado"
         )
 
@@ -236,6 +256,14 @@ def modificar_envio_service():
             print("Opción inválida.")
             return
 
+        # Entregado es final: solo se puede cambiar la prioridad.
+        if es_entregado(envio_actual[5]) and opcion != "5":
+            print(
+                "\nEl envío está Entregado: su cliente, ruta y estado ya no "
+                "se modifican."
+            )
+            return
+
         id_cliente = envio_actual[1]
         origen = envio_actual[3]
         destino = envio_actual[4]
@@ -265,10 +293,11 @@ def modificar_envio_service():
             )
 
         elif opcion == "4":
+            print(MENSAJE_ENTREGA)
             estado = pedir_dato(
-                "Nuevo estado (Pendiente/En tránsito/Entregado/Cancelado): ",
+                "Nuevo estado (Pendiente/En tránsito/Cancelado): ",
                 validar_opcion,
-                ESTADOS,
+                ESTADOS_EDITABLES,
                 "El estado"
             )
 
@@ -344,6 +373,13 @@ def eliminar_envio_service():
 
         print("\nEnvío seleccionado:")
         mostrar_envio(envio)
+
+        if es_entregado(envio[5]):
+            print(
+                "\nUn envío Entregado no se elimina: es la base de su "
+                "facturación y de la de sus operadores."
+            )
+            return
 
         confirmacion = input(
             "\n¿Está seguro de que desea eliminar este envío? (S/N): "

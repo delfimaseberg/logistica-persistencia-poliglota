@@ -1,4 +1,8 @@
-from app.services.autenticacion import verificar_permiso
+from app.services.autenticacion import (
+    es_interno,
+    obtener_sesion_actual,
+    verificar_sesion,
+)
 
 from app.services.mensajeria_service import (
     listar_usuarios_mensajeria_service,
@@ -15,67 +19,59 @@ from app.services.mensajeria_service import (
 )
 
 
+# (texto, función, solo internos)
+OPCIONES = {
+    "1": ("Listar usuarios con los que puedo comunicarme",
+          listar_usuarios_mensajeria_service, False),
+    "2": ("Enviar mensaje privado", enviar_mensaje_service, False),
+    "3": ("Consultar bandeja de entrada", consultar_bandeja_service, False),
+    "4": ("Consultar mensajes enviados", consultar_enviados_service, False),
+    "5": ("Consultar conversación", consultar_conversacion_service, False),
+    "6": ("Marcar mensaje como leído", marcar_leido_service, False),
+    "7": ("Crear grupo de trabajo", crear_grupo_service, True),
+    "8": ("Consultar mis grupos administrados", listar_grupos_service, True),
+    "9": ("Agregar miembro a grupo", agregar_miembro_service, True),
+    "10": ("Enviar mensaje a grupo", enviar_mensaje_grupo_service, False),
+    "11": ("Consultar mensajes de grupo", consultar_mensajes_grupo_service, False),
+}
+
+
+def opciones_para(sesion):
+    """Los usuarios externos no administran grupos (solo participan)."""
+    interno = sesion is not None and es_interno(sesion)
+    return {
+        clave: opcion for clave, opcion in OPCIONES.items()
+        if interno or not opcion[2]
+    }
+
+
 def mostrar_menu_mensajeria():
-    if not verificar_permiso(1):
+    # Disponible para cualquier usuario con sesión: cada uno ve a quién
+    # puede escribir según su parte.
+    if not verificar_sesion():
         return
 
     while True:
-        if not verificar_permiso(1):
+        sesion = obtener_sesion_actual()
+        if sesion is None:
+            print("\nDebe iniciar sesión para continuar.")
             return
+
+        opciones = opciones_para(sesion)
 
         print("\n==========================================")
         print("               MENSAJERÍA")
         print("==========================================")
-        print("1. Listar usuarios disponibles")
-        print("2. Enviar mensaje privado")
-        print("3. Consultar bandeja de entrada")
-        print("4. Consultar mensajes enviados")
-        print("5. Consultar conversación")
-        print("6. Marcar mensaje como leído")
-        print("7. Crear grupo de trabajo")
-        print("8. Consultar mis grupos")
-        print("9. Agregar miembro a grupo")
-        print("10. Enviar mensaje a grupo")
-        print("11. Consultar mensajes de grupo")
-        print("0. Volver al menú principal")
+        for clave, (texto, _, _) in opciones.items():
+            print(f"{clave}. {texto}")
+        print("0. Volver")
 
         opcion = input("\nSeleccione una opción: ").strip()
 
-        if opcion == "1":
-            listar_usuarios_mensajeria_service()
-
-        elif opcion == "2":
-            enviar_mensaje_service()
-
-        elif opcion == "3":
-            consultar_bandeja_service()
-
-        elif opcion == "4":
-            consultar_enviados_service()
-
-        elif opcion == "5":
-            consultar_conversacion_service()
-
-        elif opcion == "6":
-            marcar_leido_service()
-
-        elif opcion == "7":
-            crear_grupo_service()
-
-        elif opcion == "8":
-            listar_grupos_service()
-
-        elif opcion == "9":
-            agregar_miembro_service()
-
-        elif opcion == "10":
-            enviar_mensaje_grupo_service()
-
-        elif opcion == "11":
-            consultar_mensajes_grupo_service()
-
-        elif opcion == "0":
+        if opcion == "0":
             break
 
+        if opcion in opciones:
+            opciones[opcion][1]()
         else:
             print("\nOpción inválida.")

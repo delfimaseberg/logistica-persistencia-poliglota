@@ -5,7 +5,9 @@ from app.services.trazabilidad_service import (
     seguimiento_temporal_service,
     ruta_completa_service,
     recorrido_contenedor_service,
-    sincronizar_proyeccion_service
+    sincronizar_proyeccion_service,
+    quien_llevo_contenedor_service,
+    red_operadores_cliente_service
 )
 
 
@@ -23,6 +25,8 @@ def mostrar_menu_trazabilidad():
         print("4. Ruta completa de un envío")
         print("5. Recorrido de un contenedor")
         print("6. Sincronizar / reparar rutas (Neo4j)")
+        print("7. ¿Quién llevó el contenedor? (operadores, Neo4j)")
+        print("8. Red cliente - operadores - envíos (Neo4j)")
         print("0. Volver al menú principal")
 
         opcion = input("\nSeleccione una opción: ").strip()
@@ -39,6 +43,10 @@ def mostrar_menu_trazabilidad():
             recorrido_contenedor_service()
         elif opcion == "6":
             sincronizar_proyeccion_service()
+        elif opcion == "7":
+            quien_llevo_contenedor_service()
+        elif opcion == "8":
+            red_operadores_cliente_service()
         elif opcion == "0":
             break
         else:

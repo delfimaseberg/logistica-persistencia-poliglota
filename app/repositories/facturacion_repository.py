@@ -1,24 +1,41 @@
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
+
+from psycopg import errors
+
 from app.database.postgres_connection import get_postgres_connection
+from app.services.cotizacion_envio import (
+    CODIGO_TARIFA,
+    CotizacionImposible,
+    cotizar,
+)
+
+# Moneda única del proyecto. Solo se usa al crear una cuenta corriente nueva
+# para un cliente que todavía no tiene ninguna factura; nunca se completa
+# sobre cuentas o facturas existentes desde el código.
+MONEDA_PROYECTO = "ARS"
+
+# Las fechas contables (emisión de factura y fecha de pago) se determinan en
+# este calendario, igual que en el cierre mensual (cierre_cuenta_service).
+ZONA_CONTABLE = "America/Argentina/Buenos_Aires"
 
 
-def listar_envios_entregados_candidatos_facturacion():
-    """Lista envíos entregados para revisión de posible facturación.
+def _importe_positivo(valor, mensaje):
+    """Convierte a Decimal con 2 decimales y exige que sea mayor a cero.
 
-    La tabla factura aún no referencia un envío y el esquema no contiene una
-    fuente de importes. Esta consulta identifica candidatos; no determina si
-    ya fueron facturados ni autoriza la emisión.
+    Se redondea antes de validar para que un importe como 0.001 no termine
+    guardado como 0.00 (la columna es NUMERIC(14,2)).
     """
-    with get_postgres_connection() as conexion:
-        with conexion.cursor() as cursor:
-            cursor.execute("""
-                SELECT id_envio, id_cliente, estado
-                FROM envio
-                WHERE LOWER(TRIM(estado)) = 'entregado'
-                ORDER BY id_envio
-            """)
-            return cursor.fetchall()
+    try:
+        importe = Decimal(str(valor))
+    except (InvalidOperation, ValueError, TypeError):
+        raise ValueError(mensaje)
+    if not importe.is_finite():
+        raise ValueError(mensaje)
+    importe = importe.quantize(Decimal("0.01"))
+    if importe <= 0:
+        raise ValueError(mensaje)
+    return importe
 
 
 def listar_clientes_facturacion():
@@ -33,64 +50,63 @@ def listar_clientes_facturacion():
             return cursor.fetchall()
 
 
-def listar_facturas_cliente(id_cliente):
-    with get_postgres_connection() as conexion:
-        with conexion.cursor() as cursor:
-            cursor.execute("""
-                SELECT f.id_factura, f.fecha_emision, f.total,
-                       f.estado, COALESCE(SUM(p.monto), 0) AS pagado,
-                       f.total - COALESCE(SUM(p.monto), 0) AS pendiente
-                FROM factura f
-                LEFT JOIN pago p ON p.id_factura = f.id_factura
-                WHERE f.id_cliente = %s
-                GROUP BY f.id_factura, f.fecha_emision,
-                         f.total, f.estado
-                ORDER BY f.id_factura DESC
-            """, (id_cliente,))
-            return cursor.fetchall()
+def _obtener_moneda_cuenta_para_factura(cursor, id_cliente):
+    """Bloquea la cuenta del cliente y devuelve su moneda.
 
+    - Si la cuenta existe, debe tener moneda configurada (no se completa acá).
+    - Si no existe y el cliente no tiene facturas previas, se crea con saldo
+      cero y la moneda del proyecto: no hay historia que se esté inventando.
+    - Si no existe pero el cliente ya tiene facturas, los datos están
+      inconsistentes y se bloquea para conciliar a mano.
+    """
+    cursor.execute("""
+        SELECT moneda
+        FROM cuenta_corriente
+        WHERE id_cliente = %s
+        FOR UPDATE
+    """, (id_cliente,))
+    cuenta = cursor.fetchone()
 
-def emitir_factura(id_cliente, total):
-    total = Decimal(str(total))
-    if total <= 0:
-        raise ValueError("El importe debe ser mayor a cero.")
+    if cuenta is not None:
+        moneda = str(cuenta[0] or "").strip().upper()
+        if not moneda:
+            raise ValueError(
+                "La cuenta corriente del cliente no tiene moneda configurada. "
+                "Configurarla explícitamente antes de facturar."
+            )
+        return moneda
 
-    with get_postgres_connection() as conexion:
-        with conexion.cursor() as cursor:
-            cursor.execute("""
-                SELECT id_cliente
-                FROM cliente
-                WHERE id_cliente = %s AND UPPER(estado) = 'ACTIVO'
-                FOR UPDATE
-            """, (id_cliente,))
-            if cursor.fetchone() is None:
-                raise ValueError("El cliente no existe o no está activo.")
+    cursor.execute("""
+        SELECT 1
+        FROM factura
+        WHERE id_cliente = %s
+        LIMIT 1
+    """, (id_cliente,))
+    if cursor.fetchone() is not None:
+        raise ValueError(
+            "El cliente tiene facturas pero no tiene cuenta corriente; "
+            "conciliar antes de emitir nuevas facturas."
+        )
 
-            cursor.execute("""
-                INSERT INTO factura
-                    (id_cliente, fecha_emision, total, estado)
-                VALUES (%s, CURRENT_DATE, %s, 'Pendiente')
-                RETURNING id_factura
-            """, (id_cliente, total))
-            id_factura = cursor.fetchone()[0]
-
-            cursor.execute("""
-                INSERT INTO cuenta_corriente
-                    (id_cliente, saldo, fecha_actualizacion)
-                VALUES (%s, %s, CURRENT_TIMESTAMP)
-                ON CONFLICT (id_cliente)
-                DO UPDATE SET
-                    saldo = cuenta_corriente.saldo + EXCLUDED.saldo,
-                    fecha_actualizacion = CURRENT_TIMESTAMP
-            """, (id_cliente, total))
-
-            return id_factura
+    cursor.execute("""
+        INSERT INTO cuenta_corriente
+            (id_cliente, saldo, moneda, fecha_actualizacion)
+        VALUES (%s, 0, %s, CURRENT_TIMESTAMP)
+        RETURNING moneda
+    """, (id_cliente, MONEDA_PROYECTO))
+    return cursor.fetchone()[0]
 
 
 def registrar_pago(id_factura, monto, metodo_pago):
-    monto = Decimal(str(monto))
-    if monto <= 0:
-        raise ValueError("El pago debe ser mayor a cero.")
+    """Registra un pago y lo descuenta de la cuenta corriente.
+
+    En una sola transacción: crea el pago, actualiza el estado de la factura,
+    resta el importe del saldo y registra un movimiento PAGO negativo.
+    """
+    monto = _importe_positivo(monto, "El pago debe ser mayor a cero.")
+    metodo_pago = str(metodo_pago or "").strip()
+    if not metodo_pago:
+        raise ValueError("Falta el método de pago.")
 
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
@@ -125,12 +141,42 @@ def registrar_pago(id_factura, monto, metodo_pago):
                     f"El pago supera el saldo pendiente: ${pendiente:.2f}"
                 )
 
+            # Moneda: la del pago es la de la factura y debe coincidir con la
+            # de la cuenta. No se asume ARS para facturas sin moneda.
+            cursor.execute("""
+                SELECT moneda
+                FROM factura
+                WHERE id_factura = %s
+            """, (id_factura,))
+            moneda_factura = str(cursor.fetchone()[0] or "").strip().upper()
+            if not moneda_factura:
+                raise ValueError(
+                    f"La factura {id_factura} no tiene moneda registrada. "
+                    "Configurarla explícitamente antes de registrar pagos."
+                )
+
+            cursor.execute("""
+                SELECT moneda
+                FROM cuenta_corriente
+                WHERE id_cliente = %s
+                FOR UPDATE
+            """, (id_cliente,))
+            cuenta = cursor.fetchone()
+            if cuenta is None:
+                raise ValueError("El cliente no tiene cuenta corriente.")
+            moneda_cuenta = str(cuenta[0] or "").strip().upper()
+            if moneda_cuenta != moneda_factura:
+                raise ValueError(
+                    "La moneda de la factura no coincide con la de la cuenta "
+                    "corriente (o la cuenta no tiene moneda configurada)."
+                )
+
             cursor.execute("""
                 INSERT INTO pago (id_factura, monto, metodo_pago)
                 VALUES (%s, %s, %s)
-                RETURNING id_pago
-            """, (id_factura, monto, metodo_pago))
-            id_pago = cursor.fetchone()[0]
+                RETURNING id_pago, (fecha AT TIME ZONE %s)::date
+            """, (id_factura, monto, metodo_pago, ZONA_CONTABLE))
+            id_pago, fecha_contable = cursor.fetchone()
 
             nuevo_estado = "Pagada" if monto == pendiente else "Parcial"
             cursor.execute("""
@@ -140,14 +186,29 @@ def registrar_pago(id_factura, monto, metodo_pago):
             """, (nuevo_estado, id_factura))
 
             cursor.execute("""
-                INSERT INTO cuenta_corriente
-                    (id_cliente, saldo, fecha_actualizacion)
-                VALUES (%s, %s, CURRENT_TIMESTAMP)
-                ON CONFLICT (id_cliente)
-                DO UPDATE SET
-                    saldo = cuenta_corriente.saldo + EXCLUDED.saldo,
+                UPDATE cuenta_corriente
+                SET saldo = saldo - %s,
                     fecha_actualizacion = CURRENT_TIMESTAMP
-            """, (id_cliente, -monto))
+                WHERE id_cliente = %s
+            """, (monto, id_cliente))
+            if cursor.rowcount != 1:
+                raise ValueError("No se pudo actualizar la cuenta corriente.")
+
+            cursor.execute("""
+                INSERT INTO movimiento_cuenta_corriente (
+                    id_cliente, moneda, tipo_movimiento, importe_firmado,
+                    fecha_contable, tipo_origen, referencia_origen,
+                    referencia_documental
+                )
+                VALUES (%s, %s, 'PAGO', %s, %s, 'PAGO', %s, %s)
+            """, (
+                id_cliente,
+                moneda_factura,
+                -monto,
+                fecha_contable,
+                str(id_pago),
+                f"factura={id_factura};metodo={metodo_pago}",
+            ))
 
             return id_pago, nuevo_estado
 
@@ -155,41 +216,47 @@ def registrar_pago(id_factura, monto, metodo_pago):
 def consultar_cuenta_corriente(id_cliente):
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
+            # Facturas y pagos se agregan por separado y recién después se
+            # unen al cliente: así una factura con varios pagos no se suma
+            # más de una vez. Las facturas anuladas no forman deuda.
             cursor.execute("""
+                WITH facturado AS (
+                    SELECT id_cliente, SUM(total) AS total
+                    FROM factura
+                    WHERE id_cliente = %s
+                      AND LOWER(TRIM(estado)) <> 'anulada'
+                    GROUP BY id_cliente
+                ),
+                pagado AS (
+                    SELECT f.id_cliente, SUM(p.monto) AS total
+                    FROM pago p
+                    JOIN factura f ON f.id_factura = p.id_factura
+                    WHERE f.id_cliente = %s
+                    GROUP BY f.id_cliente
+                )
                 SELECT c.id_cliente, c.razon_social,
-                       COALESCE(SUM(f.total), 0) AS facturado,
-                       COALESCE((
-                           SELECT SUM(p.monto)
-                           FROM pago p
-                           JOIN factura f2 ON f2.id_factura = p.id_factura
-                           WHERE f2.id_cliente = c.id_cliente
-                       ), 0) AS pagado
+                       COALESCE(fa.total, 0) AS facturado,
+                       COALESCE(pa.total, 0) AS pagado
                 FROM cliente c
-                LEFT JOIN factura f ON f.id_cliente = c.id_cliente
+                LEFT JOIN facturado fa ON fa.id_cliente = c.id_cliente
+                LEFT JOIN pagado pa ON pa.id_cliente = c.id_cliente
                 WHERE c.id_cliente = %s
-                GROUP BY c.id_cliente, c.razon_social
-            """, (id_cliente,))
+            """, (id_cliente, id_cliente, id_cliente))
             return cursor.fetchone()
 
 
-def reporte_facturacion_clientes():
+def consultar_movimientos_cuenta(id_cliente):
+    """Lista el ledger de la cuenta (solo lectura), del más antiguo al último."""
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute("""
-                SELECT c.id_cliente, c.razon_social,
-                       COUNT(f.id_factura) AS cantidad_facturas,
-                       COALESCE(SUM(f.total), 0) AS facturado,
-                       COALESCE((
-                           SELECT SUM(p.monto)
-                           FROM pago p
-                           JOIN factura f2 ON f2.id_factura = p.id_factura
-                           WHERE f2.id_cliente = c.id_cliente
-                       ), 0) AS cobrado
-                FROM cliente c
-                LEFT JOIN factura f ON f.id_cliente = c.id_cliente
-                GROUP BY c.id_cliente, c.razon_social
-                ORDER BY facturado DESC, c.razon_social
-            """)
+                SELECT id_movimiento, fecha_contable, tipo_movimiento,
+                       importe_firmado, moneda, tipo_origen,
+                       referencia_origen, referencia_documental
+                FROM movimiento_cuenta_corriente
+                WHERE id_cliente = %s
+                ORDER BY fecha_contable, id_movimiento
+            """, (id_cliente,))
             return cursor.fetchall()
 
 
@@ -227,98 +294,6 @@ def reporte_ingresos_mensuales():
             return cursor.fetchall()
 
 
-def obtener_contexto_tarifas_aprobadas(id_envio):
-    """Devuelve tarifas aprobadas y configuración asociada, sin emitir."""
-    with get_postgres_connection() as conexion:
-        with conexion.cursor() as cursor:
-            cursor.execute("""
-                SELECT t.id_tarifa, t.id_envio, t.version,
-                       t.importe_base, t.importe_impuestos, t.importe_total,
-                       t.moneda, t.id_configuracion_fiscal,
-                       t.tratamiento_impositivo, t.tasa_impositiva,
-                       t.estado, t.referencia_aprobacion,
-                       t.aprobado_por, t.aprobado_en,
-                       f.codigo, f.version, f.tratamiento, f.tasa,
-                       f.vigente_desde, f.vigente_hasta,
-                       f.referencia_aprobacion, f.aprobado_por,
-                       f.aprobado_en, f.activa,
-                       cc.moneda
-                FROM tarifa_envio t
-                JOIN configuracion_fiscal f
-                  ON f.id_configuracion_fiscal = t.id_configuracion_fiscal
-                JOIN envio e ON e.id_envio = t.id_envio
-                LEFT JOIN cuenta_corriente cc ON cc.id_cliente = e.id_cliente
-                WHERE t.id_envio = %s
-                  AND t.estado = 'APROBADA'
-                ORDER BY t.version DESC
-            """, (id_envio,))
-            filas = cursor.fetchall()
-
-    resultados = []
-    for fila in filas:
-        tarifa = {
-            "id_tarifa": fila[0],
-            "id_envio": fila[1],
-            "version": fila[2],
-            "importe_base": fila[3],
-            "importe_impuestos": fila[4],
-            "importe_total": fila[5],
-            "moneda": fila[6],
-            "id_configuracion_fiscal": fila[7],
-            "tratamiento_impositivo": fila[8],
-            "tasa_impositiva": fila[9],
-            "estado": fila[10],
-            "referencia_aprobacion": fila[11],
-            "aprobado_por": fila[12],
-            "aprobado_en": fila[13],
-        }
-        configuracion = {
-            "id_configuracion_fiscal": fila[7],
-            "codigo": fila[14],
-            "version": fila[15],
-            "tratamiento": fila[16],
-            "tasa": fila[17],
-            "vigente_desde": fila[18],
-            "vigente_hasta": fila[19],
-            "referencia_aprobacion": fila[20],
-            "aprobado_por": fila[21],
-            "aprobado_en": fila[22],
-            # Solo se almacenan perfiles fiscales con aprobador y referencia.
-            "aprobada": True,
-            "activa": fila[23],
-        }
-        resultados.append({
-            "tarifa": tarifa,
-            "configuracion_fiscal": configuracion,
-            "moneda_cuenta": fila[24],
-        })
-    return resultados
-
-
-def existe_factura_original(id_envio, evento_entrega_id):
-    with get_postgres_connection() as conexion:
-        with conexion.cursor() as cursor:
-            cursor.execute("""
-                SELECT 1
-                FROM factura
-                WHERE id_envio = %s OR evento_entrega_id = %s
-                LIMIT 1
-            """, (id_envio, str(evento_entrega_id)))
-            return cursor.fetchone() is not None
-
-
-def contar_facturas_sin_envio_cliente(id_cliente):
-    """Cuenta facturas no conciliadas a un envío; no atribuye ninguna."""
-    with get_postgres_connection() as conexion:
-        with conexion.cursor() as cursor:
-            cursor.execute("""
-                SELECT COUNT(*)
-                FROM factura
-                WHERE id_cliente = %s AND id_envio IS NULL
-            """, (id_cliente,))
-            return cursor.fetchone()[0]
-
-
 def registrar_auditoria_facturacion(
     id_envio,
     envio_id_reportado,
@@ -345,201 +320,364 @@ def registrar_auditoria_facturacion(
             ))
 
 
-def emitir_factura_automatica(
-    id_envio, evento_entrega_id, fecha_entrega, fecha_emision, id_tarifa
-):
-    """Emite factura y movimiento en una transacción PostgreSQL."""
-    from app.utils.validaciones_financieras import validar_tarifa_aprobada
+class FacturaExistente(ValueError):
+    """El envío ya tiene factura (índice único uq_factura_original_envio)."""
 
-    evento_entrega_id = str(evento_entrega_id)
 
+ORIGENES_ENVIO = ("ENVIO_MANUAL", "ENVIO_AUTOMATICA")
+
+
+def listar_facturas_cliente(id_cliente):
+    """Facturas del cliente. Columnas 0-5 como antes; 6 id_envio,
+    7 neto, 8 IVA, 9 origen de emisión (None = histórica)."""
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
-            # Bloquear la fila del cliente serializa este flujo con emitir_factura,
-            # que ya toma el mismo bloqueo antes de crear una factura manual.
             cursor.execute("""
-                SELECT e.id_cliente, e.estado, c.estado
+                SELECT f.id_factura, f.fecha_emision, f.total,
+                       f.estado, COALESCE(SUM(p.monto), 0) AS pagado,
+                       f.total - COALESCE(SUM(p.monto), 0) AS pendiente,
+                       f.id_envio, f.importe_base, f.importe_impuestos,
+                       f.origen_emision
+                FROM factura f
+                LEFT JOIN pago p ON p.id_factura = f.id_factura
+                WHERE f.id_cliente = %s
+                GROUP BY f.id_factura
+                ORDER BY f.id_factura DESC
+            """, (id_cliente,))
+            return cursor.fetchall()
+
+
+def _regla_vigente(cursor, bloquear=False):
+    """Versión APROBADA de TARIFA_ESTANDAR con sus componentes.
+
+    Al emitir se bloquea (FOR SHARE) para que no la reemplacen a mitad de
+    la transacción; la cotización solo lee.
+    """
+    cursor.execute(f"""
+        SELECT id_regla, version
+        FROM regla_tarifaria_version
+        WHERE codigo = %s AND estado = 'APROBADA' AND moneda = %s
+        {"FOR SHARE" if bloquear else ""}
+    """, (CODIGO_TARIFA, MONEDA_PROYECTO))
+    regla = cursor.fetchone()
+    if regla is None:
+        raise CotizacionImposible(
+            "No hay una tarifa estándar aprobada. Definir los precios de "
+            "transporte antes de cotizar o facturar."
+        )
+    cursor.execute("""
+        SELECT id_componente, criterio, selector, ambito, base_calculo, importe
+        FROM regla_tarifaria_componente
+        WHERE id_regla = %s
+        ORDER BY id_componente
+    """, (regla[0],))
+    claves = ("id_componente", "criterio", "selector", "ambito",
+              "base_calculo", "importe")
+    return {
+        "id_regla": regla[0],
+        "version": regla[1],
+        "componentes": [dict(zip(claves, fila)) for fila in cursor.fetchall()],
+    }
+
+
+def _tramos_envio(cursor, id_envio):
+    cursor.execute("""
+        SELECT id_tramo, medio_transporte, origen, destino
+        FROM tramo
+        WHERE id_envio = %s
+        ORDER BY fecha_salida, id_tramo
+    """, (id_envio,))
+    claves = ("id_tramo", "medio_transporte", "origen", "destino")
+    return [dict(zip(claves, fila)) for fila in cursor.fetchall()]
+
+
+def cotizar_envio(id_envio):
+    """Importe que se facturaría hoy (sin guardar nada)."""
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
+            cursor.execute("""
+                SELECT e.estado, c.razon_social,
+                       EXISTS (SELECT 1 FROM factura f WHERE f.id_envio = e.id_envio)
                 FROM envio e
                 JOIN cliente c ON c.id_cliente = e.id_cliente
                 WHERE e.id_envio = %s
-                FOR UPDATE OF e, c
             """, (id_envio,))
             envio = cursor.fetchone()
             if envio is None:
-                raise ValueError("El envío no existe en PostgreSQL.")
-            id_cliente, estado_envio, estado_cliente = envio
-            if str(estado_envio).strip().casefold() != "entregado":
-                raise ValueError(
-                    "El estado del envío dejó de ser Entregado antes de emitir."
-                )
-            if str(estado_cliente).strip().upper() != "ACTIVO":
-                raise ValueError("El cliente no está activo.")
+                raise ValueError("El envío no existe.")
+            estado, cliente, facturado = envio
+            if str(estado).strip().casefold() == "cancelado":
+                raise CotizacionImposible("El envío está cancelado.")
 
+            regla = _regla_vigente(cursor)
+            resultado = cotizar(_tramos_envio(cursor, id_envio), regla["componentes"])
+
+    resultado.update({
+        "id_envio": id_envio,
+        "cliente": cliente,
+        "estado_envio": estado,
+        "facturado": facturado,
+        "id_regla": regla["id_regla"],
+        "version_regla": regla["version"],
+    })
+    return resultado
+
+
+def emitir_factura_envio(id_envio, origen="ENVIO_MANUAL"):
+    """Emite la factura de un envío Entregado con la tarifa vigente.
+
+    En una sola transacción: factura + detalle + saldo de cuenta_corriente +
+    movimiento FACTURA positivo por el total con IVA. Un envío se factura una
+    sola vez (también lo garantiza uq_factura_original_envio).
+    """
+    if origen not in ORIGENES_ENVIO:
+        raise ValueError("Origen de emisión inválido.")
+
+    try:
+        with get_postgres_connection() as conexion:
+            with conexion.cursor() as cursor:
+                # Mismo bloqueo de cliente que los pagos: serializa la cuenta.
+                cursor.execute("""
+                    SELECT e.id_cliente, e.estado, e.fecha_entrega,
+                           (e.fecha_entrega AT TIME ZONE %s)::date,
+                           c.estado,
+                           (CURRENT_TIMESTAMP AT TIME ZONE %s)::date
+                    FROM envio e
+                    JOIN cliente c ON c.id_cliente = e.id_cliente
+                    WHERE e.id_envio = %s
+                    FOR UPDATE OF e, c
+                """, (ZONA_CONTABLE, ZONA_CONTABLE, id_envio))
+                fila = cursor.fetchone()
+                if fila is None:
+                    raise ValueError("El envío no existe.")
+                (id_cliente, estado, fecha_entrega, dia_entrega,
+                 estado_cliente, fecha_emision) = fila
+
+                if str(estado).strip().casefold() != "entregado":
+                    raise ValueError(
+                        f"El envío no está Entregado (estado: {estado})."
+                    )
+                if fecha_entrega is None:
+                    raise ValueError("El envío no tiene fecha real de entrega.")
+                if str(estado_cliente).strip().upper() != "ACTIVO":
+                    raise ValueError("El cliente no está activo.")
+                if fecha_emision < dia_entrega:
+                    raise ValueError(
+                        "La fecha de emisión no puede ser anterior a la entrega."
+                    )
+
+                cursor.execute(
+                    "SELECT id_factura FROM factura WHERE id_envio = %s",
+                    (id_envio,),
+                )
+                existente = cursor.fetchone()
+                if existente is not None:
+                    raise FacturaExistente(
+                        f"El envío ya tiene la factura {existente[0]}."
+                    )
+
+                regla = _regla_vigente(cursor, bloquear=True)
+                cotizacion = cotizar(
+                    _tramos_envio(cursor, id_envio), regla["componentes"]
+                )
+
+                moneda = _obtener_moneda_cuenta_para_factura(cursor, id_cliente)
+                if moneda != cotizacion["moneda"]:
+                    raise ValueError("La cuenta corriente del cliente no está en ARS.")
+
+                cursor.execute("""
+                    INSERT INTO factura (
+                        id_cliente, fecha_emision, total, estado,
+                        origen_emision, moneda, id_envio, id_regla,
+                        importe_base, importe_impuestos, tasa_impositiva,
+                        tratamiento_impositivo, fecha_entrega
+                    )
+                    VALUES (%s, %s, %s, 'Pendiente', %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s)
+                    RETURNING id_factura
+                """, (
+                    id_cliente, fecha_emision, cotizacion["total"], origen,
+                    moneda, id_envio, regla["id_regla"],
+                    cotizacion["neto"], cotizacion["iva"],
+                    cotizacion["tasa_iva"], cotizacion["tratamiento"],
+                    fecha_entrega,
+                ))
+                id_factura = cursor.fetchone()[0]
+
+                for linea in cotizacion["lineas"]:
+                    cursor.execute("""
+                        INSERT INTO factura_detalle (
+                            id_factura, linea, concepto, id_tramo,
+                            medio_transporte, descripcion, importe
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        id_factura, linea["linea"], linea["concepto"],
+                        linea["id_tramo"], linea["medio_transporte"],
+                        linea["descripcion"], linea["importe"],
+                    ))
+
+                cursor.execute("""
+                    UPDATE cuenta_corriente
+                    SET saldo = saldo + %s,
+                        fecha_actualizacion = CURRENT_TIMESTAMP
+                    WHERE id_cliente = %s
+                """, (cotizacion["total"], id_cliente))
+                if cursor.rowcount != 1:
+                    raise ValueError("No se pudo actualizar la cuenta corriente.")
+
+                # Movimiento por el total con IVA: es lo que el cliente debe.
+                cursor.execute("""
+                    INSERT INTO movimiento_cuenta_corriente (
+                        id_cliente, moneda, tipo_movimiento, importe_firmado,
+                        fecha_contable, tipo_origen, referencia_origen,
+                        referencia_documental
+                    )
+                    VALUES (%s, %s, 'FACTURA', %s, %s, 'FACTURA', %s, %s)
+                """, (
+                    id_cliente, moneda, cotizacion["total"], fecha_emision,
+                    str(id_factura),
+                    f"envio={id_envio};regla={regla['id_regla']};{origen.lower()}",
+                ))
+
+                return {
+                    "id_factura": id_factura,
+                    "id_envio": id_envio,
+                    "id_cliente": id_cliente,
+                    "fecha_emision": fecha_emision,
+                    "neto": cotizacion["neto"],
+                    "iva": cotizacion["iva"],
+                    "total": cotizacion["total"],
+                    "lineas": cotizacion["lineas"],
+                }
+    except errors.UniqueViolation:
+        # Otro proceso facturó el mismo envío en paralelo.
+        raise FacturaExistente("El envío ya fue facturado.") from None
+
+
+def listar_envios_facturables(fecha_corte=None, id_cliente=None):
+    """Envíos Entregados sin factura, con entrega hasta la fecha de corte
+    (día argentino). Columnas: id_envio, id_cliente, cliente, origen,
+    destino, fecha_entrega, cantidad de tramos."""
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
             cursor.execute("""
-                SELECT moneda
-                FROM cuenta_corriente
-                WHERE id_cliente = %s
-                FOR UPDATE
-            """, (id_cliente,))
-            cuenta = cursor.fetchone()
-            if cuenta is None or not cuenta[0]:
-                raise ValueError(
-                    "La cuenta corriente no tiene moneda explícitamente configurada."
-                )
-            moneda_cuenta = cuenta[0]
+                SELECT e.id_envio, e.id_cliente, c.razon_social,
+                       e.origen, e.destino, e.fecha_entrega,
+                       (SELECT COUNT(*) FROM tramo t
+                        WHERE t.id_envio = e.id_envio) AS tramos
+                FROM envio e
+                JOIN cliente c ON c.id_cliente = e.id_cliente
+                WHERE LOWER(BTRIM(e.estado)) = 'entregado'
+                  AND e.fecha_entrega IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM factura f WHERE f.id_envio = e.id_envio
+                  )
+                  AND (%s::date IS NULL
+                       OR (e.fecha_entrega AT TIME ZONE %s)::date <= %s::date)
+                  AND (%s::bigint IS NULL OR e.id_cliente = %s::bigint)
+                ORDER BY e.fecha_entrega, e.id_envio
+            """, (fecha_corte, ZONA_CONTABLE, fecha_corte, id_cliente, id_cliente))
+            return cursor.fetchall()
 
+
+def obtener_detalle_factura(id_factura):
+    """Encabezado y líneas de una factura, o None."""
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
             cursor.execute("""
-                SELECT 1
-                FROM factura
-                WHERE id_envio = %s OR evento_entrega_id = %s
-                LIMIT 1
-            """, (id_envio, evento_entrega_id))
-            if cursor.fetchone() is not None:
-                raise ValueError(
-                    "Ya existe una factura original para el envío o evento."
-                )
-
-            # Las facturas manuales anteriores no identifican envíos. No se
-            # puede descartar que cubran este envío, por lo que se bloquea.
+                SELECT f.id_factura, f.id_cliente, c.razon_social,
+                       f.fecha_emision, f.id_envio, f.id_reporte,
+                       f.importe_base, f.importe_impuestos,
+                       f.tasa_impositiva, f.total, f.estado,
+                       f.origen_emision, f.id_regla, f.fecha_entrega,
+                       f.moneda
+                FROM factura f
+                JOIN cliente c ON c.id_cliente = f.id_cliente
+                WHERE f.id_factura = %s
+            """, (id_factura,))
+            encabezado = cursor.fetchone()
+            if encabezado is None:
+                return None
             cursor.execute("""
-                SELECT COUNT(*)
-                FROM factura
-                WHERE id_cliente = %s AND id_envio IS NULL
-            """, (id_cliente,))
-            if cursor.fetchone()[0]:
-                raise ValueError(
-                    "Hay facturas sin vínculo a envío para este cliente; "
-                    "conciliarlas antes de la facturación automática."
-                )
+                SELECT linea, concepto, id_tramo, medio_transporte,
+                       descripcion, importe
+                FROM factura_detalle
+                WHERE id_factura = %s
+                ORDER BY linea
+            """, (id_factura,))
+            lineas = cursor.fetchall()
 
+    claves = ("id_factura", "id_cliente", "cliente", "fecha_emision",
+              "id_envio", "id_reporte", "neto", "iva", "tasa_iva", "total",
+              "estado", "origen_emision", "id_regla", "fecha_entrega", "moneda")
+    return {**dict(zip(claves, encabezado)), "lineas": lineas}
+
+
+def estado_facturacion_entregados():
+    """Envíos Entregados: factura al cliente y facturas de operadores.
+
+    Columnas: id_envio, cliente, fecha_entrega, id_factura, total factura,
+    tramos, tramos con operador, tramos facturados por su operador.
+    """
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
             cursor.execute("""
-                SELECT t.id_tarifa, t.id_envio, t.version,
-                       t.importe_base, t.importe_impuestos, t.importe_total,
-                       t.moneda, t.id_configuracion_fiscal,
-                       t.tratamiento_impositivo, t.tasa_impositiva,
-                       t.estado, t.referencia_aprobacion,
-                       t.aprobado_por, t.aprobado_en,
-                       f.codigo, f.version, f.tratamiento, f.tasa,
-                       f.vigente_desde, f.vigente_hasta,
-                       f.referencia_aprobacion, f.aprobado_por,
-                       f.aprobado_en, f.activa
-                FROM tarifa_envio t
-                JOIN configuracion_fiscal f
-                  ON f.id_configuracion_fiscal = t.id_configuracion_fiscal
-                WHERE t.id_tarifa = %s
-                  AND t.id_envio = %s
-                  AND t.estado = 'APROBADA'
-                  AND f.activa = TRUE
-                FOR UPDATE OF t, f
-            """, (id_tarifa, id_envio))
-            fila = cursor.fetchone()
-            if fila is None:
-                raise ValueError(
-                    "La tarifa aprobada o su configuración fiscal ya no están vigentes."
-                )
+                SELECT e.id_envio, c.razon_social, e.fecha_entrega,
+                       f.id_factura, f.total,
+                       (SELECT COUNT(*) FROM tramo t
+                        WHERE t.id_envio = e.id_envio) AS tramos,
+                       (SELECT COUNT(*) FROM tramo t
+                        WHERE t.id_envio = e.id_envio
+                          AND t.id_operador IS NOT NULL) AS con_operador,
+                       (SELECT COUNT(*) FROM tramo t
+                        JOIN factura_recibida fr
+                          ON fr.id_tramo = t.id_tramo AND fr.estado <> 'Anulada'
+                        WHERE t.id_envio = e.id_envio) AS facturados_operador
+                FROM envio e
+                JOIN cliente c ON c.id_cliente = e.id_cliente
+                LEFT JOIN factura f ON f.id_envio = e.id_envio
+                WHERE LOWER(BTRIM(e.estado)) = 'entregado'
+                ORDER BY e.fecha_entrega DESC, e.id_envio
+            """)
+            return cursor.fetchall()
 
-            tarifa = {
-                "id_tarifa": fila[0],
-                "id_envio": fila[1],
-                "version": fila[2],
-                "importe_base": fila[3],
-                "importe_impuestos": fila[4],
-                "importe_total": fila[5],
-                "moneda": fila[6],
-                "id_configuracion_fiscal": fila[7],
-                "tratamiento_impositivo": fila[8],
-                "tasa_impositiva": fila[9],
-                "estado": fila[10],
-                "referencia_aprobacion": fila[11],
-                "aprobado_por": fila[12],
-                "aprobado_en": fila[13],
-            }
-            configuracion = {
-                "id_configuracion_fiscal": fila[7],
-                "codigo": fila[14],
-                "version": fila[15],
-                "tratamiento": fila[16],
-                "tasa": fila[17],
-                "vigente_desde": fila[18],
-                "vigente_hasta": fila[19],
-                "referencia_aprobacion": fila[20],
-                "aprobado_por": fila[21],
-                "aprobado_en": fila[22],
-                "aprobada": True,
-                "activa": fila[23],
-            }
-            importes = validar_tarifa_aprobada(
-                tarifa, moneda_cuenta, configuracion, fecha_emision
-            )
 
+def reporte_facturacion_clientes():
+    """Columnas 0-4 como antes; 5 facturado por envío, 6 facturado
+    histórico (sin envío ni reporte)."""
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
+            # Agregación previa para no duplicar totales con varios pagos.
             cursor.execute("""
-                INSERT INTO factura (
-                    id_cliente, fecha_emision, total, estado,
-                    id_envio, id_tarifa, evento_entrega_id, fecha_entrega,
-                    origen_emision, moneda, importe_base, importe_impuestos,
-                    id_configuracion_fiscal, tratamiento_impositivo,
-                    tasa_impositiva
+                WITH facturado AS (
+                    SELECT id_cliente,
+                           COUNT(*) AS cantidad,
+                           SUM(total) AS total,
+                           SUM(total) FILTER (WHERE id_envio IS NOT NULL)
+                               AS por_envio,
+                           SUM(total) FILTER (
+                               WHERE id_envio IS NULL AND id_reporte IS NULL
+                           ) AS historico
+                    FROM factura
+                    WHERE LOWER(TRIM(estado)) <> 'anulada'
+                    GROUP BY id_cliente
+                ),
+                cobrado AS (
+                    SELECT f.id_cliente, SUM(p.monto) AS total
+                    FROM pago p
+                    JOIN factura f ON f.id_factura = p.id_factura
+                    GROUP BY f.id_cliente
                 )
-                VALUES (
-                    %s, %s, %s, 'Pendiente',
-                    %s, %s, %s, %s, 'AUTOMATICA', %s,
-                    %s, %s, %s, %s, %s
-                )
-                RETURNING id_factura
-            """, (
-                id_cliente,
-                fecha_emision,
-                importes["importe_total"],
-                id_envio,
-                tarifa["id_tarifa"],
-                evento_entrega_id,
-                fecha_entrega,
-                importes["moneda"],
-                importes["importe_base"],
-                importes["importe_impuestos"],
-                tarifa["id_configuracion_fiscal"],
-                tarifa["tratamiento_impositivo"],
-                tarifa["tasa_impositiva"],
-            ))
-            id_factura = cursor.fetchone()[0]
-
-            cursor.execute("""
-                UPDATE cuenta_corriente
-                SET saldo = saldo + %s,
-                    fecha_actualizacion = CURRENT_TIMESTAMP
-                WHERE id_cliente = %s
-            """, (importes["importe_total"], id_cliente))
-            if cursor.rowcount != 1:
-                raise ValueError("No se pudo actualizar la cuenta corriente.")
-
-            cursor.execute("""
-                INSERT INTO movimiento_cuenta_corriente (
-                    id_cliente, moneda, tipo_movimiento, importe_firmado,
-                    fecha_contable, tipo_origen, referencia_origen,
-                    referencia_documental
-                )
-                VALUES (%s, %s, 'FACTURA', %s, %s, 'FACTURA', %s, %s)
-            """, (
-                id_cliente,
-                importes["moneda"],
-                importes["importe_total"],
-                fecha_emision,
-                str(id_factura),
-                f"envio={id_envio};evento_entrega={evento_entrega_id}",
-            ))
-
-            cursor.execute("""
-                INSERT INTO auditoria_facturacion_periodica (
-                    id_envio, envio_id_reportado, evento_entrega_id,
-                    resultado, motivo, id_factura
-                )
-                VALUES (%s, %s, %s, 'FACTURADA', %s, %s)
-            """, (
-                id_envio,
-                id_envio,
-                evento_entrega_id,
-                "Factura automática emitida con tarifa aprobada.",
-                id_factura,
-            ))
-
-            return id_factura
+                SELECT c.id_cliente, c.razon_social,
+                       COALESCE(fa.cantidad, 0) AS cantidad_facturas,
+                       COALESCE(fa.total, 0) AS facturado,
+                       COALESCE(co.total, 0) AS cobrado,
+                       COALESCE(fa.por_envio, 0) AS facturado_por_envio,
+                       COALESCE(fa.historico, 0) AS facturado_historico
+                FROM cliente c
+                LEFT JOIN facturado fa ON fa.id_cliente = c.id_cliente
+                LEFT JOIN cobrado co ON co.id_cliente = c.id_cliente
+                ORDER BY facturado DESC, c.razon_social
+            """)
+            return cursor.fetchall()

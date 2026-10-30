@@ -1,8 +1,8 @@
 """Cálculo conservador y registro de cierres mensuales de cuenta corriente."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-import logging
+from app.utils.logger import obtener_logger
 from zoneinfo import ZoneInfo
 
 from app.repositories import cierre_cuenta_repository
@@ -11,7 +11,8 @@ from app.utils.validaciones_financieras import (
     validar_apertura_verificada,
 )
 
-logger = logging.getLogger(__name__)
+# Al archivo logs/app.log (no a la consola, para no ensuciar los menús).
+logger = obtener_logger("cierre_cuenta")
 
 
 class CierreBloqueado(ValueError):
@@ -68,8 +69,9 @@ def calcular_snapshot_cierre(datos, periodo):
         raise CierreBloqueado(str(error)) from error
     apertura_row = datos["apertura"]
     inicio = apertura_row["fecha_vigencia"]
-    if inicio > periodo:
-        raise CierreBloqueado("La apertura verificada todavía no rige al inicio del período.")
+    # El primer período puede ser parcial: si la apertura rige a mitad de
+    # mes, ese mes se cierra con saldo inicial = saldo de la apertura y solo
+    # suma los movimientos desde la fecha de vigencia.
     if periodo < inicio.replace(day=1):
         raise CierreBloqueado("No se puede cerrar un período anterior a la apertura verificada.")
 
@@ -260,8 +262,25 @@ def calcular_snapshot_cierre(datos, periodo):
     }
 
 
-def cerrar_cuenta_mensual(id_cliente, periodo):
+def hoy_argentina():
+    return datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).date()
+
+
+def siguiente_mes(periodo):
+    return date(periodo.year + (periodo.month == 12),
+                1 if periodo.month == 12 else periodo.month + 1, 1)
+
+
+def cerrar_cuenta_mensual(id_cliente, periodo, hoy=None):
     periodo = _mes(periodo)
+    hoy = hoy or hoy_argentina()
+    # Un cierre es inmutable: si el mes no terminó, un movimiento posterior
+    # del mismo mes quedaría fuera del snapshot.
+    if siguiente_mes(periodo) > hoy:
+        motivo = f"El período {periodo:%Y-%m} todavía no terminó."
+        logger.warning("Cierre bloqueado: cliente=%s período=%s motivo=%s",
+                       id_cliente, periodo, motivo)
+        return {"estado": "BLOQUEADO", "motivo": motivo}
     try:
         result = cierre_cuenta_repository.ejecutar_cierre_atomico(
             id_cliente, periodo,
@@ -278,3 +297,110 @@ def cerrar_cuenta_mensual(id_cliente, periodo):
     except Exception:
         logger.exception("Error al cerrar cuenta: cliente=%s período=%s", id_cliente, periodo)
         raise
+
+
+def cerrar_mes_todos(periodo, hoy=None):
+    """Cierra el período para todos los clientes con cuenta corriente.
+
+    Devuelve {"periodo", "cerrados", "bloqueados", "ya_cerrados", "errores"}.
+    Cada cliente se cierra en su propia transacción.
+    """
+    periodo = _mes(periodo)
+    resumen = {"periodo": periodo, "cerrados": [], "bloqueados": [],
+               "ya_cerrados": [], "errores": []}
+
+    for id_cliente, nombre in cierre_cuenta_repository.listar_clientes_con_cuenta():
+        try:
+            resultado = cerrar_cuenta_mensual(id_cliente, periodo, hoy=hoy)
+        except CierreDuplicado as error:
+            resumen["ya_cerrados"].append(
+                {"id_cliente": id_cliente, "cliente": nombre, "motivo": str(error)}
+            )
+            continue
+        except Exception as error:
+            resumen["errores"].append(
+                {"id_cliente": id_cliente, "cliente": nombre, "error": str(error)}
+            )
+            continue
+
+        if resultado["estado"] == "CERRADO":
+            resumen["cerrados"].append({"id_cliente": id_cliente, "cliente": nombre,
+                                        **resultado})
+        else:
+            resumen["bloqueados"].append({"id_cliente": id_cliente, "cliente": nombre,
+                                          "motivo": resultado["motivo"]})
+
+    logger.info(
+        "Cierre %s: cerrados=%s bloqueados=%s ya_cerrados=%s errores=%s",
+        periodo, len(resumen["cerrados"]), len(resumen["bloqueados"]),
+        len(resumen["ya_cerrados"]), len(resumen["errores"]),
+    )
+    return resumen
+
+
+# ------------------------------------------------------------------
+# Apertura de cuenta corriente
+# ------------------------------------------------------------------
+
+def validar_datos_apertura(saldo_inicial, fecha_vigencia, referencia, hoy=None):
+    hoy = hoy or hoy_argentina()
+    saldo = _dinero(saldo_inicial, "El saldo inicial")
+    if not isinstance(fecha_vigencia, date) or isinstance(fecha_vigencia, datetime):
+        raise CierreBloqueado("La fecha de vigencia debe ser una fecha calendario.")
+    if fecha_vigencia > hoy:
+        raise CierreBloqueado("La fecha de vigencia no puede ser futura.")
+    referencia = str(referencia or "").strip()
+    if not referencia:
+        raise CierreBloqueado("La apertura requiere una referencia documentada.")
+    return saldo, fecha_vigencia, referencia
+
+
+def previsualizar_apertura(id_cliente, saldo_inicial, fecha_vigencia, hoy=None):
+    """Sin escribir: con esta apertura, ¿el primer mes concilia y cerraría?
+
+    Devuelve {"concilia": bool, "motivo" o "snapshot", "saldo_documentos"}.
+    """
+    saldo, fecha_vigencia, _ = validar_datos_apertura(
+        saldo_inicial, fecha_vigencia, "previsualización", hoy=hoy
+    )
+    facturado, pagado, sugerido = cierre_cuenta_repository.calcular_saldo_documentos(
+        id_cliente, fecha_vigencia
+    )
+    datos = cierre_cuenta_repository.leer_datos_cierre(id_cliente)
+    cuenta = datos.get("cuenta") or {}
+    datos["apertura"] = {
+        "id_apertura": None,
+        "id_cliente": id_cliente,
+        "moneda": cuenta.get("moneda"),
+        "saldo_inicial": saldo,
+        "fecha_vigencia": fecha_vigencia,
+        "referencia_fuente": "previsualización",
+        "aprobado_por": -1,
+        "aprobado_en": datetime.now(ZoneInfo("UTC")),
+    }
+    resultado = {
+        "saldo_documentos": {"facturado": facturado, "pagado": pagado,
+                             "saldo": sugerido},
+    }
+    try:
+        resultado["snapshot"] = calcular_snapshot_cierre(
+            datos, fecha_vigencia.replace(day=1)
+        )
+        resultado["concilia"] = True
+    except CierreBloqueado as error:
+        resultado["concilia"] = False
+        resultado["motivo"] = str(error)
+    return resultado
+
+
+def registrar_apertura(id_cliente, saldo_inicial, fecha_vigencia, referencia,
+                       aprobado_por, hoy=None):
+    saldo, fecha_vigencia, referencia = validar_datos_apertura(
+        saldo_inicial, fecha_vigencia, referencia, hoy=hoy
+    )
+    id_apertura = cierre_cuenta_repository.registrar_apertura(
+        id_cliente, saldo, fecha_vigencia, referencia, aprobado_por
+    )
+    logger.info("Apertura %s registrada: cliente=%s saldo=%s vigencia=%s",
+                id_apertura, id_cliente, saldo, fecha_vigencia)
+    return id_apertura

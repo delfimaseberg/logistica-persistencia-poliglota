@@ -1,5 +1,6 @@
 
 import argparse
+from datetime import datetime
 
 from app.services.procesos_periodicos_service import (
     ejecutar_todos_los_procesos,
@@ -15,6 +16,65 @@ TRABAJOS = {
     "predicciones": ("predicciones",),
     "todos": ("predicciones", "sensores"),
 }
+
+# Trabajos financieros: se ejecutan solo cuando se piden explícitamente
+# (no forman parte de "todos").
+TRABAJOS_FINANCIEROS = ("facturacion", "cierre")
+
+
+def _fecha(texto):
+    try:
+        return datetime.strptime(texto, "%Y-%m-%d").date()
+    except ValueError:
+        raise argparse.ArgumentTypeError("Use el formato AAAA-MM-DD.")
+
+
+def _periodo(texto):
+    try:
+        return datetime.strptime(texto, "%Y-%m").date()
+    except ValueError:
+        raise argparse.ArgumentTypeError("Use el formato AAAA-MM.")
+
+
+def ejecutar_facturacion(fecha_corte=None):
+    from app.services.facturacion_automatica_service import (
+        procesar_facturacion_automatica,
+    )
+
+    resumen = procesar_facturacion_automatica(fecha_corte)
+    print()
+    print(f"Facturación automática (corte {resumen['fecha_corte']}):")
+    print(f"  Candidatos: {resumen['candidatos']}")
+    print(f"  Facturados: {len(resumen['facturados'])}")
+    for f in resumen["facturados"]:
+        print(f"    Envío {f['id_envio']} -> factura {f['id_factura']} "
+              f"({f['total']})")
+    print(f"  Omitidos: {len(resumen['omitidos'])}")
+    for o in resumen["omitidos"]:
+        print(f"    Envío {o['id_envio']}: {o['motivo']}")
+    print(f"  Errores: {len(resumen['errores'])}")
+    for e in resumen["errores"]:
+        print(f"    Envío {e['id_envio']}: {e['error']}")
+    return 1 if resumen["errores"] else 0
+
+
+def ejecutar_cierre(periodo):
+    from app.services.cierre_cuenta_service import cerrar_mes_todos
+
+    resumen = cerrar_mes_todos(periodo)
+    print()
+    print(f"Cierre mensual {periodo:%Y-%m}:")
+    print(f"  Cerrados: {len(resumen['cerrados'])}")
+    for c in resumen["cerrados"]:
+        print(f"    {c['cliente']}: saldo final {c['saldo_final']}")
+    print(f"  Bloqueados: {len(resumen['bloqueados'])}")
+    for b in resumen["bloqueados"]:
+        print(f"    {b['cliente']}: {b['motivo']}")
+    print(f"  Ya cerrados: {len(resumen['ya_cerrados'])}")
+    print(f"  Errores: {len(resumen['errores'])}")
+    for e in resumen["errores"]:
+        print(f"    {e['cliente']}: {e['error']}")
+    return 1 if resumen["errores"] else 0
 
 
 def hay_errores(resultado):
@@ -39,7 +99,7 @@ def main(argv=None):
     )
     parser.add_argument(
         "--job",
-        choices=tuple(TRABAJOS),
+        choices=tuple(TRABAJOS) + TRABAJOS_FINANCIEROS,
         default="todos",
         help="Trabajo a ejecutar (por defecto: todos).",
     )
@@ -49,7 +109,33 @@ def main(argv=None):
         default=24,
         help="Umbral de horas sin lecturas para sensores (por defecto: 24).",
     )
+    parser.add_argument(
+        "--corte",
+        type=_fecha,
+        default=None,
+        help="Facturación: fecha de corte AAAA-MM-DD (por defecto, hoy).",
+    )
+    parser.add_argument(
+        "--periodo",
+        type=_periodo,
+        default=None,
+        help="Cierre: período a cerrar AAAA-MM (obligatorio con --job cierre).",
+    )
     argumentos = parser.parse_args(argv)
+
+    if argumentos.job in TRABAJOS_FINANCIEROS:
+        logger.info("Inicio de proceso financiero: %s", argumentos.job)
+        try:
+            if argumentos.job == "facturacion":
+                return ejecutar_facturacion(argumentos.corte)
+            if argumentos.periodo is None:
+                parser.error("--job cierre requiere --periodo AAAA-MM")
+            return ejecutar_cierre(argumentos.periodo)
+        except SystemExit:
+            raise
+        except Exception:
+            logger.exception("Error en el proceso %s", argumentos.job)
+            return 1
 
     logger.info(
         "Inicio de procesos periódicos: trabajos=%s",

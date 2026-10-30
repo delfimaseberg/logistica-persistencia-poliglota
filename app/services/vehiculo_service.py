@@ -9,6 +9,9 @@ from app.repositories.vehiculo_repository import (
     eliminar_vehiculo_db,
     contar_tramos_de_vehiculo
 )
+from app.repositories.terceros_repository import (
+    listar_operadores_por_modalidad
+)
 
 from app.utils.validaciones_logistica import (
     TIPOS_VEHICULO,
@@ -37,7 +40,12 @@ def mostrar_vehiculo(vehiculo):
     print(f"ID vehículo: {vehiculo[0]}")
     print(f"Tipo: {vehiculo[1]}")
     print(f"Identificación: {vehiculo[2]}")
-    print(f"Empresa operadora: {vehiculo[3] or 'No especificada'}")
+    if vehiculo[5] is not None:
+        print(f"Operador logístico: {vehiculo[6]} (ID {vehiculo[5]})")
+    else:
+        print("Operador logístico: sin asignar")
+    if vehiculo[3]:
+        print(f"Empresa operadora (texto histórico): {vehiculo[3]}")
     print(f"Estado: {vehiculo[4]}")
 
 
@@ -82,23 +90,35 @@ def pedir_identificacion(id_vehiculo_actual=None):
         )
 
 
-def pedir_empresa_operadora():
+def pedir_operador(tipo):
+    """Elige un operador activo con la modalidad del vehículo (o ninguno)."""
+    operadores = listar_operadores_por_modalidad(tipo)
+
+    if not operadores:
+        print(
+            f"\nNo hay operadores logísticos activos con modalidad {tipo}. "
+            "El vehículo queda sin operador (se puede asignar después)."
+        )
+        return None
+
+    print(f"\nOperadores logísticos con modalidad {tipo}:")
+    for operador in operadores:
+        print(f"  {operador[0]}. {operador[1]}")
+
+    ids = {operador[0] for operador in operadores}
+
     while True:
         valor = input(
-            "Empresa operadora (Enter si no corresponde): "
+            "ID del operador (Enter si no corresponde): "
         ).strip()
 
         if not valor:
             return None
 
-        try:
-            return validar_texto(
-                valor,
-                "La empresa operadora",
-                100
-            )
-        except ValueError as error:
-            print(f"Error: {error}")
+        if valor.isdigit() and int(valor) in ids:
+            return int(valor)
+
+        print("Error: elija uno de los operadores listados.")
 
 
 def registrar_vehiculo():
@@ -116,7 +136,7 @@ def registrar_vehiculo():
 
         identificacion = pedir_identificacion()
 
-        empresa = pedir_empresa_operadora()
+        id_operador = pedir_operador(tipo)
 
         estado = pedir(
             "Estado (Disponible/En uso/Mantenimiento/Inactivo): ",
@@ -128,8 +148,9 @@ def registrar_vehiculo():
         vehiculo = Vehiculo(
             tipo,
             identificacion,
-            empresa,
-            estado
+            None,
+            estado,
+            id_operador
         )
 
         id_vehiculo = crear_vehiculo(vehiculo)
@@ -219,7 +240,7 @@ def modificar_vehiculo_service():
         print("\n¿Qué desea modificar?")
         print("1. Tipo de vehículo")
         print("2. Identificación")
-        print("3. Empresa operadora")
+        print("3. Operador logístico")
         print("4. Estado")
         print("0. Cancelar")
 
@@ -235,8 +256,8 @@ def modificar_vehiculo_service():
 
         tipo = actual[1]
         identificacion = actual[2]
-        empresa = actual[3]
         estado = actual[4]
+        id_operador = actual[5]
 
         if opcion == "1":
             if contar_tramos_de_vehiculo(id_vehiculo) > 0:
@@ -262,6 +283,13 @@ def modificar_vehiculo_service():
                     id_vehiculo
                 )
 
+                # El operador anterior puede no tener la nueva modalidad.
+                if id_operador is not None:
+                    print(
+                        "\nCambió el tipo: elija de nuevo el operador."
+                    )
+                    id_operador = pedir_operador(tipo)
+
         elif opcion == "2":
             mostrar_ayuda_identificacion(tipo)
 
@@ -270,7 +298,7 @@ def modificar_vehiculo_service():
             )
 
         elif opcion == "3":
-            empresa = pedir_empresa_operadora()
+            id_operador = pedir_operador(tipo)
 
         elif opcion == "4":
             estado = pedir(
@@ -283,8 +311,9 @@ def modificar_vehiculo_service():
         vehiculo_modificado = Vehiculo(
             tipo,
             identificacion,
-            empresa,
-            estado
+            actual[3],
+            estado,
+            id_operador
         )
 
         actualizado = actualizar_vehiculo(

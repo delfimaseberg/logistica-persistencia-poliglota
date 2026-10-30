@@ -1,30 +1,79 @@
-
 from datetime import datetime, timezone
+from threading import Lock
 from uuid import uuid4
 
 from cassandra.query import BatchStatement, BatchType
 
 from app.database.cassandra_connection import (
     CASSANDRA_KEYSPACE,
-    get_cassandra_session,
+    obtener_sesion_cassandra,
 )
 
 
 KEYSPACE = CASSANDRA_KEYSPACE
 
+# Sentencias preparadas una sola vez por sesión (preparar en cada operación
+# es un viaje extra al servidor).
+_preparadas = {}
+_lock_preparadas = Lock()
+
+
+def _preparar(session, cql):
+    clave = (id(session), cql)
+    with _lock_preparadas:
+        if clave not in _preparadas:
+            _preparadas[clave] = session.prepare(cql)
+        return _preparadas[clave]
+
 
 def abrir_conexion():
-    cluster, session = get_cassandra_session()
-    session.set_keyspace(KEYSPACE)
-    return cluster, session
+    """Devuelve (None, sesión compartida).
+
+    Se conserva la firma anterior (cluster, session) para los llamadores
+    existentes; el cluster es None porque la sesión no les pertenece.
+    """
+    return None, obtener_sesion_cassandra()
 
 
 def cerrar_conexion(cluster, session):
+    """No cierra la sesión compartida (se cierra al terminar el proceso).
+
+    Solo cierra conexiones propias que alguien haya abierto aparte.
+    """
+    if cluster is None:
+        return
+
     if session is not None:
         session.shutdown()
+    cluster.shutdown()
 
-    if cluster is not None:
-        cluster.shutdown()
+
+_INSERTAR_SENSOR = """
+    INSERT INTO lecturas_por_sensor (
+        sensor_id, anio_mes, fecha_hora, id_lectura,
+        temperatura, humedad, vibracion,
+        gps_latitud, gps_longitud, bateria
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+_INSERTAR_CONTENEDOR = """
+    INSERT INTO lecturas_por_contenedor (
+        contenedor_id, anio_mes, fecha_hora, id_lectura,
+        sensor_id, temperatura, humedad, vibracion,
+        gps_latitud, gps_longitud, bateria
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+_INSERTAR_ULTIMA = """
+    INSERT INTO ultima_lectura_por_sensor (
+        sensor_id, contenedor_id, fecha_hora, id_lectura,
+        temperatura, humedad, vibracion,
+        gps_latitud, gps_longitud, bateria
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
 
 
 def registrar_lectura_db(
@@ -35,127 +84,104 @@ def registrar_lectura_db(
     vibracion=None,
     gps_latitud=None,
     gps_longitud=None,
-    bateria=None
+    bateria=None,
+    fecha_hora=None
 ):
-    cluster = None
-    session = None
+    """Registra una lectura en las tres tablas (batch LOGGED).
 
-    fecha_hora = datetime.now(timezone.utc)
+    fecha_hora es opcional (carga histórica); por defecto, ahora.
+    La partición (anio_mes) se calcula de la fecha de la lectura.
+    """
+    if fecha_hora is None:
+        fecha_hora = datetime.now(timezone.utc)
+    elif fecha_hora.tzinfo is None:
+        raise ValueError("La fecha de la lectura debe tener zona horaria.")
+    fecha_hora = fecha_hora.astimezone(timezone.utc)
+
     anio_mes = fecha_hora.strftime("%Y-%m")
     id_lectura = uuid4()
 
-    try:
-        cluster, session = abrir_conexion()
+    _, session = abrir_conexion()
 
-        insertar_sensor = session.prepare("""
-            INSERT INTO lecturas_por_sensor (
-                sensor_id, anio_mes, fecha_hora, id_lectura,
-                temperatura, humedad, vibracion,
-                gps_latitud, gps_longitud, bateria
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """)
+    valores = (
+        temperatura,
+        humedad,
+        vibracion,
+        gps_latitud,
+        gps_longitud,
+        bateria
+    )
 
-        insertar_contenedor = session.prepare("""
-            INSERT INTO lecturas_por_contenedor (
-                contenedor_id, anio_mes, fecha_hora, id_lectura,
-                sensor_id, temperatura, humedad, vibracion,
-                gps_latitud, gps_longitud, bateria
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """)
+    # Agrupar las tres escrituras de una misma lectura IoT.
+    batch = BatchStatement(batch_type=BatchType.LOGGED)
 
-        insertar_ultima = session.prepare("""
-            INSERT INTO ultima_lectura_por_sensor (
-                sensor_id, contenedor_id, fecha_hora, id_lectura,
-                temperatura, humedad, vibracion,
-                gps_latitud, gps_longitud, bateria
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """)
+    # Historial por sensor.
+    batch.add(
+        _preparar(session, _INSERTAR_SENSOR),
+        (int(id_sensor), anio_mes, fecha_hora, id_lectura, *valores)
+    )
 
-        valores = (
-            temperatura,
-            humedad,
-            vibracion,
-            gps_latitud,
-            gps_longitud,
-            bateria
-        )
+    # Historial por contenedor.
+    batch.add(
+        _preparar(session, _INSERTAR_CONTENEDOR),
+        (int(id_contenedor), anio_mes, fecha_hora, id_lectura,
+         int(id_sensor), *valores)
+    )
 
-        # Agrupar las tres escrituras de una misma lectura IoT.
-        batch = BatchStatement(
-            batch_type=BatchType.LOGGED
-        )
+    # Última lectura del sensor.
+    batch.add(
+        _preparar(session, _INSERTAR_ULTIMA),
+        (int(id_sensor), int(id_contenedor), fecha_hora, id_lectura, *valores)
+    )
 
-        # Guardar en el historial por sensor.
-        batch.add(
-            insertar_sensor,
-            (
-                int(id_sensor),
-                anio_mes,
-                fecha_hora,
-                id_lectura,
-                *valores
-            )
-        )
+    session.execute(batch)
 
-        # Guardar en el historial por contenedor.
-        batch.add(
-            insertar_contenedor,
-            (
-                int(id_contenedor),
-                anio_mes,
-                fecha_hora,
-                id_lectura,
-                int(id_sensor),
-                *valores
-            )
-        )
-
-        # Actualizar la última lectura del sensor.
-        batch.add(
-            insertar_ultima,
-            (
-                int(id_sensor),
-                int(id_contenedor),
-                fecha_hora,
-                id_lectura,
-                *valores
-            )
-        )
-
-        # Ejecutar el batch en Cassandra.
-        session.execute(batch)
-
-        return id_lectura
-
-    finally:
-        cerrar_conexion(cluster, session)
+    return id_lectura
 
 
-def consultar_lecturas_sensor_db(id_sensor, anio_mes, limite=10):
-    cluster = None
-    session = None
+def existe_lectura_sensor(id_sensor, fecha_hora):
+    """True si el sensor ya tiene una lectura en esa fecha y hora exactas.
 
-    try:
-        cluster, session = abrir_conexion()
+    La clave de lecturas_por_sensor es ((sensor_id, anio_mes), fecha_hora,
+    id_lectura) e id_lectura es un UUID aleatorio, así que reinsertar la
+    misma lectura NO la sobrescribe: crearía otra fila. Esta consulta por
+    clave de partición + columna de clustering permite no duplicar.
+    """
+    fecha_hora = fecha_hora.astimezone(timezone.utc)
+    _, session = abrir_conexion()
+    consulta = _preparar(session, """
+        SELECT id_lectura
+        FROM lecturas_por_sensor
+        WHERE sensor_id = ?
+          AND anio_mes = ?
+          AND fecha_hora = ?
+        LIMIT 1
+    """)
+    return session.execute(
+        consulta,
+        (int(id_sensor), fecha_hora.strftime("%Y-%m"), fecha_hora)
+    ).one() is not None
 
-        consulta = session.prepare("""
-            SELECT *
-            FROM lecturas_por_sensor
-            WHERE sensor_id = ?
-              AND anio_mes = ?
-            LIMIT ?
-        """)
 
-        return list(session.execute(
-            consulta,
-            (int(id_sensor), anio_mes, int(limite))
-        ))
+def consultar_lecturas_sensor_db(
+    id_sensor,
+    anio_mes,
+    limite=10
+):
+    _, session = abrir_conexion()
 
-    finally:
-        cerrar_conexion(cluster, session)
+    consulta = _preparar(session, """
+        SELECT *
+        FROM lecturas_por_sensor
+        WHERE sensor_id = ?
+          AND anio_mes = ?
+        LIMIT ?
+    """)
+
+    return list(session.execute(
+        consulta,
+        (int(id_sensor), anio_mes, int(limite))
+    ))
 
 
 def consultar_lecturas_contenedor_db(
@@ -163,46 +189,32 @@ def consultar_lecturas_contenedor_db(
     anio_mes,
     limite=10
 ):
-    cluster = None
-    session = None
+    _, session = abrir_conexion()
 
-    try:
-        cluster, session = abrir_conexion()
+    consulta = _preparar(session, """
+        SELECT *
+        FROM lecturas_por_contenedor
+        WHERE contenedor_id = ?
+          AND anio_mes = ?
+        LIMIT ?
+    """)
 
-        consulta = session.prepare("""
-            SELECT *
-            FROM lecturas_por_contenedor
-            WHERE contenedor_id = ?
-              AND anio_mes = ?
-            LIMIT ?
-        """)
-
-        return list(session.execute(
-            consulta,
-            (int(id_contenedor), anio_mes, int(limite))
-        ))
-
-    finally:
-        cerrar_conexion(cluster, session)
+    return list(session.execute(
+        consulta,
+        (int(id_contenedor), anio_mes, int(limite))
+    ))
 
 
 def consultar_ultima_lectura_db(id_sensor):
-    cluster = None
-    session = None
+    _, session = abrir_conexion()
 
-    try:
-        cluster, session = abrir_conexion()
+    consulta = _preparar(session, """
+        SELECT *
+        FROM ultima_lectura_por_sensor
+        WHERE sensor_id = ?
+    """)
 
-        consulta = session.prepare("""
-            SELECT *
-            FROM ultima_lectura_por_sensor
-            WHERE sensor_id = ?
-        """)
-
-        return session.execute(
-            consulta,
-            (int(id_sensor),)
-        ).one()
-
-    finally:
-        cerrar_conexion(cluster, session)
+    return session.execute(
+        consulta,
+        (int(id_sensor),)
+    ).one()

@@ -16,9 +16,11 @@ def crear_usuario(usuario):
                         apellido,
                         email,
                         contrasena_encriptada,
-                        estado
+                        estado,
+                        id_proveedor,
+                        id_operador
                     )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id_usuario;
                 """,
                 (
@@ -28,7 +30,9 @@ def crear_usuario(usuario):
                     usuario.apellido,
                     usuario.email,
                     usuario.contrasena_encriptada,
-                    usuario.estado
+                    usuario.estado,
+                    usuario.id_proveedor,
+                    usuario.id_operador
                 )
             )
 
@@ -53,16 +57,25 @@ def listar_usuarios():
             cursor.execute(
                 """
                 SELECT
-                    id_usuario,
-                    id_cliente,
-                    id_rol,
-                    nombre,
-                    apellido,
-                    email,
-                    estado,
-                    fecha_registro
-                FROM usuario
-                ORDER BY id_usuario;
+                    u.id_usuario,
+                    u.id_cliente,
+                    u.id_rol,
+                    u.nombre,
+                    u.apellido,
+                    u.email,
+                    u.estado,
+                    u.fecha_registro,
+                    u.id_proveedor,
+                    u.id_operador,
+                    COALESCE(
+                        c.razon_social, p.razon_social, o.razon_social
+                    ) AS nombre_parte
+                FROM usuario u
+                LEFT JOIN cliente c ON c.id_cliente = u.id_cliente
+                LEFT JOIN proveedor p ON p.id_proveedor = u.id_proveedor
+                LEFT JOIN operador_logistico o
+                    ON o.id_operador = u.id_operador
+                ORDER BY u.id_usuario;
                 """
             )
 
@@ -80,16 +93,25 @@ def buscar_usuario_por_id(id_usuario):
             cursor.execute(
                 """
                 SELECT
-                    id_usuario,
-                    id_cliente,
-                    id_rol,
-                    nombre,
-                    apellido,
-                    email,
-                    estado,
-                    fecha_registro
-                FROM usuario
-                WHERE id_usuario = %s;
+                    u.id_usuario,
+                    u.id_cliente,
+                    u.id_rol,
+                    u.nombre,
+                    u.apellido,
+                    u.email,
+                    u.estado,
+                    u.fecha_registro,
+                    u.id_proveedor,
+                    u.id_operador,
+                    COALESCE(
+                        c.razon_social, p.razon_social, o.razon_social
+                    ) AS nombre_parte
+                FROM usuario u
+                LEFT JOIN cliente c ON c.id_cliente = u.id_cliente
+                LEFT JOIN proveedor p ON p.id_proveedor = u.id_proveedor
+                LEFT JOIN operador_logistico o
+                    ON o.id_operador = u.id_operador
+                WHERE u.id_usuario = %s;
                 """,
                 (id_usuario,)
             )
@@ -109,6 +131,8 @@ def modificar_usuario(id_usuario, usuario):
                 """
                 UPDATE usuario
                 SET id_cliente = %s,
+                    id_proveedor = %s,
+                    id_operador = %s,
                     id_rol = %s,
                     nombre = %s,
                     apellido = %s,
@@ -119,6 +143,8 @@ def modificar_usuario(id_usuario, usuario):
                 """,
                 (
                     usuario.id_cliente,
+                    usuario.id_proveedor,
+                    usuario.id_operador,
                     usuario.id_rol,
                     usuario.nombre,
                     usuario.apellido,

@@ -22,11 +22,27 @@ def obtener_usuario_activo(id_usuario):
 def obtener_usuarios_activos():
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
+            # Columnas 0-3 como antes; 4 = parte (Cliente/Proveedor/
+            # Operador/Interno) y su razón social, para mostrar con quién
+            # se habla.
             cursor.execute("""
-                SELECT id_usuario, nombre, apellido, email
-                FROM usuario
-                WHERE estado = 'ACTIVO'
-                ORDER BY nombre, apellido
+                SELECT u.id_usuario, u.nombre, u.apellido, u.email,
+                       CASE
+                           WHEN u.id_cliente IS NOT NULL
+                               THEN 'Cliente: ' || c.razon_social
+                           WHEN u.id_proveedor IS NOT NULL
+                               THEN 'Proveedor: ' || p.razon_social
+                           WHEN u.id_operador IS NOT NULL
+                               THEN 'Operador: ' || o.razon_social
+                           ELSE 'Interno'
+                       END AS parte
+                FROM usuario u
+                LEFT JOIN cliente c ON c.id_cliente = u.id_cliente
+                LEFT JOIN proveedor p ON p.id_proveedor = u.id_proveedor
+                LEFT JOIN operador_logistico o
+                       ON o.id_operador = u.id_operador
+                WHERE u.estado = 'ACTIVO'
+                ORDER BY u.nombre, u.apellido
             """)
             return cursor.fetchall()
 
@@ -273,3 +289,60 @@ def obtener_mensajes_grupo(id_grupo, id_usuario):
     )
 
     return list(reversed(mensajes))
+
+
+# ------------------------------------------------------------------
+# Destinatarios permitidos según la parte del usuario
+# ------------------------------------------------------------------
+
+def obtener_destinatarios_permitidos(id_usuario, tipo_parte, id_parte):
+    """Usuarios activos a los que puede escribir el usuario de la sesión.
+
+    - INTERNO: todos.
+    - CLIENTE: internos, usuarios de su mismo cliente y usuarios de los
+      operadores que realizaron tramos de SUS envíos.
+    - OPERADOR: internos y usuarios de los clientes cuyos envíos transportó.
+    - PROVEEDOR: solo internos.
+    Mismas columnas que obtener_usuarios_activos (la 4 es la parte).
+    """
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
+            cursor.execute("""
+                SELECT u.id_usuario, u.nombre, u.apellido, u.email,
+                       CASE
+                           WHEN u.id_cliente IS NOT NULL
+                               THEN 'Cliente: ' || c.razon_social
+                           WHEN u.id_proveedor IS NOT NULL
+                               THEN 'Proveedor: ' || p.razon_social
+                           WHEN u.id_operador IS NOT NULL
+                               THEN 'Operador: ' || o.razon_social
+                           ELSE 'Interno'
+                       END AS parte
+                FROM usuario u
+                LEFT JOIN cliente c ON c.id_cliente = u.id_cliente
+                LEFT JOIN proveedor p ON p.id_proveedor = u.id_proveedor
+                LEFT JOIN operador_logistico o
+                       ON o.id_operador = u.id_operador
+                WHERE u.estado = 'ACTIVO'
+                  AND u.id_usuario <> %(yo)s
+                  AND (
+                      %(tipo)s = 'INTERNO'
+                      OR num_nonnulls(u.id_cliente, u.id_proveedor,
+                                      u.id_operador) = 0
+                      OR (%(tipo)s = 'CLIENTE' AND (
+                          u.id_cliente = %(id)s
+                          OR u.id_operador IN (
+                              SELECT t.id_operador
+                              FROM tramo t
+                              JOIN envio e ON e.id_envio = t.id_envio
+                              WHERE e.id_cliente = %(id)s
+                                AND t.id_operador IS NOT NULL)))
+                      OR (%(tipo)s = 'OPERADOR' AND u.id_cliente IN (
+                          SELECT e.id_cliente
+                          FROM tramo t
+                          JOIN envio e ON e.id_envio = t.id_envio
+                          WHERE t.id_operador = %(id)s))
+                  )
+                ORDER BY u.nombre, u.apellido
+            """, {"yo": id_usuario, "tipo": tipo_parte, "id": id_parte})
+            return cursor.fetchall()

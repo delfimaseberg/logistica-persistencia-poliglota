@@ -2,9 +2,14 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from app.services.autenticacion import obtener_sesion_actual
+from app.services.autenticacion import (
+    es_interno,
+    obtener_sesion_actual,
+    parte_de,
+)
 
 from app.repositories.mensajeria_repository import (
+    obtener_destinatarios_permitidos,
     obtener_usuario_activo,
     obtener_usuarios_activos,
     registrar_mensaje_privado,
@@ -47,6 +52,43 @@ def obtener_id_usuario_actual():
         raise PermissionError("Debés iniciar sesión.")
 
     return sesion["id_usuario"]
+
+
+def destinatarios_para_sesion():
+    """Usuarios a los que puede escribir el usuario de la sesión (por parte)."""
+    sesion = obtener_sesion_actual()
+
+    if sesion is None:
+        raise PermissionError("Debés iniciar sesión.")
+
+    tipo, id_parte = parte_de(sesion)
+    return obtener_destinatarios_permitidos(
+        sesion["id_usuario"], tipo, id_parte
+    )
+
+
+def validar_destinatario(destinatario_id):
+    """El servicio también controla al enviar, no solo la lista."""
+    permitidos = {usuario[0] for usuario in destinatarios_para_sesion()}
+
+    if destinatario_id not in permitidos:
+        raise PermissionError(
+            "No podés enviar mensajes a ese usuario."
+        )
+
+
+def puede_ver_emails():
+    sesion = obtener_sesion_actual()
+    return sesion is not None and es_interno(sesion)
+
+
+def exigir_interno_para_grupos():
+    sesion = obtener_sesion_actual()
+
+    if sesion is None or not es_interno(sesion):
+        raise PermissionError(
+            "Solo los usuarios internos crean grupos y agregan miembros."
+        )
 
 
 def pedir_contenido():
@@ -123,7 +165,9 @@ def seleccionar_de_lista(elementos, titulo, obtener_descripcion):
 
 
 def seleccionar_usuario(excluir_id=None):
-    usuarios = obtener_usuarios_activos()
+    # Solo los destinatarios permitidos para la parte del usuario.
+    usuarios = destinatarios_para_sesion()
+    con_email = puede_ver_emails()
 
     if excluir_id is not None:
         usuarios = [
@@ -135,11 +179,21 @@ def seleccionar_usuario(excluir_id=None):
     return seleccionar_de_lista(
         usuarios,
         "SELECCIONAR USUARIO",
-        lambda usuario: (
-            f"{usuario[1]} {usuario[2]} "
-            f"({usuario[3]})"
-        )
+        lambda usuario: describir_usuario(usuario, con_email)
     )
+
+
+def describir_usuario(usuario, mostrar_email=True):
+    """'Nombre Apellido (email) - Parte'. La parte es opcional en la fila.
+
+    A los usuarios externos no se les muestra el email de los demás.
+    """
+    texto = f"{usuario[1]} {usuario[2]}"
+    if mostrar_email:
+        texto += f" ({usuario[3]})"
+    if len(usuario) > 4 and usuario[4]:
+        texto += f" - {usuario[4]}"
+    return texto
 
 
 def seleccionar_grupo(id_usuario):
@@ -182,17 +236,15 @@ def listar_usuarios_mensajeria_service():
     print("\n--- USUARIOS DISPONIBLES ---")
 
     try:
-        usuarios = obtener_usuarios_activos()
+        usuarios = destinatarios_para_sesion()
+        con_email = puede_ver_emails()
 
         if not usuarios:
-            print("No hay usuarios activos.")
+            print("No hay usuarios con los que puedas comunicarte.")
             return
 
         for numero, usuario in enumerate(usuarios, start=1):
-            print(
-                f"{numero}. {usuario[1]} {usuario[2]} "
-                f"| Email: {usuario[3]}"
-            )
+            print(f"{numero}. {describir_usuario(usuario, con_email)}")
 
     except Exception as error:
         print(f"Error al consultar usuarios: {error}")
@@ -216,6 +268,7 @@ def enviar_mensaje_service():
             return
 
         destinatario_id = destinatario[0]
+        validar_destinatario(destinatario_id)
 
         print(
             f"\nDestinatario: {destinatario[1]} {destinatario[2]}"
@@ -382,6 +435,7 @@ def crear_grupo_service():
     print("\n--- CREAR GRUPO DE TRABAJO ---")
 
     try:
+        exigir_interno_para_grupos()
         creador_id = obtener_id_usuario_actual()
 
         nombre = input("Nombre del grupo: ").strip()
@@ -449,6 +503,7 @@ def agregar_miembro_service():
     print("\n--- AGREGAR MIEMBRO A GRUPO ---")
 
     try:
+        exigir_interno_para_grupos()
         id_usuario = obtener_id_usuario_actual()
 
         grupos = [
@@ -482,10 +537,7 @@ def agregar_miembro_service():
         nuevo_usuario = seleccionar_de_lista(
             usuarios_disponibles,
             "USUARIOS DISPONIBLES PARA AGREGAR",
-            lambda usuario: (
-                f"{usuario[1]} {usuario[2]} "
-                f"({usuario[3]})"
-            )
+            describir_usuario
         )
 
         if nuevo_usuario is None:
