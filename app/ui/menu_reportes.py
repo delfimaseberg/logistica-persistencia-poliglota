@@ -1,14 +1,23 @@
 from app.services.autenticacion import verificar_permiso
 
 from app.services import facturacion_service as servicio
+from app.services import reportes_pantallas as pantallas
 
 
-# (texto, función, nivel mínimo). Los reportes analíticos y los reportes
-# solicitados por clientes se agregan aquí (día 3).
+# (texto, función, nivel mínimo). Solo usuarios internos (verificar_permiso).
 OPCIONES = {
-    "1": ("Envíos por estado", servicio.reporte_envios_service, 1),
-    "2": ("Facturación por cliente", servicio.reporte_facturacion_service, 3),
-    "3": ("Ingresos mensuales (cobros)", servicio.reporte_ingresos_service, 3),
+    "1": ("Operativos (envíos por país, estado, cliente, demorados, incidentes abiertos)",
+          lambda: pantallas.submenu("REPORTES OPERATIVOS", pantallas.REPORTES_OPERATIVOS), 1),
+    "2": ("Analíticos (tiempos, incidentes promedio, costos por transporte)",
+          lambda: pantallas.submenu("REPORTES ANALÍTICOS", pantallas.REPORTES_ANALITICOS), 1),
+    "3": ("Rankings y desempeño",
+          lambda: pantallas.submenu("RANKINGS Y DESEMPEÑO", pantallas.REPORTES_RANKINGS), 1),
+    "4": ("Reportes cobrables a clientes",
+          lambda: pantallas.submenu("REPORTES COBRABLES", pantallas.REPORTES_COBRABLES), 3),
+    "5": ("Predictivos (riesgo de demora, rutas que se atrasan, clima)",
+          lambda: pantallas.submenu("REPORTES PREDICTIVOS", pantallas.REPORTES_PREDICTIVOS), 1),
+    "6": ("Facturación por cliente", servicio.reporte_facturacion_service, 3),
+    "7": ("Ingresos mensuales (cobros)", servicio.reporte_ingresos_service, 3),
 }
 
 

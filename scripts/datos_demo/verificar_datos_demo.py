@@ -92,7 +92,7 @@ def verificar_postgres():
                  FROM incidente i JOIN envio e USING (id_envio)""")[0]
     punto(25, "Incidentes", f"total/abiertos/rutas con incidentes = {incid}", incid[1] >= 1)
     punto(27, "Datos para ranking de rutas con incidentes",
-          f"{incid[2]} rutas con incidentes (falta el reporte: día 3)", incid[2] >= 2)
+          f"{incid[2]} rutas con incidentes", incid[2] >= 2)
     paises = n("SELECT count(DISTINCT c.pais) FROM envio e JOIN cliente c USING (id_cliente)")
     punto(28, "Ranking de clientes (consulta existente)", f"envíos de {paises} países", paises >= 3)
     medios = q("""SELECT medio_transporte, sum(importe) FROM factura_detalle
@@ -139,6 +139,179 @@ def verificar_nosql():
           env == pg_env and rp > 0, "Neo4j")
 
 
+def verificar_reportes():
+    """Día 3: corre cada reporte real (todas las bases) y exige resultado."""
+    from app.services import reportes_service as rs
+    desde, hasta = date(2026, 1, 1), date.today()
+
+    def correr(numero, nombre, tabla, condicion=lambda t: bool(t.filas)):
+        punto(numero, f"Reporte: {nombre}", f"{len(tabla.filas)} filas [{tabla.fuente}]",
+              condicion(tabla), "Reporte")
+        return tabla
+
+    pais = correr(35, "envíos por país de destino", rs.reporte_envios_por_pais(desde, hasta),
+                  lambda t: sum(1 for f in t.filas if f[0] != "Sin dato") >= 4)
+    correr(35, "envíos por estado", rs.reporte_envios_por_estado(desde, hasta))
+    correr(35, "envíos por cliente", rs.reporte_envios_por_cliente(desde, hasta),
+           lambda t: len(t.filas) >= 5)
+    correr(35, "envíos demorados", rs.reporte_envios_demorados(),
+           lambda t: any(f[7] >= 1 for f in t.filas))      # con RETRASO de MongoDB
+    correr(35, "incidentes abiertos", rs.reporte_incidentes_abiertos())
+    correr(36, "tiempos máx./mín. por cliente", rs.reporte_tiempos_extremos(desde, hasta),
+           lambda t: any(f[4] is not None for f in t.filas))   # tránsito desde MongoDB
+    correr(37, "promedio de incidentes", rs.reporte_promedio_incidentes(desde, hasta),
+           lambda t: sum(1 for f in t.filas if f[0] == "País destino" and f[3] > 0) >= 2)
+    correr(38, "tiempos promedio de entrega", rs.reporte_tiempos_promedio(desde, hasta),
+           lambda t: {f[0] for f in t.filas} == {"Cliente", "Ruta", "Medio"})
+    correr(39, "costos por tipo de transporte", rs.reporte_costos_por_medio(desde, hasta),
+           lambda t: sum(1 for f in t.filas if f[2] and f[4]) >= 2)
+    correr(27, "ranking de rutas con incidentes", rs.reporte_ranking_rutas(desde, hasta),
+           lambda t: len(t.filas) >= 3)
+    correr(28, "ranking de clientes por volumen", rs.reporte_ranking_volumen(desde, hasta),
+           lambda t: sum(1 for f in t.filas if f[5] > 0) >= 4)
+    correr(31, "desempeño histórico", rs.reporte_desempeno(desde, hasta),
+           lambda t: sum(1 for f in t.filas if f[0] == "Operador") >= 2
+           and any(f[4] > 0 for f in t.filas))
+
+    reportes = q("""SELECT r.tipo, r.formato, r.estado, f.id_factura IS NOT NULL,
+                           m.importe_firmado = f.total
+                    FROM reporte r
+                    LEFT JOIN factura f ON f.id_reporte = r.id_reporte
+                    LEFT JOIN movimiento_cuenta_corriente m
+                      ON m.tipo_origen = 'FACTURA' AND m.referencia_origen = f.id_factura::text""")
+    ok = (len(reportes) >= 3 and all(r[2] == "FACTURADO" and r[3] and r[4] for r in reportes)
+          and {r[1] for r in reportes} == {"CSV", "PDF"})
+    punto(11, "Solicitud de reportes (cliente e interno)",
+          f"{len(reportes)} reportes: {[(r[0], r[1], r[2]) for r in reportes]}", ok, "Reporte")
+    punto(33, "Reportes cobrables facturados con su movimiento",
+          f"tipos {sorted({r[0] for r in reportes})}", ok and len({r[0] for r in reportes}) >= 3,
+          "Reporte")
+
+
+def verificar_dia3b_postgres():
+    """Día 3B, parte relacional (vale también en la copia de ensayo)."""
+    n = lambda sql, p=(): q(sql, p)[0][0]  # noqa: E731
+    sesiones = q("""SELECT count(*) FILTER (WHERE estado = 'ACTIVA'),
+                           count(*) FILTER (WHERE cerrada_por IS NOT NULL
+                                              AND cerrada_por <> id_usuario)
+                    FROM sesion""")[0]
+    punto(3, "Sesiones: listar y cerrar sesiones ajenas",
+          f"activas = {sesiones[0]}, cerradas por un administrador = {sesiones[1]}", sesiones[1] >= 1)
+    activas = n("SELECT count(*) FROM regla_alerta WHERE activa")
+    variables = n("SELECT count(DISTINCT variable) FROM regla_alerta WHERE activa")
+    punto(9, "Reglas de alerta configurables (ABM)",
+          f"{activas} reglas activas de {variables} variables", activas >= 8 and variables == 7)
+    contenedores = q("""SELECT count(*) FROM envio_contenedor ec JOIN envio e USING (id_envio)
+                        WHERE e.estado NOT IN ('Entregado', 'Cancelado')""")[0][0]
+    punto(7, "Contenedores de envíos en curso", f"{contenedores} asociaciones", contenedores >= 5)
+    sensores = q("""SELECT count(*) FILTER (WHERE estado = 'Activo'),
+                           count(*) FILTER (WHERE estado = 'Inactivo'),
+                           count(*) FILTER (WHERE motivo_inactivo LIKE 'Entrega del envío %%')
+                    FROM sensor_iot""")[0]
+    punto(8, "Sensores por contenedor (activos/inactivos/apagados por entrega)", str(sensores),
+          sensores[0] > 0 and sensores[2] >= 24)
+    activos_entregados = n("""SELECT count(*) FROM sensor_iot s
+                              JOIN envio_contenedor ec ON ec.id_contenedor = s.id_contenedor
+                              JOIN envio e ON e.id_envio = ec.id_envio
+                              WHERE e.estado = 'Entregado' AND s.estado = 'Activo'""")
+    punto(22, "Control de estado: sensores de envíos entregados inactivos",
+          f"sensores activos en envíos entregados: {activos_entregados}", activos_entregados == 0)
+    sin_pais = n("SELECT count(*) FROM envio WHERE pais_origen IS NULL OR pais_destino IS NULL")
+    punto(35, "Envíos con país de origen y destino", f"sin país: {sin_pais}", sin_pais == 0)
+    from app.repositories.tarifas_repository import listar_cargas_envio
+    id_envio = n("SELECT min(id_envio) FROM envio_carga")
+    cargas = listar_cargas_envio(id_envio) if id_envio else []
+    punto(10, "Partidas de carga de un envío (listar_cargas_envio)",
+          f"envío {id_envio}: {len(cargas)} partida(s) con descripción del tipo",
+          bool(cargas) and all(c[2] for c in cargas))
+    pred = q("""SELECT r.estado, f.id_factura, f.total FROM reporte r
+                LEFT JOIN factura f ON f.id_reporte = r.id_reporte
+                WHERE r.tipo = 'PREDICTIVO'""")
+    punto(34, "Reporte predictivo cobrable (cliente)", str(pred),
+          bool(pred) and all(p[0] == "FACTURADO" and p[1] for p in pred), "Reporte")
+
+
+def verificar_dia3b_nosql():
+    """Día 3B, MongoDB y Cassandra."""
+    from datetime import datetime, timezone
+    from app.database.mongo_connection import get_mongo_database
+    from app.repositories.alerta_climatica_repository import listar_alertas_climaticas
+    from app.repositories.lectura_iot_repository import consultar_lecturas_sensor_db
+    from app.repositories.recorrido_repository import consultar_gps_contenedor
+    from app.services import reportes_service as rs
+    from app.services.deteccion_sensores import FALLA_CONGELADA, FALLA_SALTO, FALLA_VALOR
+
+    db = get_mongo_database()
+    fallas = {t: db.alertas.count_documents({"tipo": t})
+              for t in (FALLA_VALOR, FALLA_CONGELADA, FALLA_SALTO)}
+    atendidas = db.alertas.count_documents({"nota_atencion": "contenedor ya entregado"})
+    punto(23, "Fallas de sensor (imposible, congelado, salto) y alertas viejas atendidas",
+          f"{fallas}; atendidas por contenedor entregado: {atendidas}",
+          all(v >= 1 for v in fallas.values()) and atendidas >= 1, "Mongo")
+
+    mensajes = db.mensajes.count_documents({"tipo": "Alerta"})
+    sin_mensajes = db.alertas.count_documents({"mensajes_emitidos": False})
+    duplicados = list(db.mensajes.aggregate([
+        {"$match": {"tipo": "Alerta"}},
+        {"$group": {"_id": {"a": "$alerta_id", "d": "$destinatario_id"}, "n": {"$sum": 1}}},
+        {"$match": {"n": {"$gt": 1}}}]))
+    internos = {f[0] for f in q("""SELECT id_usuario FROM usuario WHERE estado = 'ACTIVO'
+                                   AND num_nonnulls(id_cliente, id_proveedor, id_operador) = 0""")}
+    destinatarios = set(db.mensajes.distinct("destinatario_id", {"tipo": "Alerta"}))
+    punto(26, "Alertas con mensaje a internos y al cliente",
+          f"{mensajes} mensajes de alerta; a internos: {bool(destinatarios & internos)}, "
+          f"a clientes: {bool(destinatarios - internos)}; pendientes: {sin_mensajes}; "
+          f"duplicados: {len(duplicados)}",
+          mensajes > 0 and destinatarios & internos and destinatarios - internos
+          and sin_mensajes == 0 and not duplicados, "Mongo")
+
+    hoy = datetime.now(timezone.utc)
+    vigentes = listar_alertas_climaticas(ahora=hoy)
+    en_curso = [f[0] for f in q("""SELECT id_envio FROM envio
+                                  WHERE estado NOT IN ('Entregado', 'Cancelado')""")]
+    from app.repositories.predicciones_repository import ultimas_predicciones
+    ultimas = ultimas_predicciones(en_curso)
+    v4 = [p for p in ultimas.values() if p.get("metodo") == "reglas_heuristicas_v4"]
+    con_clima = {p["envio_id"]: p["riesgo_climatico"] for p in v4
+                 if p.get("riesgo_climatico") not in ("SIN ALERTAS", "NO EVALUADO", "NO APLICA")}
+    con_historial = sum(1 for p in v4 if (p.get("historial_ruta") or {}).get("fuente") == "ruta")
+    campos = all(all(k in p for k in ("envio_id", "riesgo_climatico", "riesgo_operativo",
+                                       "probabilidad_demora", "fecha_calculo")) for p in v4)
+    punto(29, "Predicción: clima + rutas que se atrasan + probabilidad",
+          f"{len(v4)}/{len(en_curso)} envíos con predicción v4; clima: {con_clima}; "
+          f"con historial propio de la ruta: {con_historial}; alertas climáticas vigentes: {len(vigentes)}",
+          len(v4) == len(en_curso) and con_clima and con_historial >= 1 and campos, "Mongo")
+
+    tablas = [rs.reporte_riesgo_envios(), rs.reporte_rutas_atraso(), rs.reporte_clima_vigente()]
+    afectados = [f for f in tablas[2].filas if f[5] != "Ninguno"]
+    punto(34, "Reportes predictivos internos (riesgo, rutas, clima)",
+          f"filas = {[len(t.filas) for t in tablas]}; alertas con envíos afectados: {len(afectados)}",
+          all(t.filas for t in tablas) and afectados, "Reporte")
+
+    id_sensor = q("SELECT min(id_sensor) FROM sensor_iot")[0][0]
+    historicas = consultar_lecturas_sensor_db(id_sensor, "2026-10", 50)
+    punto(19, "Consulta histórica de lecturas por sensor",
+          f"sensor {id_sensor}, 10/2026: {len(historicas)} lecturas", len(historicas) > 0, "Cassandra")
+    id_cont = q("""SELECT ec.id_contenedor FROM envio_contenedor ec JOIN envio e USING (id_envio)
+                   WHERE e.estado = 'Entregado' ORDER BY e.id_envio LIMIT 1""")[0][0]
+    gps = consultar_gps_contenedor(id_cont, ["2026-08", "2026-09", "2026-10"])
+    punto(20, "Recorrido de un contenedor (GPS)", f"contenedor {id_cont}: {len(gps)} posiciones",
+          len(gps) >= 2, "Cassandra")
+
+
+def resumen_40_puntos():
+    """Estado por punto: OK si todas sus verificaciones dieron resultado."""
+    por_punto = {}
+    for numero, _, _, _, ok in resultados:
+        por_punto.setdefault(numero, []).append(ok)
+    sin_verificar = [n for n in range(1, 41) if n not in por_punto]
+    con_falta = sorted(n for n, oks in por_punto.items() if not all(oks))
+    print()
+    print(f"Puntos 1-40: {sum(1 for n in range(1, 41) if n in por_punto and all(por_punto[n]))} "
+          f"con resultado; sin verificación: {sin_verificar or 'ninguno'}; "
+          f"con alguna falta: {con_falta or 'ninguno'}.")
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--solo-postgres", action="store_true")
@@ -156,14 +329,18 @@ def main():
             print(f"  BLOQUEADO {b['cliente']}: {b['motivo']}")
 
     verificar_postgres()
+    verificar_dia3b_postgres()
     if not args.solo_postgres:
         verificar_nosql()
+        verificar_reportes()
+        verificar_dia3b_nosql()
 
     fallas = 0
     for numero, nombre, base, valor, ok in sorted(resultados):
         print(f"{'OK   ' if ok else 'FALTA'} #{numero:<3} {nombre:<45} [{base}] {valor}")
         fallas += not ok
     print(f"\n{len(resultados) - fallas} de {len(resultados)} verificaciones con resultado.")
+    resumen_40_puntos()
     return 1 if fallas else 0
 
 

@@ -131,9 +131,9 @@ def test_evento_entregado_valido_requiere_estado_concordante():
 @pytest.mark.parametrize(
     "evento,estado,pendiente,cantidad,fragmento",
     [
-        (None, "Entregado", False, 1, "No existe evidencia"),
+        (None, "Entregado", False, 1, "No hay un evento de entrega válido"),
         (evento_entrega_valido(), "En tránsito", False, 1, "no coincide"),
-        (evento_entrega_valido(), "Entregado", True, 1, "sincronización pendiente"),
+        (evento_entrega_valido(), "Entregado", True, 1, "actualización de estado pendiente"),
         (evento_entrega_valido(), "Entregado", False, 2, "exactamente un evento"),
         ({**evento_entrega_valido(), "envio_id": 46}, "Entregado", False, 1, "no corresponde"),
         ({**evento_entrega_valido(), "fecha_hora": datetime(2026, 1, 1)}, "Entregado", False, 1, "zona horaria"),

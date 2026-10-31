@@ -133,16 +133,16 @@ cliente, operador o proveedor no puede ejecutarlas aunque llegue a ellas
 | Opción | Menú | Nivel |
 |---|---|---|
 | 1 | Gestión de clientes | 1 |
-| 2 | Gestión de usuarios (roles y sesiones activas) | 3 |
+| 2 | Gestión de usuarios (roles; sesiones activas: listar y cerrar las de otros usuarios, nivel 5) | 3 |
 | 3 | Gestión de envíos (vehículos, tramos, contenedores del envío) | 1 |
 | 4 | Gestión de contenedores y sensores | 1 |
-| 5 | Monitoreo IoT | 1 |
+| 5 | Monitoreo IoT (incluye "Simular falla de sensor") | 1 |
 | 6 | Trazabilidad de envíos (eventos, seguimiento, ruta, recorrido, operadores y red en Neo4j) | 1 |
-| 7 | Gestión de incidentes y alertas | 1 |
+| 7 | Gestión de incidentes y alertas (detección de anomalías y fallas de sensor; reglas de alerta) | 1 |
 | 8 | Mensajería | 1 |
 | 9 | Facturación y cobranzas | 1 (operaciones: 3) |
 | 10 | Reportes | 1 |
-| 11 | Análisis y predicciones | 1 |
+| 11 | Análisis y predicciones (incluye alertas climáticas) | 1 |
 | 12 | Proveedores (ABM y cuenta corriente) | 3 |
 | 13 | Operadores logísticos (ABM, tramos y cuenta corriente) | 3 |
 | 14 | Cerrar sesión | — |
@@ -155,8 +155,39 @@ facturación de los envíos entregados (cliente y operadores); precios de
 transporte (tarifa estándar); apertura de cuenta corriente; cierre mensual;
 reglas tarifarias y datos de carga (avanzado).
 
-**Reportes:** envíos por estado, facturación por cliente e ingresos mensuales.
-Aquí se agregan los reportes analíticos y los reportes pedidos por clientes.
+**Reportes** (filtros por período y, donde aplica, por cliente; exportables a CSV):
+
+| Submenú | Reportes | Bases |
+|---|---|---|
+| Operativos | Envíos por país de destino (con países de origen), por estado, por cliente; envíos demorados; incidentes abiertos | PostgreSQL; demorados también MongoDB (eventos RETRASO) |
+| Analíticos | Tiempos máximos y mínimos por cliente; promedio de incidentes por país / estado / cliente; tiempos promedio de entrega; costos por tipo de transporte (cobrado vs costo de operadores) | PostgreSQL + MongoDB (tiempo de tránsito) |
+| Rankings y desempeño | Rutas con más incidentes; clientes por volumen (contenedores, m³, kg); desempeño a tiempo vs tarde por ruta, operador y mes | PostgreSQL + Neo4j (operadores) |
+| Reportes cobrables | Generar para un cliente, listar, ver | según el tipo |
+| Predictivos | Riesgo de demora de los envíos en curso; rutas que suelen atrasarse; alertas climáticas vigentes y envíos afectados | MongoDB (predicciones, alertas climáticas, eventos RETRASO) + PostgreSQL |
+
+Luego: 6. Facturación por cliente · 7. Ingresos mensuales (cobros).
+
+Definiciones (sin tolerancia): **a tiempo** = entrega ≤ mayor llegada estimada de
+los tramos; **tarde** = después; **demorado** = no entregado ni cancelado con la
+llegada estimada vencida. Los envíos anteriores a la migración 014 no tienen
+países y figuran como "Sin dato".
+
+**Reportes cobrables** (los pide el cliente desde su portal o un usuario interno
+para un cliente; siempre sobre los datos de ESE cliente). Ciclo: SOLICITADO →
+GENERADO (archivo CSV o PDF en `reportes_generados/`; el hash SHA-256 queda en la base) →
+FACTURADO (una factura por reporte, con su movimiento en la cuenta corriente).
+Si la generación falla queda ERROR y no se factura.
+
+| Tipo | Contenido | Bases | Precio + IVA |
+|---|---|---|---|
+| INCIDENTES | Incidentes de sus envíos y alertas de sus contenedores | PostgreSQL + MongoDB | $15.000 |
+| PUNTUALIDAD | Envíos a tiempo, tarde y demorados, con retrasos informados | PostgreSQL + MongoDB | $12.000 |
+| OPERADORES | Operadores que llevaron sus contenedores, por tramo | Neo4j + PostgreSQL | $10.000 |
+| CONDICIONES_CARGA | Temperatura, humedad, lecturas fuera de rango (según las reglas de alerta) y GPS por contenedor | Cassandra + PostgreSQL | $25.000 |
+| PREDICTIVO | Riesgo de demora de sus envíos en curso, al día de la solicitud (sin período) | MongoDB + PostgreSQL | $15.000 |
+
+Los precios se cambian en Facturación y cobranzas → "Precios de reportes
+cobrables"; rigen para los reportes que se piden después.
 
 ### Portal del cliente
 
@@ -168,7 +199,7 @@ Aquí se agregan los reportes analíticos y los reportes pedidos por clientes.
 6. Mis facturas
 7. Detalle de una factura
 8. Mi cuenta corriente
-9. Mis reportes
+9. Mis reportes (listar, solicitar un reporte cobrable, ver uno)
 10. Mensajería
 11. Cerrar sesión / 0. Salir
 
@@ -181,6 +212,43 @@ cliente, la respuesta es "no existe".
   que nos falta pagarles · 4. Cerrar sesión · 0. Salir.
 - Proveedor: 1. Mensajería · 2. Mis facturas y lo que nos falta pagarles ·
   3. Cerrar sesión · 0. Salir.
+
+### Alertas, fallas de sensor y mensajes
+
+- **Reglas de alerta** (Incidentes → 7, tabla `regla_alerta`): umbrales de
+  temperatura (mín./máx.), humedad, vibración, batería, horas sin transmisión,
+  salto brusco de temperatura y cantidad de lecturas idénticas. Se pueden tener
+  varios niveles por variable (por ejemplo, > 8 °C Alta y > 12 °C Crítica): se
+  informa el más severo que se cumple. Valores validados por rango físico.
+- **Fallas del sensor** (un sensor que mide mal): valor imposible (fuera del
+  rango físico o no numérico), lecturas congeladas (las últimas N idénticas) y
+  salto brusco (más de X °C entre lecturas a menos de 60 min). Generan alerta y
+  mensaje, pero no incidente; una lectura con valor imposible no se evalúa
+  contra los umbrales de la carga.
+- **Mensaje por alerta:** toda alerta nueva deja un mensaje "Alerta" (remitente
+  "Sistema de alertas") a los usuarios internos activos y a los usuarios del
+  cliente del envío. Un índice único (alerta, destinatario) evita repetidos.
+- **Sensores al entregar:** al registrar el evento ENTREGADO, los sensores de
+  sus contenedores pasan a Inactivo (motivo "Entrega del envío N"); si el
+  contenedor vuelve a asociarse a un envío, se reactivan.
+
+### Predicción de riesgo (entidad Predicción de Riesgo)
+
+Cada día, por envío en curso: riesgo climático, riesgo operativo, probabilidad
+de demora y fecha de cálculo (colección `predicciones_riesgo`). La probabilidad
+combina como eventos independientes, `1 − Π(1 − p)`:
+
+| Factor | p |
+|---|---|
+| Historial de la ruta (entregados tarde o con RETRASO) | tasa de la ruta; con menos de 2 entregados, la tasa general |
+| Alerta climática que lo afecta (ciudad de un tramo durante el tramo, o país/ciudad del envío durante el viaje) | Baja 0,10 · Media 0,25 · Alta 0,45 · Extrema 0,70 |
+| Cada incidente abierto | Crítica 0,40 · Alta 0,30 · Media 0,20 · otra 0,10 |
+| Llegada estimada vencida | 1 (demora confirmada) |
+
+Nivel: ALTO desde 60 %, MEDIO desde 30 %; el nivel final es el mayor entre este
+y el del puntaje de plazo e incidentes. Sin fechas estimadas queda
+"Información insuficiente" salvo que la probabilidad ya dé ALTO. Las alertas
+climáticas se registran a mano (Análisis y predicciones → 7), sin API externa.
 
 ### Mensajería: a quién se puede escribir
 
@@ -203,10 +271,13 @@ abierta ni instalar un scheduler de Python.
 
 El lanzador admite estos trabajos:
 
-- `sensores`: revisa sensores activos cada vez que se invoca. El umbral
-  predeterminado es de 24 horas sin lecturas. La clave de deduplicación de
-  alertas usa el día calendario de `America/Argentina/Buenos_Aires`.
-- `predicciones`: actualiza las predicciones de envíos activos. La fecha diaria
+- `sensores`: revisa sensores activos cada vez que se invoca: sin transmisión
+  (umbral de la regla de alerta activa; `--horas-sensores` lo reemplaza), y las
+  lecturas recientes (umbrales de la carga y fallas del sensor), con los
+  mensajes de cada alerta nueva. La clave de deduplicación de las alertas de
+  sin transmisión usa el día calendario de `America/Argentina/Buenos_Aires`.
+- `predicciones`: actualiza las predicciones de envíos activos (clima,
+  historial de rutas y probabilidad de demora). La fecha diaria
   se determina en `America/Argentina/Buenos_Aires` y se conserva una predicción
   por envío y día, actualizando el registro de ese día si se vuelve a ejecutar.
 - `todos`: ejecuta predicciones y luego la revisión de sensores. Se conserva
@@ -216,7 +287,7 @@ El lanzador admite estos trabajos:
 Ejemplos de ejecución manual desde la raíz del proyecto:
 
 ```powershell
-.\.venv\Scripts\python.exe .\ejecutar_procesos.py --job sensores --horas-sensores 24
+.\.venv\Scripts\python.exe .\ejecutar_procesos.py --job sensores
 .\.venv\Scripts\python.exe .\ejecutar_procesos.py --job predicciones
 ```
 
@@ -233,7 +304,7 @@ con **No iniciar una instancia nueva**.
 
 | Tarea | Desencadenador | Programa | Argumentos |
 |---|---|---|---|
-| Revisión de sensores | Repetir cada 1 hora | `<raíz>\.venv\Scripts\python.exe` | `<raíz>\ejecutar_procesos.py --job sensores --horas-sensores 24` |
+| Revisión de sensores | Repetir cada 1 hora | `<raíz>\.venv\Scripts\python.exe` | `<raíz>\ejecutar_procesos.py --job sensores` |
 | Predicciones diarias | Todos los días a las 09:00, hora de Argentina | `<raíz>\.venv\Scripts\python.exe` | `<raíz>\ejecutar_procesos.py --job predicciones` |
 
 Reemplazar `<raíz>` por la ruta absoluta del workspace. La acción debe usar la

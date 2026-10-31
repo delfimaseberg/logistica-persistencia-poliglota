@@ -43,7 +43,7 @@ def listar_cargas_envio(id_envio):
     with get_postgres_connection() as conn, conn.cursor() as cur:
         cur.execute("""SELECT ec.id_envio_carga, ec.tipo_carga, tc.descripcion,
                               ec.peso_kg, ec.fragil, ec.descripcion
-                       FROM envio_carga ec JOIN tipo_carga tc USING (tipo_carga)
+                       FROM envio_carga ec JOIN tipo_carga tc ON tc.codigo = ec.tipo_carga
                        WHERE ec.id_envio = %s ORDER BY ec.id_envio_carga""", (id_envio,))
         return cur.fetchall()
 

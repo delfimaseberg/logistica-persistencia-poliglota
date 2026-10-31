@@ -9,6 +9,7 @@ from app.services.incidentes_service import (
     consultar_alertas_service,
     atender_alerta_service
 )
+from app.services.reglas_alerta_service import menu_reglas_alerta
 
 
 def mostrar_menu_incidentes():
@@ -25,9 +26,10 @@ def mostrar_menu_incidentes():
         print("1. Registrar incidente")
         print("2. Consultar incidentes")
         print("3. Actualizar estado de incidente")
-        print("4. Detectar anomalías IoT y generar alertas")
+        print("4. Detectar anomalías y fallas de sensores (genera alertas y mensajes)")
         print("5. Consultar alertas")
         print("6. Marcar alerta como atendida")
+        print("7. Reglas de alerta (umbrales)")
         print("0. Volver al menú principal")
 
         opcion = input("\nSeleccione una opción: ").strip()
@@ -49,6 +51,10 @@ def mostrar_menu_incidentes():
 
         elif opcion == "6":
             atender_alerta_service()
+
+        elif opcion == "7":
+            if verificar_permiso(3):
+                menu_reglas_alerta()
 
         elif opcion == "0":
             break

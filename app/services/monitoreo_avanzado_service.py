@@ -96,7 +96,7 @@ def simular_lecturas_service():
                 print("Ingrese un número entero válido.")
 
         confirmacion = input(
-            "\n¿Registrar estas lecturas en Cassandra? (S/N): "
+            "\n¿Registrar estas lecturas? (S/N): "
         ).strip().upper()
 
         if confirmacion != "S":
@@ -217,7 +217,7 @@ def detectar_sensores_inactivos_service():
                 al_dia.append(sensor)
 
         print("\n--- RESULTADOS ---")
-        print(f"Sensores activos en PostgreSQL: {len(sensores)}")
+        print(f"Sensores activos: {len(sensores)}")
         print(f"Con lecturas recientes: {len(al_dia)}")
         print(f"Sin lecturas registradas: {len(sin_lecturas)}")
         print(f"Con lecturas atrasadas: {len(atrasados)}")
@@ -247,7 +247,7 @@ def detectar_sensores_inactivos_service():
 
         print(
             "\nEsta consulta no cambia automáticamente "
-            "el estado del sensor en PostgreSQL."
+            "el estado del sensor."
         )
 
     except Exception as error:

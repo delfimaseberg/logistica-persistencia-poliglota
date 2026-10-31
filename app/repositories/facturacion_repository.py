@@ -6,7 +6,10 @@ from psycopg import errors
 from app.database.postgres_connection import get_postgres_connection
 from app.services.cotizacion_envio import (
     CODIGO_TARIFA,
+    TASA_IVA,
+    TRATAMIENTO_IVA,
     CotizacionImposible,
+    calcular_iva,
     cotizar,
 )
 
@@ -681,3 +684,108 @@ def reporte_facturacion_clientes():
                 ORDER BY facturado DESC, c.razon_social
             """)
             return cursor.fetchall()
+
+
+def emitir_factura_reporte(id_reporte):
+    """Factura un reporte GENERADO (una factura por reporte).
+
+    En una transacción: factura (origen REPORTE) + detalle + saldo + movimiento
+    FACTURA por el total con IVA, y el reporte pasa a FACTURADO.
+    """
+    try:
+        with get_postgres_connection() as conexion:
+            with conexion.cursor() as cursor:
+                cursor.execute("""
+                    SELECT r.id_cliente, r.estado, r.importe_base, r.tipo,
+                           c.estado,
+                           (CURRENT_TIMESTAMP AT TIME ZONE %s)::date
+                    FROM reporte r
+                    JOIN cliente c ON c.id_cliente = r.id_cliente
+                    WHERE r.id_reporte = %s
+                    FOR UPDATE OF r, c
+                """, (ZONA_CONTABLE, id_reporte))
+                fila = cursor.fetchone()
+                if fila is None:
+                    raise ValueError("El reporte no existe.")
+                id_cliente, estado, neto, tipo, estado_cliente, fecha_emision = fila
+
+                cursor.execute(
+                    "SELECT id_factura FROM factura WHERE id_reporte = %s",
+                    (id_reporte,),
+                )
+                existente = cursor.fetchone()
+                if existente is not None or estado == "FACTURADO":
+                    raise FacturaExistente(
+                        f"El reporte ya tiene la factura {existente[0] if existente else ''}."
+                    )
+                if estado != "GENERADO":
+                    raise ValueError(
+                        f"Solo se factura un reporte GENERADO (estado: {estado})."
+                    )
+                if str(estado_cliente).strip().upper() != "ACTIVO":
+                    raise ValueError("El cliente no está activo.")
+
+                neto = Decimal(neto).quantize(Decimal("0.01"))
+                iva = calcular_iva(neto)
+                total = neto + iva
+                moneda = _obtener_moneda_cuenta_para_factura(cursor, id_cliente)
+                if moneda != MONEDA_PROYECTO:
+                    raise ValueError("La cuenta corriente del cliente no está en ARS.")
+
+                cursor.execute("""
+                    INSERT INTO factura (
+                        id_cliente, fecha_emision, total, estado,
+                        origen_emision, moneda, id_reporte,
+                        importe_base, importe_impuestos, tasa_impositiva,
+                        tratamiento_impositivo
+                    )
+                    VALUES (%s, %s, %s, 'Pendiente', 'REPORTE', %s, %s,
+                            %s, %s, %s, %s)
+                    RETURNING id_factura
+                """, (
+                    id_cliente, fecha_emision, total, moneda, id_reporte,
+                    neto, iva, TASA_IVA, TRATAMIENTO_IVA,
+                ))
+                id_factura = cursor.fetchone()[0]
+
+                cursor.execute("""
+                    INSERT INTO factura_detalle (
+                        id_factura, linea, concepto, id_tramo,
+                        medio_transporte, descripcion, importe
+                    )
+                    VALUES (%s, 1, 'REPORTE', NULL, NULL, %s, %s)
+                """, (id_factura, f"Reporte {id_reporte}: {tipo}", neto))
+
+                cursor.execute("""
+                    UPDATE cuenta_corriente
+                    SET saldo = saldo + %s,
+                        fecha_actualizacion = CURRENT_TIMESTAMP
+                    WHERE id_cliente = %s
+                """, (total, id_cliente))
+                if cursor.rowcount != 1:
+                    raise ValueError("No se pudo actualizar la cuenta corriente.")
+
+                cursor.execute("""
+                    INSERT INTO movimiento_cuenta_corriente (
+                        id_cliente, moneda, tipo_movimiento, importe_firmado,
+                        fecha_contable, tipo_origen, referencia_origen,
+                        referencia_documental
+                    )
+                    VALUES (%s, %s, 'FACTURA', %s, %s, 'FACTURA', %s, %s)
+                """, (
+                    id_cliente, moneda, total, fecha_emision, str(id_factura),
+                    f"reporte={id_reporte};tipo={tipo}",
+                ))
+
+                cursor.execute("""
+                    UPDATE reporte SET estado = 'FACTURADO'
+                    WHERE id_reporte = %s AND estado = 'GENERADO'
+                """, (id_reporte,))
+                if cursor.rowcount != 1:
+                    raise ValueError("No se pudo marcar el reporte como facturado.")
+
+                return {"id_factura": id_factura, "id_reporte": id_reporte,
+                        "neto": neto, "iva": iva, "total": total,
+                        "fecha_emision": fecha_emision}
+    except errors.UniqueViolation:
+        raise FacturaExistente("El reporte ya fue facturado.") from None

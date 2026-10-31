@@ -179,12 +179,12 @@ def validar_evento_entrega(
     """Exige una única evidencia Mongo válida y concordancia con PostgreSQL."""
     if sincronizacion_pendiente:
         raise FinanzasNoConfiguradas(
-            "Hay una sincronización pendiente entre MongoDB y PostgreSQL."
+            "Hay una actualización de estado pendiente para el envío."
         )
 
     if not evento or str(evento.get("tipo", "")).strip().upper() != "ENTREGADO":
         raise FinanzasNoConfiguradas(
-            "No existe evidencia válida del evento ENTREGADO en MongoDB."
+            "No hay un evento de entrega válido registrado para el envío."
         )
 
     if cantidad_eventos_entrega != 1:
@@ -214,7 +214,7 @@ def validar_evento_entrega(
 
     if str(estado_postgres or "").strip().casefold() != "entregado".casefold():
         raise FinanzasNoConfiguradas(
-            "El estado de PostgreSQL no coincide con el evento de entrega."
+            "El estado del envío no coincide con el evento de entrega."
         )
 
     return {

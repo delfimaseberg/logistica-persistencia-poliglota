@@ -80,13 +80,19 @@ def actualizar_sensor(id_sensor, sensor):
                     tipo = %s,
                     fabricante = %s,
                     fecha_instalacion = %s,
-                    estado = %s
+                    estado = %s,
+                    -- Un cambio de estado manual reemplaza el motivo automático.
+                    motivo_inactivo = CASE
+                        WHEN estado = %s THEN motivo_inactivo
+                        ELSE NULL
+                    END
                 WHERE id_sensor = %s
             """, (
                 sensor.id_contenedor,
                 sensor.tipo,
                 sensor.fabricante,
                 sensor.fecha_instalacion,
+                sensor.estado,
                 sensor.estado,
                 id_sensor
             ))
@@ -98,7 +104,8 @@ def eliminar_sensor_db(id_sensor):
         with conexion.cursor() as cursor:
             cursor.execute("""
                 UPDATE sensor_iot
-                SET estado = 'Inactivo'
+                SET estado = 'Inactivo',
+                    motivo_inactivo = 'Baja manual'
                 WHERE id_sensor = %s
                   AND LOWER(estado) <> 'inactivo'
             """, (id_sensor,))

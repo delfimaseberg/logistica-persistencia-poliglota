@@ -29,7 +29,9 @@ def obtener_datos_riesgo(id_envio):
         with conexion.cursor() as cursor:
             cursor.execute("""
                 SELECT e.id_envio, e.estado, e.prioridad,
-                       e.fecha_creacion, c.razon_social
+                       e.fecha_creacion, c.razon_social,
+                       e.origen, e.destino, e.pais_origen,
+                       e.pais_destino, e.id_cliente
                 FROM envio e
                 JOIN cliente c ON c.id_cliente = e.id_cliente
                 WHERE e.id_envio = %s
@@ -40,7 +42,8 @@ def obtener_datos_riesgo(id_envio):
                 return None
 
             cursor.execute("""
-                SELECT fecha_salida, fecha_estimada_llegada
+                SELECT fecha_salida, fecha_estimada_llegada,
+                       origen, destino
                 FROM tramo
                 WHERE id_envio = %s
                 ORDER BY fecha_salida, id_tramo
@@ -61,8 +64,46 @@ def obtener_datos_riesgo(id_envio):
         "fecha_creacion": envio[3],
         "cliente": envio[4],
         "tramos": tramos,
-        "incidentes": incidentes
+        "incidentes": incidentes,
+        "origen": envio[5],
+        "destino": envio[6],
+        "pais_origen": envio[7],
+        "pais_destino": envio[8],
+        "id_cliente": envio[9],
     }
+
+
+def envios_entregados_por_ruta():
+    """Envíos entregados con su ruta, llegada estimada y entrega real.
+
+    Base del historial de rutas que suelen atrasarse.
+    """
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
+            cursor.execute("""
+                SELECT e.id_envio, e.origen, e.destino,
+                       MAX(t.fecha_estimada_llegada) AS llegada_estimada,
+                       e.fecha_entrega
+                FROM envio e
+                LEFT JOIN tramo t ON t.id_envio = e.id_envio
+                WHERE e.estado = 'Entregado'
+                GROUP BY e.id_envio
+                ORDER BY e.id_envio
+            """)
+            return cursor.fetchall()
+
+
+def ultimas_predicciones(ids_envios=None):
+    """La predicción más reciente de cada envío (de todos o de esos)."""
+    filtro = {}
+    if ids_envios is not None:
+        filtro["envio_id"] = {"$in": [int(i) for i in ids_envios]}
+    resultado = get_mongo_database()["predicciones_riesgo"].aggregate([
+        {"$match": filtro},
+        {"$sort": {"fecha_calculo": -1}},
+        {"$group": {"_id": "$envio_id", "doc": {"$first": "$$ROOT"}}},
+    ])
+    return {fila["_id"]: fila["doc"] for fila in resultado}
 
 
 def guardar_prediccion(prediccion):
@@ -98,20 +139,6 @@ def obtener_historial_predicciones(id_envio, limite=10):
         .sort("fecha_calculo", -1)
         .limit(limite)
     )
-
-
-def reporte_clientes_por_envios():
-    with get_postgres_connection() as conexion:
-        with conexion.cursor() as cursor:
-            cursor.execute("""
-                SELECT c.razon_social, COUNT(e.id_envio) AS cantidad
-                FROM cliente c
-                JOIN envio e ON e.id_cliente = c.id_cliente
-                GROUP BY c.id_cliente, c.razon_social
-                ORDER BY cantidad DESC, c.razon_social
-                LIMIT 20
-            """)
-            return cursor.fetchall()
 
 
 def reporte_historico_incidentes():

@@ -204,8 +204,8 @@ def monitoreo_continuo_service():
         print(f"Lecturas registradas: {total_lecturas}")
         print(f"Errores: {total_errores}")
         print(
-            "\nLas lecturas permanecen guardadas "
-            "en Cassandra."
+            "\nLas lecturas quedan guardadas en el historial "
+            "de cada sensor."
         )
 
         input("\nPresione Enter para volver...")

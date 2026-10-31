@@ -19,18 +19,3 @@ def listar_envios_cliente(id_cliente):
                 ORDER BY e.fecha_creacion DESC, e.id_envio DESC
             """, (id_cliente,))
             return cursor.fetchall()
-
-
-def listar_reportes_cliente(id_cliente):
-    """Reportes pedidos por usuarios del cliente."""
-    with get_postgres_connection() as conexion:
-        with conexion.cursor() as cursor:
-            cursor.execute("""
-                SELECT r.id_reporte, r.tipo, r.fecha_generacion, r.formato,
-                       r.estado, u.nombre || ' ' || u.apellido
-                FROM reporte r
-                JOIN usuario u ON u.id_usuario = r.id_usuario
-                WHERE u.id_cliente = %s
-                ORDER BY r.fecha_generacion DESC
-            """, (id_cliente,))
-            return cursor.fetchall()

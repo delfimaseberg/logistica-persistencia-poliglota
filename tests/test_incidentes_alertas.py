@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.services import incidentes_service
+from app.services.deteccion_sensores import REGLAS_POR_DEFECTO
 from app.repositories import incidente_repository, alerta_repository
 
 
@@ -22,7 +23,7 @@ def lectura_anomala():
 
 
 def test_detectar_dos_anomalias_en_una_lectura(lectura_anomala):
-    resultados = incidentes_service.detectar_anomalias(lectura_anomala)
+    resultados = incidentes_service.detectar_anomalias(lectura_anomala, REGLAS_POR_DEFECTO)
 
     assert len(resultados) == 2
     assert resultados[0][0] == "Temperatura alta"
@@ -39,7 +40,7 @@ def test_lectura_normal_no_genera_anomalias():
         bateria=90.0,
     )
 
-    resultados = incidentes_service.detectar_anomalias(lectura)
+    resultados = incidentes_service.detectar_anomalias(lectura, REGLAS_POR_DEFECTO)
 
     assert resultados == []
 
@@ -52,7 +53,7 @@ def test_valores_iguales_al_limite_no_generan_anomalias():
         bateria=20.0,
     )
 
-    resultados = incidentes_service.detectar_anomalias(lectura)
+    resultados = incidentes_service.detectar_anomalias(lectura, REGLAS_POR_DEFECTO)
 
     assert resultados == []
 
@@ -65,7 +66,7 @@ def test_valores_invalidos_se_ignoran():
         bateria=None,
     )
 
-    resultados = incidentes_service.detectar_anomalias(lectura)
+    resultados = incidentes_service.detectar_anomalias(lectura, REGLAS_POR_DEFECTO)
 
     assert resultados == []
 
@@ -189,7 +190,7 @@ def test_cada_tipo_de_anomalia_tiene_clave_diferente():
 
 def test_alerta_mongodb_usa_clave_de_deteccion():
     coleccion = MagicMock()
-    coleccion.find_one_and_update.return_value = {
+    coleccion.find_one.return_value = {
         "_id": "alerta-test-001",
         "clave_deteccion": "1:lectura-test-001:Temperatura alta",
     }
@@ -211,7 +212,7 @@ def test_alerta_mongodb_usa_clave_de_deteccion():
 
     assert alerta["_id"] == "alerta-test-001"
 
-    argumentos = coleccion.find_one_and_update.call_args
+    argumentos = coleccion.update_one.call_args
     filtro = argumentos.args[0]
     actualizacion = argumentos.args[1]
 
@@ -224,7 +225,7 @@ def test_alerta_mongodb_usa_clave_de_deteccion():
 
 def test_alertas_de_tipos_diferentes_tienen_claves_distintas():
     coleccion = MagicMock()
-    coleccion.find_one_and_update.return_value = {"_id": "alerta-test"}
+    coleccion.find_one.return_value = {"_id": "alerta-test"}
 
     with patch.object(
         alerta_repository,
@@ -240,7 +241,7 @@ def test_alertas_de_tipos_diferentes_tienen_claves_distintas():
             "Batería insuficiente", "lectura-test-001", 3,
         )
 
-    llamadas = coleccion.find_one_and_update.call_args_list
+    llamadas = coleccion.update_one.call_args_list
 
     clave_temperatura = llamadas[0].args[0]["clave_deteccion"]
     clave_bateria = llamadas[1].args[0]["clave_deteccion"]
@@ -250,11 +251,12 @@ def test_alertas_de_tipos_diferentes_tienen_claves_distintas():
 
 def test_alerta_existente_no_se_reinicia():
     coleccion = MagicMock()
-    coleccion.find_one_and_update.return_value = {
+    coleccion.find_one.return_value = {
         "_id": "alerta-test-001",
         "estado": "Atendida",
         "incidente_id": 10,
     }
+    coleccion.update_one.return_value.upserted_id = None
 
     with patch.object(
         alerta_repository,
@@ -269,9 +271,10 @@ def test_alerta_existente_no_se_reinicia():
     assert resultado["estado"] == "Atendida"
     assert resultado["incidente_id"] == 10
 
-    actualizacion = coleccion.find_one_and_update.call_args.args[1]
+    actualizacion = coleccion.update_one.call_args.args[1]
     assert "$setOnInsert" in actualizacion
     assert "$set" not in actualizacion
+    assert resultado["nueva"] is False
 
 
 def test_alerta_se_vincula_a_incidente():

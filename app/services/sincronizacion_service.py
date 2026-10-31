@@ -61,9 +61,9 @@ def sincronizar_envio_neo4j(id_envio):
     except Exception as error:
         guardado = _marcar_pendiente(id_envio, error)
         if guardado:
-            print("\nAdvertencia: Neo4j no disponible. Pendiente guardado en MongoDB.")
+            print("\nAdvertencia: la red de rutas no está disponible; la actualización quedó pendiente.")
         else:
-            print("\nADVERTENCIA: falló Neo4j y NO se pudo guardar el pendiente. Revisar logs/app.log.")
+            print("\nADVERTENCIA: no se pudo actualizar la red de rutas ni guardar el pendiente. Revisar logs/app.log.")
         return False
 
     try:

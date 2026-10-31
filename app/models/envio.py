@@ -5,13 +5,18 @@ class Envio:
         origen,
         destino,
         estado,
-        prioridad
+        prioridad,
+        pais_origen=None,
+        pais_destino=None
     ):
         self.id_cliente = id_cliente
         self.origen = origen
         self.destino = destino
         self.estado = estado
         self.prioridad = prioridad
+        # Obligatorios para envíos nuevos (migración 014).
+        self.pais_origen = pais_origen
+        self.pais_destino = pais_destino
 
     def __str__(self):
         return (

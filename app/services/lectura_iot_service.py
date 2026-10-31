@@ -201,7 +201,7 @@ def registrar_lectura_service():
 
         elif tipo == "apertura":
             print(
-                "\nEl esquema actual de Cassandra no tiene "
+                "\nEl registro de lecturas no tiene "
                 "un campo para el estado de apertura."
             )
             print("No se registrará esta lectura.")

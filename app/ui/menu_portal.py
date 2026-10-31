@@ -8,6 +8,7 @@ from app.services import portal_service as portal
 from app.services.autenticacion import obtener_sesion_actual, parte_de
 from app.services.sesion_service import cerrar_sesion_service
 from app.ui.menu_mensajeria import mostrar_menu_mensajeria
+from app.services.reportes_pantallas import mis_reportes_menu
 
 
 OPCIONES_CLIENTE = {
@@ -19,7 +20,7 @@ OPCIONES_CLIENTE = {
     "6": ("Mis facturas", portal.mis_facturas_service),
     "7": ("Detalle de una factura", portal.detalle_mi_factura_service),
     "8": ("Mi cuenta corriente", portal.mi_cuenta_corriente_service),
-    "9": ("Mis reportes", portal.mis_reportes_service),
+    "9": ("Mis reportes (ver y solicitar)", mis_reportes_menu),
     "10": ("Mensajería", mostrar_menu_mensajeria),
 }
 
@@ -67,6 +68,10 @@ def mostrar_portal(usuario):
         print("0. Salir")
 
         opcion = input("\nSeleccione una opción: ").strip()
+
+        # Sesión cerrada por un administrador: se avisa antes de la opción.
+        if obtener_sesion_actual() is None:
+            return False
 
         if opcion in opciones:
             opciones[opcion][1]()

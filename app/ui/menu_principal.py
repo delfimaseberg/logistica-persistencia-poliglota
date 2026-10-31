@@ -21,6 +21,7 @@ from app.services.sesion_service import (
 from app.services.autenticacion import (
     es_interno,
     obtener_sesion_actual,
+    tomar_aviso_cierre,
     verificar_permiso
 )
 
@@ -71,6 +72,11 @@ def mostrar_menu_interno(usuario):
 
     opcion = input("\nSeleccione una opción: ").strip()
 
+    # Si un administrador cerró la sesión mientras se elegía, se avisa
+    # antes de interpretar la opción (el menú vuelve al inicio de sesión).
+    if obtener_sesion_actual() is None:
+        return False
+
     if opcion in OPCIONES_INTERNAS:
         _, funcion, nivel = OPCIONES_INTERNAS[opcion]
         ejecutar_modulo(funcion, nivel)
@@ -95,6 +101,9 @@ def mostrar_menu():
             return
 
         if usuario is None:
+            aviso = tomar_aviso_cierre()
+            if aviso:
+                print(f"\n*** {aviso} ***")
             print("\n==========================================")
             print("       SISTEMA DE GESTIÓN LOGÍSTICA")
             print("==========================================")

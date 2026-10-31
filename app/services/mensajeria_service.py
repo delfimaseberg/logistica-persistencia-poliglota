@@ -209,15 +209,23 @@ def seleccionar_grupo(id_usuario):
     )
 
 
+def nombre_remitente(mensaje):
+    """Los mensajes de alertas los emite el sistema, no un usuario."""
+    if mensaje.get("remitente_nombre"):
+        return mensaje["remitente_nombre"]
+    return obtener_nombre_usuario(mensaje.get("remitente_id"))
+
+
 def mostrar_mensaje(mensaje, numero=None):
     print("-" * 45)
 
     if numero is not None:
         print(f"Mensaje {numero}")
 
-    print(
-        f"De: {obtener_nombre_usuario(mensaje.get('remitente_id'))}"
-    )
+    if mensaje.get("tipo") == "Alerta":
+        print("*** ALERTA ***")
+
+    print(f"De: {nombre_remitente(mensaje)}")
 
     if mensaje.get("tipo") == "Privado":
         print(
@@ -227,7 +235,7 @@ def mostrar_mensaje(mensaje, numero=None):
     print(f"Fecha: {formatear_fecha(mensaje.get('fecha_hora'))}")
     print(f"Contenido: {mensaje.get('contenido', '')}")
 
-    if mensaje.get("tipo") == "Privado":
+    if mensaje.get("tipo") in ("Privado", "Alerta"):
         estado = "Leído" if mensaje.get("leido") else "No leído"
         print(f"Estado: {estado}")
 
@@ -406,7 +414,7 @@ def marcar_leido_service():
             mensajes,
             "MENSAJES NO LEÍDOS",
             lambda item: (
-                f"{obtener_nombre_usuario(item.get('remitente_id'))}"
+                f"{nombre_remitente(item)}"
                 f" | {item.get('contenido', '')[:60]}"
                 f" | {formatear_fecha(item.get('fecha_hora'))}"
             )

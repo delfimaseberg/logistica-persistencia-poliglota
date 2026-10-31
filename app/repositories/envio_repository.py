@@ -30,10 +30,10 @@ def crear_envio(envio, fecha_creacion=None):
             cursor.execute("""
                 INSERT INTO envio (
                     id_cliente, origen, destino, estado, prioridad,
-                    fecha_creacion
+                    fecha_creacion, pais_origen, pais_destino
                 )
                 VALUES (%s, %s, %s, %s, %s,
-                        COALESCE(%s, CURRENT_TIMESTAMP))
+                        COALESCE(%s, CURRENT_TIMESTAMP), %s, %s)
                 RETURNING id_envio
             """, (
                 envio.id_cliente,
@@ -41,7 +41,9 @@ def crear_envio(envio, fecha_creacion=None):
                 envio.destino,
                 envio.estado,
                 envio.prioridad,
-                fecha_creacion
+                fecha_creacion,
+                envio.pais_origen,
+                envio.pais_destino
             ))
             return cursor.fetchone()[0]
 
@@ -59,7 +61,9 @@ def listar_envios():
                     e.estado,
                     e.prioridad,
                     e.fecha_creacion,
-                    e.fecha_entrega
+                    e.fecha_entrega,
+                    e.pais_origen,
+                    e.pais_destino
                 FROM envio e
                 JOIN cliente c ON e.id_cliente = c.id_cliente
                 ORDER BY e.id_envio
@@ -80,7 +84,9 @@ def buscar_envio_por_id(id_envio):
                     e.estado,
                     e.prioridad,
                     e.fecha_creacion,
-                    e.fecha_entrega
+                    e.fecha_entrega,
+                    e.pais_origen,
+                    e.pais_destino
                 FROM envio e
                 JOIN cliente c ON e.id_cliente = c.id_cliente
                 WHERE e.id_envio = %s
@@ -125,4 +131,16 @@ def eliminar_envio_db(id_envio):
                 DELETE FROM envio
                 WHERE id_envio = %s
             """, (id_envio,))
+            return cursor.rowcount > 0
+
+
+def actualizar_paises_envio(id_envio, pais_origen, pais_destino):
+    """Completa o corrige los países de un envío (también los anteriores a 014)."""
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
+            cursor.execute("""
+                UPDATE envio
+                SET pais_origen = %s, pais_destino = %s
+                WHERE id_envio = %s
+            """, (pais_origen, pais_destino, id_envio))
             return cursor.rowcount > 0

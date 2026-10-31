@@ -81,7 +81,8 @@ def test_ejecutar_todos_intenta_el_segundo_trabajo_si_falla_el_primero():
     ) as revisar:
         resultado = procesos.ejecutar_todos_los_procesos()
 
-    revisar.assert_called_once_with(horas=24)
+    # Sin horas explícitas, la revisión usa el umbral de la regla de alerta.
+    revisar.assert_called_once_with(horas=None)
     assert resultado["errores"] == {
         "predicciones": "Mongo no disponible"
     }
@@ -107,7 +108,10 @@ def test_revision_sensores_usa_dia_argentino_y_reutiliza_clave(
         procesos, "listar_sensores", return_value=[sensor]
     ), patch.object(
         procesos, "consultar_ultima_lectura_db", return_value=None
-    ), patch.object(procesos, "registrar_alerta") as registrar:
+    ), patch(
+        "app.services.incidentes_service.buscar_envios_activos_de_contenedor",
+        return_value=[],
+    ), patch.object(procesos, "emitir_alerta") as registrar:
         primera = procesos.detectar_sensores_inactivos_automatico(
             ahora=ahora
         )
@@ -136,7 +140,10 @@ def test_revision_sensores_acumula_error_individual():
         procesos,
         "consultar_ultima_lectura_db",
         side_effect=RuntimeError("Cassandra no disponible"),
-    ), patch.object(procesos, "registrar_alerta") as registrar:
+    ), patch(
+        "app.services.incidentes_service.buscar_envios_activos_de_contenedor",
+        return_value=[],
+    ), patch.object(procesos, "emitir_alerta") as registrar:
         resultado = procesos.detectar_sensores_inactivos_automatico()
 
     assert resultado["errores"] == [{

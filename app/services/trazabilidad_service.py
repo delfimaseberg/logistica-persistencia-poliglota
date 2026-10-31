@@ -323,7 +323,7 @@ def registrar_evento_service():
                         id_envio, nuevo_estado, id_evento, error,
                         fecha_entrega=fecha_entrega,
                     )
-                    print("\nAdvertencia: evento guardado; actualización de estado pendiente en MongoDB.")
+                    print("\nAdvertencia: evento guardado; la actualización del estado quedó pendiente.")
                 except Exception as error_pendiente:
                     logger.exception("No se pudo persistir el pendiente de estado: %s", error_pendiente)
                     print("\nADVERTENCIA: estado no actualizado y pendiente no guardado. Revisar logs/app.log.")
@@ -465,7 +465,7 @@ def seguimiento_temporal_service(envio=None):
 
 def ruta_completa_service(envio=None):
     """envio: fila ya verificada (portal del cliente); si falta, se pide."""
-    print("\n--- RUTA COMPLETA DE UN ENVÍO (Neo4j) ---")
+    print("\n--- RUTA COMPLETA DE UN ENVÍO ---")
 
     try:
         envio = envio or pedir_envio()
@@ -524,7 +524,7 @@ def ruta_completa_service(envio=None):
 
     except Exception as error:
         logger.exception("Error al consultar la ruta: %s", error)
-        print(f"\nError al consultar la ruta en Neo4j: {error}")
+        print(f"\nError al consultar la ruta: {error}")
 
     finally:
         pausar()
@@ -625,7 +625,7 @@ def recorrido_contenedor_service():
 # ------------------------------------------------------------------
 
 def sincronizar_proyeccion_service():
-    print("\n--- SINCRONIZAR / REPARAR PROYECCIÓN EN NEO4J ---")
+    print("\n--- SINCRONIZAR / REPARAR LA RED DE RUTAS ---")
 
     try:
         pendientes = listar_pendientes()
@@ -640,10 +640,10 @@ def sincronizar_proyeccion_service():
 
         estados_pendientes = listar_pendientes_estado()
         print(f"Actualizaciones de estado pendientes: {len(estados_pendientes)}")
-        print("\n1. Reintentar pendientes de Neo4j")
+        print("\n1. Reintentar actualizaciones pendientes de la red de rutas")
         print("2. Resincronizar un envío")
         print("3. Resincronizar todos los envíos")
-        print("4. Reintentar estados pendientes (PostgreSQL)")
+        print("4. Reintentar cambios de estado pendientes")
         print("0. Volver")
 
         opcion = input("\nOpción: ").strip()
@@ -682,7 +682,7 @@ def sincronizar_proyeccion_service():
                         fecha_entrega_de_pendiente(pendiente),
                     ):
                         raise ValueError(
-                            "El envío ya no existe en PostgreSQL o ya está Entregado"
+                            "El envío ya no existe o ya está Entregado"
                         )
                     resolver_pendiente_estado(pendiente["evento_id"])
                     sincronizar_envio_neo4j(pendiente["envio_id"])
@@ -751,7 +751,7 @@ def cliente_visible(sesion):
 
 
 def quien_llevo_contenedor_service():
-    print("\n--- ¿QUIÉN LLEVÓ EL CONTENEDOR? (Neo4j) ---")
+    print("\n--- ¿QUIÉN LLEVÓ EL CONTENEDOR? ---")
 
     try:
         restringido = cliente_visible(obtener_sesion_actual())
@@ -768,7 +768,7 @@ def quien_llevo_contenedor_service():
             print(
                 "\nNo hay tramos para ese contenedor"
                 + (" en sus envíos." if restringido else ".")
-                + " Si los datos son nuevos, sincronice Neo4j (opción 6)."
+                + " Si los datos son nuevos, sincronice la red de rutas (opción 6)."
             )
             return
 
@@ -785,14 +785,14 @@ def quien_llevo_contenedor_service():
         print(f"\n{error}")
     except Exception as error:
         logger.exception("Error al consultar operadores del contenedor")
-        print(f"\nError al consultar Neo4j: {error}")
+        print(f"\nError al consultar la red de operadores: {error}")
 
     finally:
         pausar()
 
 
 def red_operadores_cliente_service():
-    print("\n--- RED CLIENTE - OPERADORES - ENVÍOS (Neo4j) ---")
+    print("\n--- RED CLIENTE - OPERADORES - ENVÍOS ---")
 
     try:
         restringido = cliente_visible(obtener_sesion_actual())
@@ -828,7 +828,7 @@ def red_operadores_cliente_service():
         print(f"\n{error}")
     except Exception as error:
         logger.exception("Error al consultar la red del cliente")
-        print(f"\nError al consultar Neo4j: {error}")
+        print(f"\nError al consultar la red de operadores: {error}")
 
     finally:
         pausar()

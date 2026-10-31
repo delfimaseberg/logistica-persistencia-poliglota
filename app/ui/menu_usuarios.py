@@ -37,7 +37,7 @@ def mostrar_menu_usuarios():
         print("4. Modificar usuario")
         print("5. Eliminar usuario")
         print("6. Gestión de roles")
-        print("7. Consultar sesiones activas")
+        print("7. Sesiones activas (consultar y cerrar)")
         print("0. Volver al menú principal")
 
         opcion = input("\nSeleccione una opción: ").strip()

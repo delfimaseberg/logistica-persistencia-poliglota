@@ -24,7 +24,21 @@ def asociar_contenedor_db(id_envio, id_contenedor):
                 RETURNING id_envio
             """, (id_contenedor, id_envio))
 
-            return cursor.fetchone() is not None
+            asociado = cursor.fetchone() is not None
+
+            if asociado:
+                # Si el contenedor vuelve a viajar, se reactivan los sensores
+                # que se apagaron por la entrega de un envío anterior (no los
+                # inactivos por otros motivos).
+                cursor.execute("""
+                    UPDATE sensor_iot
+                    SET estado = 'Activo', motivo_inactivo = NULL
+                    WHERE id_contenedor = %s
+                      AND estado = 'Inactivo'
+                      AND motivo_inactivo LIKE 'Entrega del envío %%'
+                """, (id_contenedor,))
+
+            return asociado
 
 
 def listar_contenedores_de_envio(id_envio):

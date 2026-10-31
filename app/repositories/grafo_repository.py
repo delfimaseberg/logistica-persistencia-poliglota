@@ -262,3 +262,59 @@ def eliminar_operadores_legados():
     """
     with abrir_sesion_neo4j() as sesion:
         return sesion.execute_write(_eliminar_operadores_legados_tx)
+
+
+# ------------------------------------------------------------------
+# Reportes: operadores por envío y por contenedor (solo lectura)
+# ------------------------------------------------------------------
+
+def _operadores_por_envio_tx(tx, ids_envios):
+    resultado = tx.run("""
+        MATCH (e:Envio)-[:TIENE_TRAMO]->(t:Tramo)-[:REALIZADO_POR]->(op:Operador)
+        WHERE e.id_envio IN $ids
+        RETURN e.id_envio AS id_envio, op.id_operador AS id_operador,
+               op.razon_social AS operador, t.medio_transporte AS medio
+    """, ids=[int(i) for i in ids_envios])
+    return [dict(fila) for fila in resultado]
+
+
+def operadores_por_envio(ids_envios):
+    """{id_envio: [(id_operador, razón social, medio), ...]} según el grafo."""
+    if not ids_envios:
+        return {}
+    with abrir_sesion_neo4j() as sesion:
+        filas = sesion.execute_read(_operadores_por_envio_tx, ids_envios)
+    resultado = {}
+    for fila in filas:
+        resultado.setdefault(fila["id_envio"], []).append(
+            (fila["id_operador"], fila["operador"], fila["medio"])
+        )
+    return resultado
+
+
+def _operadores_contenedores_cliente_tx(tx, id_cliente, ids_envios, id_contenedor):
+    resultado = tx.run("""
+        MATCH (cl:Cliente {id_cliente: $id_cliente})-[:REALIZA]->(e:Envio)
+              -[:UTILIZA_CONTENEDOR]->(k:Contenedor)
+        WHERE e.id_envio IN $ids
+          AND ($id_contenedor IS NULL OR k.id_contenedor = $id_contenedor)
+        MATCH (e)-[:TIENE_TRAMO]->(t:Tramo)
+        OPTIONAL MATCH (t)-[:REALIZADO_POR]->(op:Operador)
+        RETURN k.codigo AS contenedor, e.id_envio AS id_envio,
+               t.id_tramo AS id_tramo, t.medio_transporte AS medio,
+               t.origen AS origen, t.destino AS destino,
+               t.fecha_salida AS salida, op.razon_social AS operador
+        ORDER BY contenedor, salida, id_tramo
+    """, id_cliente=id_cliente, ids=[int(i) for i in ids_envios],
+        id_contenedor=id_contenedor)
+    return [dict(fila) for fila in resultado]
+
+
+def operadores_de_contenedores_cliente(id_cliente, ids_envios, id_contenedor=None):
+    """Tramos y operadores de los contenedores de UN cliente (solo sus envíos)."""
+    if not ids_envios:
+        return []
+    with abrir_sesion_neo4j() as sesion:
+        return sesion.execute_read(
+            _operadores_contenedores_cliente_tx, id_cliente, ids_envios, id_contenedor
+        )

@@ -15,6 +15,7 @@ from app.services.monitoreo_avanzado_service import (
 )
 
 from app.services.monitoreo_continuo_service import monitoreo_continuo_service
+from app.services.simulacion_fallas_service import simular_falla_sensor_service
 
 
 def mostrar_menu_monitoreo():
@@ -36,6 +37,7 @@ def mostrar_menu_monitoreo():
         print("6. Detectar sensores sin lecturas recientes")
         print("7. Consultar posiciones GPS por contenedor o sensor")
         print("8. Iniciar monitoreo automático")
+        print("9. Simular falla de sensor (valor imposible, congelado, salto)")
         print("0. Volver al menú principal")
 
         opcion = input(
@@ -65,6 +67,9 @@ def mostrar_menu_monitoreo():
             
         elif opcion == "8":
             monitoreo_continuo_service()
+
+        elif opcion == "9":
+            simular_falla_sensor_service()
 
         elif opcion == "0":
             break
