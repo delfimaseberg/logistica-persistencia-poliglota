@@ -31,10 +31,36 @@ def actualizar(*args):
 
 def test_entregado_guarda_la_fecha_real_de_entrega():
     resultado, cursor = actualizar(45, "Entregado", ENTREGA)
-    sql, params = cursor.execute.call_args.args
+    # Primera sentencia: estado y fecha; la segunda apaga los sensores.
+    sql, params = cursor.execute.call_args_list[0].args
     assert resultado is True
     assert "fecha_entrega = %s" in sql
     assert params == ("Entregado", ENTREGA, 45)
+
+
+def test_entregado_pasa_los_sensores_del_envio_a_inactivo():
+    _, cursor = actualizar(45, "Entregado", ENTREGA)
+    assert cursor.execute.call_count == 2
+    sql, params = cursor.execute.call_args_list[1].args
+    assert "UPDATE sensor_iot" in sql
+    assert "estado = 'Inactivo'" in sql
+    assert "motivo_inactivo = 'Entrega del envío '" in sql
+    assert "s.estado = 'Activo'" in sql
+    assert params == (45, 45)
+
+
+def test_otro_estado_no_toca_los_sensores():
+    _, cursor = actualizar(45, "En tránsito", ENTREGA)
+    assert cursor.execute.call_count == 1
+
+
+def test_si_el_envio_ya_estaba_entregado_no_toca_los_sensores():
+    cursor = MagicMock()
+    cursor.rowcount = 0
+    with patch.object(traz_repo, "get_postgres_connection",
+                      return_value=crear_conexion_mock(cursor)):
+        assert traz_repo.actualizar_estado_envio(45, "Entregado", ENTREGA) is False
+    assert cursor.execute.call_count == 1
 
 
 def test_entregado_sin_fecha_se_rechaza():

@@ -369,7 +369,7 @@ def eliminar_sensor_service():
         print(
             "\nEl sensor no se borrará de la base de datos."
             "\nSu estado cambiará a Inactivo."
-            "\nSus lecturas históricas se conservarán en Cassandra."
+            "\nSus lecturas históricas se conservan."
         )
 
         confirmacion = input(

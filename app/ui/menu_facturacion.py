@@ -1,6 +1,7 @@
 from app.services.autenticacion import verificar_permiso
 
 from app.services import facturacion_service as servicio
+from app.services import reportes_pantallas as pantallas
 
 
 # (texto, función, nivel mínimo). Solo usuarios internos (verificar_permiso).
@@ -20,6 +21,9 @@ OPCIONES = {
           servicio.precios_transporte_service, 3),
     "10": ("Apertura de cuenta corriente", servicio.apertura_cuenta_service, 3),
     "11": ("Cierre mensual de cuentas corrientes", servicio.cierre_mensual_service, 3),
+    "12": ("Facturar reportes generados pendientes",
+           pantallas.facturar_reportes_pendientes_service, 3),
+    "13": ("Precios de reportes cobrables", pantallas.precios_reportes_service, 3),
 }
 
 
@@ -36,7 +40,7 @@ def mostrar_menu_facturacion():
         print("==========================================")
         for clave, (texto, _, _) in OPCIONES.items():
             print(f"{clave}. {texto}")
-        print("12. Reglas tarifarias y datos de carga (avanzado)")
+        print("14. Reglas tarifarias y datos de carga (avanzado)")
         print("0. Volver al menú principal")
 
         opcion = input("\nSeleccione una opción: ").strip()
@@ -49,7 +53,7 @@ def mostrar_menu_facturacion():
             if verificar_permiso(nivel):
                 funcion()
 
-        elif opcion == "12":
+        elif opcion == "14":
             if verificar_permiso(3):
                 from app.ui.menu_tarifas import mostrar_menu_tarifas
                 mostrar_menu_tarifas()

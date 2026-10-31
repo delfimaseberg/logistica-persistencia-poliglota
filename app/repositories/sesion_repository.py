@@ -65,10 +65,22 @@ def listar_sesiones_activas():
                     u.nombre,
                     u.apellido,
                     u.email,
-                    s.fecha_inicio
+                    s.fecha_inicio,
+                    CASE
+                        WHEN u.id_cliente IS NOT NULL
+                            THEN 'Cliente: ' || c.razon_social
+                        WHEN u.id_proveedor IS NOT NULL
+                            THEN 'Proveedor: ' || p.razon_social
+                        WHEN u.id_operador IS NOT NULL
+                            THEN 'Operador: ' || o.razon_social
+                        ELSE 'Interno'
+                    END AS parte
                 FROM sesion s
                 JOIN usuario u
                     ON s.id_usuario = u.id_usuario
+                LEFT JOIN cliente c ON c.id_cliente = u.id_cliente
+                LEFT JOIN proveedor p ON p.id_proveedor = u.id_proveedor
+                LEFT JOIN operador_logistico o ON o.id_operador = u.id_operador
                 WHERE s.estado = 'ACTIVA'
                   AND s.fecha_fin IS NULL
                 ORDER BY s.fecha_inicio DESC;
@@ -96,3 +108,39 @@ def cerrar_sesion_db(id_sesion, id_usuario):
             )
 
             return cursor.rowcount > 0
+
+def cerrar_sesion_ajena_db(id_sesion, id_administrador):
+    """Un administrador cierra la sesión activa de OTRO usuario.
+
+    Queda registrado quién la cerró (sesion.cerrada_por, migración 015).
+    """
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE sesion
+                SET
+                    estado = 'CERRADA',
+                    fecha_fin = CURRENT_TIMESTAMP,
+                    cerrada_por = %s
+                WHERE id_sesion = %s
+                  AND id_usuario <> %s
+                  AND estado = 'ACTIVA'
+                  AND fecha_fin IS NULL;
+                """,
+                (id_administrador, id_sesion, id_administrador)
+            )
+
+            return cursor.rowcount > 0
+
+
+def cerrada_por_otro(id_sesion):
+    """True si la sesión la cerró un usuario distinto de su dueño."""
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
+            cursor.execute(
+                "SELECT cerrada_por, id_usuario FROM sesion WHERE id_sesion = %s",
+                (id_sesion,)
+            )
+            fila = cursor.fetchone()
+            return bool(fila and fila[0] is not None and fila[0] != fila[1])

@@ -4,6 +4,8 @@ from app.database.postgres_connection import get_postgres_connection
 
 
 _sesion_actual = None
+# Aviso para el usuario cuya sesión cerró un administrador.
+_aviso_cierre = None
 
 
 def establecer_sesion(id_sesion, id_usuario):
@@ -61,6 +63,13 @@ def obtener_sesion_actual():
             resultado = cursor.fetchone()
 
     if resultado is None:
+        global _aviso_cierre
+        try:
+            from app.repositories.sesion_repository import cerrada_por_otro
+            if cerrada_por_otro(_sesion_actual["id_sesion"]):
+                _aviso_cierre = "Tu sesión fue cerrada por un administrador."
+        except Exception:
+            pass
         limpiar_sesion()
         return None
 
@@ -78,6 +87,13 @@ def obtener_sesion_actual():
         "id_proveedor": resultado[8],
         "id_operador": resultado[9]
     }
+
+
+def tomar_aviso_cierre():
+    """Devuelve el aviso pendiente (una sola vez) o None."""
+    global _aviso_cierre
+    aviso, _aviso_cierre = _aviso_cierre, None
+    return aviso
 
 
 def parte_de(sesion):
@@ -113,7 +129,7 @@ def solo_internos(funcion):
 def verificar_sesion():
     """Hay una sesión activa (cualquier parte). Para pantallas del portal."""
     if obtener_sesion_actual() is None:
-        print("\nDebe iniciar sesión para continuar.")
+        print("\n" + (tomar_aviso_cierre() or "Debe iniciar sesión para continuar."))
         return False
     return True
 
@@ -127,7 +143,7 @@ def verificar_permiso(nivel_minimo):
     usuario = obtener_sesion_actual()
 
     if usuario is None:
-        print("\nDebe iniciar sesión para continuar.")
+        print("\n" + (tomar_aviso_cierre() or "Debe iniciar sesión para continuar."))
         return False
 
     if not es_interno(usuario):

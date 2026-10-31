@@ -13,7 +13,6 @@ from app.repositories.facturacion_repository import (
 )
 from app.repositories.portal_repository import (
     listar_envios_cliente,
-    listar_reportes_cliente,
 )
 from app.repositories.terceros_repository import listar_tramos_operador
 from app.services import trazabilidad_service
@@ -161,25 +160,6 @@ def mi_cuenta_corriente_service():
     finally:
         pausar()
 
-
-def mis_reportes_service():
-    print("\n--- MIS REPORTES ---")
-    try:
-        _, id_cliente = parte_actual("CLIENTE")
-        reportes = listar_reportes_cliente(id_cliente)
-        if not reportes:
-            print("Todavía no pidió reportes.")
-        for r in reportes:
-            print(f"Reporte {r[0]} | {r[1]} | {r[2]:%d/%m/%Y %H:%M} | {r[3]} | "
-                  f"{r[4]} | pedido por {r[5]}")
-        print("\n(La solicitud de reportes se habilita en esta pantalla próximamente.)")
-    except Exception as error:
-        print(f"Error: {error}")
-    finally:
-        pausar()
-
-
-# ------------------------------------------------- operador / proveedor
 
 def mis_tramos_service():
     print("\n--- MIS TRAMOS REALIZADOS ---")

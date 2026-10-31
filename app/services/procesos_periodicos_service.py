@@ -6,7 +6,8 @@ from app.repositories.sensor_repository import listar_sensores
 from app.repositories.lectura_iot_repository import (
     consultar_ultima_lectura_db,
 )
-from app.repositories.alerta_repository import registrar_alerta
+from app.services.alertas_service import emitir_alerta
+from app.repositories.regla_alerta_repository import reglas_vigentes
 from app.services.predicciones_service import (
     actualizar_predicciones_activas,
 )
@@ -19,13 +20,13 @@ ZONA_ARGENTINA = ZoneInfo("America/Argentina/Buenos_Aires")
 PROCESOS_DISPONIBLES = {"predicciones", "sensores"}
 
 
-def detectar_sensores_inactivos_automatico(horas=24, ahora=None):
+def detectar_sensores_inactivos_automatico(horas=24, ahora=None, severidad="Media"):
     """
-    Detecta sensores activos sin lecturas recientes y registra
-    alertas en MongoDB.
+    Detecta sensores activos sin lecturas recientes, registra la alerta y
+    emite los mensajes (internos y, si el contenedor tiene un único envío
+    activo, los usuarios de su cliente).
 
-    No cambia el estado del sensor ni crea incidentes sin un
-    envío asociado.
+    No cambia el estado del sensor ni crea incidentes.
     """
     if not 0 < horas <= 8760:
         raise ValueError(
@@ -55,6 +56,9 @@ def detectar_sensores_inactivos_automatico(horas=24, ahora=None):
     for sensor in sensores:
         id_sensor = sensor[0]
         id_contenedor = sensor[1]
+        # En los textos, el contenedor se identifica por su código.
+        codigo = sensor[2]
+        tipo_sensor = str(sensor[3]).lower()
         estado = str(sensor[6]).strip().lower()
 
         if estado != "activo":
@@ -69,8 +73,8 @@ def detectar_sensores_inactivos_automatico(horas=24, ahora=None):
                 resumen["sin_lecturas"].append(id_sensor)
                 tipo = "Sensor sin lecturas registradas"
                 descripcion = (
-                    f"El sensor {id_sensor} del contenedor "
-                    f"{id_contenedor} no tiene lecturas registradas."
+                    f"El sensor de {tipo_sensor} del contenedor "
+                    f"{codigo} no tiene lecturas registradas."
                 )
 
             else:
@@ -90,9 +94,10 @@ def detectar_sensores_inactivos_automatico(horas=24, ahora=None):
 
                 tipo = "Sensor sin transmisión reciente"
                 descripcion = (
-                    f"El sensor {id_sensor} del contenedor "
-                    f"{id_contenedor} no transmite desde "
-                    f"{fecha.isoformat()}. Umbral: {horas} horas."
+                    f"El sensor de {tipo_sensor} del contenedor "
+                    f"{codigo} no transmite desde "
+                    f"{fecha.astimezone(ZONA_ARGENTINA):%d/%m/%Y %H:%M}. "
+                    f"Umbral: {horas:g} horas."
                 )
 
             # Una alerta por sensor, tipo y día evita duplicados
@@ -102,13 +107,19 @@ def detectar_sensores_inactivos_automatico(horas=24, ahora=None):
             ).date().isoformat()
             clave = f"{id_sensor}:{tipo}:{dia_deteccion}"
 
-            registrar_alerta(
+            from app.services.incidentes_service import (
+                buscar_envios_activos_de_contenedor,
+            )
+            envios = buscar_envios_activos_de_contenedor(id_contenedor)
+
+            emitir_alerta(
                 sensor_id=id_sensor,
                 contenedor_id=id_contenedor,
                 tipo=tipo,
-                severidad="Media",
+                severidad=severidad,
                 descripcion=descripcion,
                 clave_deteccion=clave,
+                envio_id=envios[0] if len(envios) == 1 else None,
             )
 
             resumen["alertas_procesadas"] += 1
@@ -161,17 +172,33 @@ def ejecutar_predicciones_diarias():
     return resultado
 
 
-def ejecutar_revision_sensores(horas=24):
-    """Ejecuta la revisión periódica de sensores."""
+def regla_sin_transmision():
+    """(horas, severidad) de la regla activa menos exigente; (24, Media) si no hay."""
+    reglas = reglas_vigentes().get(("horas_sin_transmision", "MAX"))
+    if not reglas:
+        return 24.0, "Media"
+    horas, severidad, _ = min(reglas, key=lambda r: r[0])
+    return horas, severidad
+
+
+def ejecutar_revision_sensores(horas=None):
+    """Revisión periódica: sensores sin transmisión y lecturas recientes
+    (umbrales de la carga y fallas del sensor)."""
+    from app.services.incidentes_service import revisar_lecturas_sensores
+
+    horas_regla, severidad = regla_sin_transmision()
+    horas = horas or horas_regla
     logger.info(
         "Iniciando revisión de sensores. Umbral: %s horas",
         horas,
     )
 
-    return detectar_sensores_inactivos_automatico(horas=horas)
+    resultado = detectar_sensores_inactivos_automatico(horas=horas, severidad=severidad)
+    resultado["lecturas"] = revisar_lecturas_sensores()
+    return resultado
 
 
-def ejecutar_todos_los_procesos(horas_sensores=24, procesos=None):
+def ejecutar_todos_los_procesos(horas_sensores=None, procesos=None):
     """
     Ejecuta los procesos disponibles de forma independiente.
     Si uno falla, intenta ejecutar el siguiente.

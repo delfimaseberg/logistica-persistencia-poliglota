@@ -4,11 +4,12 @@ from app.services.autenticacion import verificar_permiso
 from app.services.predicciones_service import (
     evaluar_envio_service,
     historial_predicciones_service,
-    ranking_clientes_service,
     historico_incidentes_service,
     demoras_estimadas_service,
     actualizar_predicciones_service
 )
+from app.services.clima_service import menu_alertas_climaticas
+from app.services import reportes_pantallas as pantallas
 
 
 def mostrar_menu_predicciones():
@@ -24,10 +25,11 @@ def mostrar_menu_predicciones():
         print("==========================================")
         print("1. Evaluar riesgo de un envío")
         print("2. Consultar historial de predicciones")
-        print("3. Ranking de clientes por envíos")
+        print("3. Ranking de clientes por volumen transportado")
         print("4. Análisis histórico de incidentes")
         print("5. Envíos con llegada estimada vencida")
         print("6. Actualizar predicciones de envíos activos")
+        print("7. Alertas climáticas (registrar, listar, anular)")
         print("0. Volver al menú principal")
 
         opcion = input("\nSeleccione una opción: ").strip()
@@ -37,7 +39,8 @@ def mostrar_menu_predicciones():
         elif opcion == "2":
             historial_predicciones_service()
         elif opcion == "3":
-            ranking_clientes_service()
+            # El mismo reporte que Reportes -> Rankings y desempeño.
+            pantallas.REPORTES_RANKINGS["2"][1]()
         elif opcion == "4":
             historico_incidentes_service()
         elif opcion == "5":
@@ -45,6 +48,9 @@ def mostrar_menu_predicciones():
         elif opcion == "6":
             if verificar_permiso(3):
                 actualizar_predicciones_service()
+        elif opcion == "7":
+            if verificar_permiso(3):
+                menu_alertas_climaticas()
         elif opcion == "0":
             break
         else:

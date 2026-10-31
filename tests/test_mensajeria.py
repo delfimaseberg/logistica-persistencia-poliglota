@@ -38,8 +38,9 @@ def test_bandeja_filtra_por_destinatario():
 
     filtro = coleccion.find.call_args.args[0]
 
+    # La bandeja incluye los mensajes privados y los de alertas.
     assert filtro == {
-        "tipo": "Privado",
+        "tipo": {"$in": ["Privado", "Alerta"]},
         "destinatario_id": 2
     }
 

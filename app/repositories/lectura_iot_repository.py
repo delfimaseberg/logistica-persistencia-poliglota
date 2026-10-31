@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from threading import Lock
 from uuid import uuid4
 
@@ -218,3 +218,54 @@ def consultar_ultima_lectura_db(id_sensor):
         consulta,
         (int(id_sensor),)
     ).one()
+
+
+def ultimas_lecturas_sensor(id_sensor, cantidad, ahora=None):
+    """Las últimas lecturas del sensor, de la más nueva a la más vieja.
+
+    Busca en la partición del mes actual y, si faltan, en la del mes anterior.
+    """
+    ahora = (ahora or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    anterior = (ahora.replace(day=1) - timedelta(days=1))
+    lecturas = []
+    for anio_mes in (ahora.strftime("%Y-%m"), anterior.strftime("%Y-%m")):
+        lecturas.extend(consultar_lecturas_sensor_db(id_sensor, anio_mes, cantidad - len(lecturas)))
+        if len(lecturas) >= cantidad:
+            break
+    return lecturas[:cantidad]
+
+
+def meses_entre(desde, hasta):
+    """Particiones 'AAAA-MM' que cubren el intervalo [desde, hasta]."""
+    meses = []
+    anio, mes = desde.year, desde.month
+    while (anio, mes) <= (hasta.year, hasta.month):
+        meses.append(f"{anio:04d}-{mes:02d}")
+        anio, mes = (anio + 1, 1) if mes == 12 else (anio, mes + 1)
+    return meses
+
+
+def consultar_lecturas_contenedor_periodo(id_contenedor, desde, hasta):
+    """Lecturas de un contenedor entre dos instantes (con zona horaria).
+
+    Consulta una partición (contenedor, mes) por cada mes del intervalo y
+    filtra por la columna de clustering fecha_hora.
+    """
+    desde = desde.astimezone(timezone.utc)
+    hasta = hasta.astimezone(timezone.utc)
+    _, session = abrir_conexion()
+    consulta = _preparar(session, """
+        SELECT *
+        FROM lecturas_por_contenedor
+        WHERE contenedor_id = ?
+          AND anio_mes = ?
+          AND fecha_hora >= ?
+          AND fecha_hora < ?
+    """)
+    lecturas = []
+    for anio_mes in meses_entre(desde, hasta):
+        lecturas.extend(session.execute(
+            consulta, (int(id_contenedor), anio_mes, desde, hasta)
+        ))
+    lecturas.sort(key=lambda lectura: lectura.fecha_hora)
+    return lecturas

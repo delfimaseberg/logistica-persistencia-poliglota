@@ -2,7 +2,6 @@
 from datetime import datetime, timezone
 
 from bson import ObjectId
-from pymongo import ReturnDocument
 
 from app.database.mongo_connection import get_mongo_database
 
@@ -49,6 +48,9 @@ def registrar_alerta(
             str(lectura_id) if lectura_id is not None else None
         ),
         "incidente_id": None,
+        # Las alertas nuevas emiten mensajes (alertas_service.emitir_alerta);
+        # las anteriores a este campo no lo tienen y no se notifican.
+        "mensajes_emitidos": False,
     }
 
     if clave_deteccion is None and lectura_id is not None:
@@ -57,16 +59,48 @@ def registrar_alerta(
     if clave_deteccion is None:
         resultado = coleccion.insert_one(documento)
         documento["_id"] = resultado.inserted_id
+        documento["nueva"] = True
         return documento
 
     documento["clave_deteccion"] = clave_deteccion
 
-    return coleccion.find_one_and_update(
+    resultado = coleccion.update_one(
         {"clave_deteccion": clave_deteccion},
         {"$setOnInsert": documento},
         upsert=True,
-        return_document=ReturnDocument.AFTER,
     )
+    alerta = coleccion.find_one({"clave_deteccion": clave_deteccion})
+    # "nueva" no se guarda: indica si esta llamada la creó.
+    alerta["nueva"] = resultado.upserted_id is not None
+    return alerta
+
+
+def marcar_mensajes_emitidos(id_alerta, cantidad):
+    coleccion_alertas().update_one(
+        {"_id": ObjectId(str(id_alerta))},
+        {"$set": {"mensajes_emitidos": True, "mensajes_cantidad": cantidad}},
+    )
+
+
+def atender_alertas_de_contenedores(tipos_regex, ids_contenedores, nota, aplicar=False):
+    """Pasa a Atendida las alertas activas de esos tipos y contenedores.
+
+    Sin aplicar=True solo cuenta. No borra nada. Devuelve la cantidad.
+    """
+    filtro = {
+        "tipo": {"$regex": tipos_regex},
+        "estado": "Activa",
+        "contenedor_id": {"$in": [int(i) for i in ids_contenedores]},
+    }
+    coleccion = coleccion_alertas()
+    if not aplicar:
+        return coleccion.count_documents(filtro)
+    resultado = coleccion.update_many(
+        filtro,
+        {"$set": {"estado": "Atendida", "nota_atencion": nota,
+                  "fecha_atencion": datetime.now(timezone.utc)}},
+    )
+    return resultado.modified_count
 
 
 def listar_alertas(estado=None, sensor_id=None):
@@ -104,3 +138,21 @@ def vincular_incidente_alerta(id_alerta, id_incidente):
         raise RuntimeError(
             "No se encontró la alerta para vincular el incidente"
         )
+
+
+def listar_alertas_contenedores(ids_contenedores, desde=None, hasta=None):
+    """Alertas de un conjunto de contenedores (reportes por cliente).
+
+    desde/hasta son datetimes con zona horaria (hasta excluido).
+    """
+    if not ids_contenedores:
+        return []
+    filtro = {"contenedor_id": {"$in": [int(i) for i in ids_contenedores]}}
+    rango = {}
+    if desde is not None:
+        rango["$gte"] = desde
+    if hasta is not None:
+        rango["$lt"] = hasta
+    if rango:
+        filtro["fecha"] = rango
+    return list(get_mongo_database()["alertas"].find(filtro).sort("fecha", 1))

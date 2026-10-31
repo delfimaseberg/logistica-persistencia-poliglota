@@ -7,6 +7,7 @@ from app.repositories.envio_repository import (
     listar_envios,
     buscar_envio_por_id,
     actualizar_envio,
+    actualizar_paises_envio,
     eliminar_envio_db
 )
 
@@ -68,8 +69,10 @@ def mostrar_envio(envio):
     print(f"ID envío: {envio[0]}")
     print(f"ID cliente: {envio[1]}")
     print(f"Cliente: {envio[2]}")
-    print(f"Origen: {envio[3]}")
-    print(f"Destino: {envio[4]}")
+    pais_origen = envio[9] if len(envio) > 9 and envio[9] else "sin dato"
+    pais_destino = envio[10] if len(envio) > 10 and envio[10] else "sin dato"
+    print(f"Origen: {envio[3]} ({pais_origen})")
+    print(f"Destino: {envio[4]} ({pais_destino})")
     print(f"Estado: {envio[5]}")
     print(f"Prioridad: {envio[6]}")
     print(f"Fecha de creación: {envio[7]}")
@@ -124,10 +127,22 @@ def registrar_envio():
             "El origen"
         )
 
+        pais_origen = pedir_dato(
+            "País de origen: ",
+            texto_obligatorio,
+            "El país de origen"
+        )
+
         destino = pedir_dato(
             "Destino: ",
             texto_obligatorio,
             "El destino"
+        )
+
+        pais_destino = pedir_dato(
+            "País de destino: ",
+            texto_obligatorio,
+            "El país de destino"
         )
 
         estado = pedir_dato(
@@ -149,7 +164,9 @@ def registrar_envio():
             origen,
             destino,
             estado,
-            prioridad
+            prioridad,
+            pais_origen=pais_origen,
+            pais_destino=pais_destino
         )
 
         id_envio = crear_envio(envio)
@@ -244,6 +261,7 @@ def modificar_envio_service():
         print("3. Destino")
         print("4. Estado")
         print("5. Prioridad")
+        print("6. Países de origen y destino")
         print("0. Cancelar")
 
         opcion = input("\nOpción: ").strip()
@@ -252,12 +270,29 @@ def modificar_envio_service():
             print("Modificación cancelada.")
             return
 
-        if opcion not in ["1", "2", "3", "4", "5"]:
+        if opcion not in ["1", "2", "3", "4", "5", "6"]:
             print("Opción inválida.")
             return
 
-        # Entregado es final: solo se puede cambiar la prioridad.
-        if es_entregado(envio_actual[5]) and opcion != "5":
+        # Países: se pueden completar o corregir en cualquier estado
+        # (los envíos anteriores a la migración 014 no los tienen).
+        if opcion == "6":
+            pais_origen = pedir_dato(
+                "País de origen: ", texto_obligatorio, "El país de origen"
+            )
+            pais_destino = pedir_dato(
+                "País de destino: ", texto_obligatorio, "El país de destino"
+            )
+            if actualizar_paises_envio(id_envio, pais_origen, pais_destino):
+                print("\nPaíses actualizados.")
+                mostrar_envio(buscar_envio_por_id(id_envio))
+            else:
+                print("\nNo se pudieron actualizar los países.")
+            return
+
+        # Entregado es final: solo se puede cambiar la prioridad (los
+        # países se resolvieron antes).
+        if es_entregado(envio_actual[5]) and opcion not in ("5", "6"):
             print(
                 "\nEl envío está Entregado: su cliente, ruta y estado ya no "
                 "se modifican."
@@ -404,7 +439,7 @@ def eliminar_envio_service():
         print(f"\nError al eliminar el envío: {error}")
         print(
             "Si el envío tiene tramos, incidentes o contenedores "
-            "asociados, PostgreSQL puede impedir su eliminación."
+            "asociados, el sistema puede impedir su eliminación."
         )
 
     finally:

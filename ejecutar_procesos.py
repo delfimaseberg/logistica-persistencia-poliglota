@@ -90,6 +90,9 @@ def hay_errores(resultado):
     if sensores is not None and sensores.get("errores"):
         return True
 
+    if sensores is not None and (sensores.get("lecturas") or {}).get("errores"):
+        return True
+
     return False
 
 
@@ -106,8 +109,9 @@ def main(argv=None):
     parser.add_argument(
         "--horas-sensores",
         type=float,
-        default=24,
-        help="Umbral de horas sin lecturas para sensores (por defecto: 24).",
+        default=None,
+        help="Umbral de horas sin lecturas para sensores (por defecto, el "
+             "de la regla de alerta activa).",
     )
     parser.add_argument(
         "--corte",
@@ -169,6 +173,16 @@ def main(argv=None):
             print(f"  Con lecturas atrasadas: {len(sensores['atrasados'])}")
             print(f"  Alertas procesadas: {sensores['alertas_procesadas']}")
             print(f"  Errores: {len(sensores['errores'])}")
+            lecturas = sensores.get("lecturas")
+            if lecturas is not None:
+                print()
+                print("Revisión de lecturas (umbrales y fallas de sensor):")
+                print(f"  Sensores revisados: {lecturas['revisados']}")
+                print(f"  Anomalías de la carga: {lecturas['anomalias']}")
+                print(f"  Fallas de sensor: {lecturas['fallas']}")
+                print(f"  Alertas nuevas: {lecturas['alertas_nuevas']}")
+                print(f"  Mensajes enviados: {lecturas['mensajes']}")
+                print(f"  Errores: {len(lecturas['errores'])}")
 
         if errores:
             print("\nProcesos con errores:")

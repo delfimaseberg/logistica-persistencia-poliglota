@@ -1,5 +1,5 @@
 from datetime import datetime, timezone, timedelta
-from math import isfinite
+from zoneinfo import ZoneInfo
 
 from app.repositories.envio_repository import buscar_envio_por_id
 from app.repositories.sensor_repository import listar_sensores
@@ -19,15 +19,18 @@ from app.repositories.alerta_repository import (
     vincular_incidente_alerta,
 )
 from app.database.postgres_connection import get_postgres_connection
+from app.repositories.lectura_iot_repository import ultimas_lecturas_sensor
+from app.repositories.regla_alerta_repository import VARIABLES, reglas_vigentes, umbral
+from app.services.alertas_service import emitir_alerta
+from app.services.deteccion_sensores import (
+    es_lectura_valida_para_umbrales,
+    evaluar_umbrales,
+    fallas_de_sensor,
+)
 
 
-LIMITES = {
-    "temperatura_min": 2.0,
-    "temperatura_max": 8.0,
-    "humedad_max": 80.0,
-    "vibracion_max": 15.0,
-    "bateria_min": 20.0,
-}
+# Los umbrales están en la tabla regla_alerta (ABM de reglas de alerta).
+ZONA_ARGENTINA = ZoneInfo("America/Argentina/Buenos_Aires")
 
 
 def pedir_id(mensaje):
@@ -186,47 +189,17 @@ def cambiar_estado_incidente_service():
         pausar()
 
 
-def detectar_anomalias(lectura):
-    """Devuelve las anomalías detectadas en una lectura IoT."""
-    resultados = []
+def detectar_anomalias(lectura, vigentes=None):
+    """Anomalías de la carga en una lectura, según las reglas de alerta activas.
 
-    reglas = [
-        ("temperatura", "temperatura_min", "menor", "Temperatura baja", "Alta"),
-        ("temperatura", "temperatura_max", "mayor", "Temperatura alta", "Alta"),
-        ("humedad", "humedad_max", "mayor", "Humedad alta", "Media"),
-        ("vibracion", "vibracion_max", "mayor", "Vibración alta", "Alta"),
-        ("bateria", "bateria_min", "menor", "Batería baja", "Media"),
-    ]
-
-    for campo, limite, comparacion, tipo, severidad in reglas:
-        valor = getattr(lectura, campo, None)
-
-        if valor is None:
-            continue
-
-        try:
-            numero = float(valor)
-        except (ValueError, TypeError):
-            continue
-
-        if not isfinite(numero):
-            continue
-
-        umbral = LIMITES[limite]
-
-        if comparacion == "menor":
-            anormal = numero < umbral
-        else:
-            anormal = numero > umbral
-
-        if anormal:
-            resultados.append((
-                tipo,
-                severidad,
-                f"{tipo}: valor {numero:.2f}, límite {umbral:.2f}",
-            ))
-
-    return resultados
+    Devuelve [(tipo, severidad, descripción)]. Si la lectura tiene valores
+    físicamente imposibles no se evalúa (es una falla del sensor).
+    """
+    if vigentes is None:
+        vigentes = reglas_vigentes()
+    if not es_lectura_valida_para_umbrales(lectura):
+        return []
+    return evaluar_umbrales(lectura, vigentes)
 
 
 def buscar_envios_activos_de_contenedor(id_contenedor):
@@ -339,131 +312,149 @@ def procesar_incidente_de_alerta(
     return id_incidente, accion
 
 
+def _texto_umbrales(vigentes):
+    lineas = []
+    for (variable, limite), reglas in sorted(vigentes.items()):
+        nombre, unidad = VARIABLES[variable][0], VARIABLES[variable][1]
+        signo = "menor a" if limite == "MIN" else "mayor a"
+        for valor, severidad, _ in sorted(reglas):
+            lineas.append(f"  {nombre} {signo} {valor:g} {unidad} -> {severidad}".rstrip())
+    return lineas
+
+
+def revisar_lecturas_sensores(ahora=None, horas_vigencia=24):
+    """Revisa las lecturas recientes de cada sensor activo y emite alertas.
+
+    - Umbrales de la carga sobre la última lectura (crea incidente si el
+      contenedor tiene un único envío activo).
+    - Fallas del sensor (valor imposible, congelado, salto brusco): alerta
+      y mensaje, sin incidente (falla el equipo, no la carga).
+    Sin interacción: la usan el menú, el proceso periódico y la carga demo.
+    """
+    ahora = ahora or datetime.now(timezone.utc)
+    vigentes = reglas_vigentes()
+    congeladas = umbral(vigentes, "lecturas_congeladas", "MAX", 6)
+    cantidad = max(10, int(congeladas))
+    resumen = {"revisados": 0, "sin_lecturas": 0, "antiguas": 0, "anomalias": 0,
+               "fallas": 0, "alertas_nuevas": 0, "mensajes": 0, "incidentes": 0,
+               "detalle": [], "errores": []}
+
+    for sensor in listar_sensores():
+        id_sensor, id_contenedor = sensor[0], sensor[1]
+        if str(sensor[6]).strip().lower() != "activo":
+            continue
+        try:
+            lecturas = ultimas_lecturas_sensor(id_sensor, cantidad, ahora)
+            if not lecturas:
+                resumen["sin_lecturas"] += 1
+                continue
+            resumen["revisados"] += 1
+            limite = ahora - timedelta(hours=horas_vigencia)
+            recientes = [l for l in lecturas
+                         if (l.fecha_hora if l.fecha_hora.tzinfo else
+                             l.fecha_hora.replace(tzinfo=timezone.utc)) >= limite]
+            if not recientes:
+                resumen["antiguas"] += 1
+                continue
+
+            envios = buscar_envios_activos_de_contenedor(id_contenedor)
+            id_envio = envios[0] if len(envios) == 1 else None
+            ultima = recientes[0]
+
+            for tipo, severidad, descripcion, id_lectura in fallas_de_sensor(recientes, vigentes):
+                alerta = emitir_alerta(
+                    sensor_id=id_sensor, contenedor_id=id_contenedor, tipo=tipo,
+                    severidad=severidad, descripcion=descripcion,
+                    lectura_id=id_lectura, envio_id=id_envio)
+                resumen["fallas"] += 1
+                resumen["alertas_nuevas"] += bool(alerta.get("nueva"))
+                resumen["mensajes"] += alerta.get("mensajes_creados", 0)
+                resumen["detalle"].append((id_sensor, tipo, descripcion, None))
+
+            for tipo, severidad, descripcion in detectar_anomalias(ultima, vigentes):
+                alerta = emitir_alerta(
+                    sensor_id=id_sensor, contenedor_id=id_contenedor, tipo=tipo,
+                    severidad=severidad, descripcion=descripcion,
+                    lectura_id=ultima.id_lectura, envio_id=id_envio)
+                resumen["anomalias"] += 1
+                resumen["alertas_nuevas"] += bool(alerta.get("nueva"))
+                resumen["mensajes"] += alerta.get("mensajes_creados", 0)
+                id_incidente = None
+                if id_envio is not None:
+                    id_incidente, _ = procesar_incidente_de_alerta(
+                        alerta=alerta, id_envio=id_envio, id_sensor=id_sensor,
+                        id_lectura=ultima.id_lectura, tipo=tipo,
+                        severidad=severidad, descripcion=descripcion)
+                    resumen["incidentes"] += 1
+                resumen["detalle"].append((id_sensor, tipo, descripcion, id_incidente))
+        except Exception as error:
+            resumen["errores"].append((id_sensor, str(error)))
+    return resumen
+
+
 def detectar_alertas_service():
-    print("\n--- DETECTAR ANOMALÍAS IoT ---")
-    print("Se analizará la última lectura de cada sensor activo.")
-    print("Umbrales configurados para demostración:")
-    print("Temperatura: 2 a 8 °C")
-    print("Humedad máxima: 80 %")
-    print("Vibración máxima: 15")
-    print("Batería mínima: 20 %")
+    print("\n--- DETECTAR ANOMALÍAS Y FALLAS DE SENSORES ---")
+    print("Se analizan las lecturas de las últimas 24 horas de cada sensor activo.")
+    try:
+        vigentes = reglas_vigentes()
+        print("Reglas de alerta activas:")
+        for linea in _texto_umbrales(vigentes):
+            print(linea)
+        print("También se detectan fallas del sensor: valores imposibles, "
+              "lecturas congeladas y saltos bruscos.")
+    except Exception as error:
+        print(f"No se pudieron leer las reglas de alerta: {error}")
+        pausar()
+        return
 
     confirmar = input("\n¿Ejecutar detección? (S/N): ").strip().upper()
     if confirmar != "S":
         return
 
     try:
-        sensores = listar_sensores()
-
-        revisados = 0
-        anomalias = 0
-        errores = 0
-
-        for sensor in sensores:
-            id_sensor = sensor[0]
-            id_contenedor = sensor[1]
-
-            if str(sensor[6]).strip().lower() != "activo":
-                continue
-
-            try:
-                lectura = consultar_ultima_lectura_db(id_sensor)
-
-                if lectura is None:
-                    print(f"Sensor {id_sensor}: sin lecturas.")
-                    continue
-
-                revisados += 1
-
-                fecha = lectura.fecha_hora
-
-                if fecha.tzinfo is None:
-                    fecha = fecha.replace(tzinfo=timezone.utc)
-
-                if fecha < datetime.now(timezone.utc) - timedelta(hours=24):
-                    print(f"Sensor {id_sensor}: última lectura antigua.")
-                    continue
-
-                detectadas = detectar_anomalias(lectura)
-
-                if not detectadas:
-                    print(f"Sensor {id_sensor}: sin anomalías.")
-                    continue
-
-                envios = buscar_envios_activos_de_contenedor(
-                    id_contenedor
-                )
-
-                id_envio = envios[0] if len(envios) == 1 else None
-
-                if len(envios) > 1:
-                    print(
-                        f"Sensor {id_sensor}: el contenedor tiene "
-                        "varios envíos activos. No se crearán "
-                        "incidentes automáticos."
-                    )
-
-                for tipo, severidad, descripcion in detectadas:
-                    try:
-                        alerta = registrar_alerta(
-                            sensor_id=id_sensor,
-                            contenedor_id=id_contenedor,
-                            tipo=tipo,
-                            severidad=severidad,
-                            descripcion=descripcion,
-                            lectura_id=lectura.id_lectura,
-                            envio_id=id_envio,
-                        )
-
-                        anomalias += 1
-
-                        print(
-                            f"Sensor {id_sensor}: {descripcion} "
-                            f"| Alerta {alerta['_id']}"
-                        )
-
-                        if id_envio is None:
-                            continue
-
-                        id_incidente, accion = procesar_incidente_de_alerta(
-                            alerta=alerta,
-                            id_envio=id_envio,
-                            id_sensor=id_sensor,
-                            id_lectura=lectura.id_lectura,
-                            tipo=tipo,
-                            severidad=severidad,
-                            descripcion=descripcion,
-                        )
-
-                        print(
-                            f"  Incidente {id_incidente} "
-                            f"{accion} para {tipo}."
-                        )
-
-                    except Exception as error:
-                        errores += 1
-                        print(
-                            f"Sensor {id_sensor}, anomalía {tipo}: "
-                            f"error: {error}"
-                        )
-
-            except Exception as error:
-                errores += 1
-                print(f"Sensor {id_sensor}: error: {error}")
+        resumen = revisar_lecturas_sensores()
+        for id_sensor, tipo, descripcion, id_incidente in resumen["detalle"]:
+            extra = f" | incidente {id_incidente}" if id_incidente else ""
+            print(f"Sensor {id_sensor}: {descripcion}{extra}")
+        for id_sensor, error in resumen["errores"]:
+            print(f"Sensor {id_sensor}: error: {error}")
 
         print("\n--- RESULTADO ---")
-        print(f"Sensores revisados: {revisados}")
-        print(f"Anomalías encontradas: {anomalias}")
-        print(f"Errores: {errores}")
-        print(
-            "Las alertas repetidas de una misma lectura "
-            "se reutilizan en MongoDB."
-        )
-
+        print(f"Sensores revisados: {resumen['revisados']}")
+        print(f"Sin lecturas en las últimas 24 horas: {resumen['antiguas']}")
+        print(f"Anomalías de la carga: {resumen['anomalias']}")
+        print(f"Fallas de sensor: {resumen['fallas']}")
+        print(f"Alertas nuevas: {resumen['alertas_nuevas']} "
+              f"(mensajes enviados: {resumen['mensajes']})")
+        print(f"Errores: {len(resumen['errores'])}")
+        print("Si una alerta ya existía no se repite ni se vuelve a notificar.")
     except Exception as error:
         print(f"Error en la detección: {error}")
     finally:
         pausar()
+
+
+def _fecha_alerta(fecha):
+    if fecha is None:
+        return "-"
+    if fecha.tzinfo is None:
+        fecha = fecha.replace(tzinfo=timezone.utc)
+    return fecha.astimezone(ZONA_ARGENTINA).strftime("%d/%m/%Y %H:%M")
+
+
+def mostrar_alerta(alerta, numero):
+    print("-" * 45)
+    print(f"{numero}. {alerta.get('tipo')} | {alerta.get('severidad')} | "
+          f"{alerta.get('estado')} | {_fecha_alerta(alerta.get('fecha'))}")
+    lugar = [f"Sensor {alerta.get('sensor_id')}"]
+    if alerta.get("envio_id") is not None:
+        lugar.append(f"envío {alerta['envio_id']}")
+    if alerta.get("incidente_id") is not None:
+        lugar.append(f"incidente {alerta['incidente_id']}")
+    print("   " + " | ".join(lugar))
+    print(f"   {alerta.get('descripcion')}")
+    if alerta.get("nota_atencion"):
+        print(f"   Nota: {alerta['nota_atencion']}")
 
 
 def consultar_alertas_service():
@@ -484,26 +475,17 @@ def consultar_alertas_service():
             print("Opción inválida.")
             return
 
-        texto = input("ID sensor (Enter = todos): ").strip()
+        texto = input("N.º de sensor (Enter = todos): ").strip()
         sensor_id = int(texto) if texto else None
 
         alertas = listar_alertas(opciones[opcion], sensor_id)
         print(f"\nAlertas encontradas: {len(alertas)}")
 
-        for alerta in alertas:
-            print("-" * 45)
-            print(f"ID: {alerta['_id']}")
-            print(f"Sensor: {alerta.get('sensor_id')}")
-            print(f"Envío: {alerta.get('envio_id')}")
-            print(f"Tipo: {alerta.get('tipo')}")
-            print(f"Severidad: {alerta.get('severidad')}")
-            print(f"Estado: {alerta.get('estado')}")
-            print(f"Fecha: {alerta.get('fecha')}")
-            print(f"Descripción: {alerta.get('descripcion')}")
-            print(f"Incidente: {alerta.get('incidente_id')}")
+        for numero, alerta in enumerate(alertas, 1):
+            mostrar_alerta(alerta, numero)
 
     except ValueError:
-        print("El ID del sensor debe ser numérico.")
+        print("El número de sensor debe ser numérico.")
     except Exception as error:
         print(f"Error al consultar alertas: {error}")
     finally:
@@ -514,9 +496,22 @@ def atender_alerta_service():
     print("\n--- MARCAR ALERTA COMO ATENDIDA ---")
 
     try:
-        id_alerta = input("ID de la alerta: ").strip()
+        alertas = listar_alertas("Activa")
 
-        if actualizar_estado_alerta(id_alerta, "Atendida"):
+        if not alertas:
+            print("No hay alertas activas.")
+            return
+
+        for numero, alerta in enumerate(alertas, 1):
+            mostrar_alerta(alerta, numero)
+
+        valor = input("\nNúmero de alerta (0 = cancelar): ").strip()
+
+        if not valor.isdigit() or not 1 <= int(valor) <= len(alertas):
+            print("Cancelado.")
+            return
+
+        if actualizar_estado_alerta(str(alertas[int(valor) - 1]["_id"]), "Atendida"):
             print("Alerta marcada como atendida.")
         else:
             print("No se encontró la alerta.")

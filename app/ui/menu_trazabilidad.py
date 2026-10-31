@@ -24,9 +24,9 @@ def mostrar_menu_trazabilidad():
         print("3. Seguimiento temporal de un envío")
         print("4. Ruta completa de un envío")
         print("5. Recorrido de un contenedor")
-        print("6. Sincronizar / reparar rutas (Neo4j)")
-        print("7. ¿Quién llevó el contenedor? (operadores, Neo4j)")
-        print("8. Red cliente - operadores - envíos (Neo4j)")
+        print("6. Sincronizar / reparar la red de rutas")
+        print("7. ¿Quién llevó el contenedor? (operadores)")
+        print("8. Red cliente - operadores - envíos")
         print("0. Volver al menú principal")
 
         opcion = input("\nSeleccione una opción: ").strip()

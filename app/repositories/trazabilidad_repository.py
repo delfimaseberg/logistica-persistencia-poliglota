@@ -24,7 +24,26 @@ def actualizar_estado_envio(id_envio, estado, fecha_entrega=None):
                 """,
                 (estado, fecha_entrega if entregado else None, id_envio)
             )
-            return cursor.rowcount > 0
+            actualizado = cursor.rowcount > 0
+
+            if actualizado and entregado:
+                # En la misma transacción: los sensores de sus contenedores
+                # dejan de transmitir; pasan a Inactivo para no generar
+                # alertas falsas de "sin transmisión".
+                cursor.execute(
+                    """
+                    UPDATE sensor_iot s
+                    SET estado = 'Inactivo',
+                        motivo_inactivo = 'Entrega del envío ' || %s::text
+                    FROM envio_contenedor ec
+                    WHERE ec.id_envio = %s
+                      AND s.id_contenedor = ec.id_contenedor
+                      AND s.estado = 'Activo'
+                    """,
+                    (id_envio, id_envio)
+                )
+
+            return actualizado
 
 
 def listar_ids_envios():

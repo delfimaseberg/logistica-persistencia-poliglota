@@ -13,6 +13,10 @@ Uso (PowerShell, desde la raíz del proyecto):
     $env:POSTGRES_DB = "logistica_poliglota_demo_ensayo"
     python scripts\\datos_demo\\cargar_datos_demo.py --base logistica_poliglota_demo_ensayo --solo-postgres
 
+    # datos de los días 3 y 3B (cada uno, carga única, después de la completa)
+    python scripts\\datos_demo\\cargar_datos_demo.py --base logistica_poliglota --dia3
+    python scripts\\datos_demo\\cargar_datos_demo.py --base logistica_poliglota --dia3b
+
     # el día de la demo: lecturas IoT recientes, alertas y predicciones
     python scripts\\datos_demo\\cargar_datos_demo.py --base logistica_poliglota --refrescar-lecturas
 
@@ -604,7 +608,7 @@ def cargar_lecturas_recientes(c):
 def detectar_alertas_y_predicciones(c, ids_contenedores):
     """Igual que 'Detectar anomalías IoT' y los procesos periódicos, sin preguntas."""
     from app.repositories.lectura_iot_repository import consultar_ultima_lectura_db
-    from app.repositories.alerta_repository import registrar_alerta
+    from app.services.alertas_service import emitir_alerta as registrar_alerta
     from app.services.incidentes_service import (
         buscar_envios_activos_de_contenedor, detectar_anomalias, procesar_incidente_de_alerta)
     from app.services.procesos_periodicos_service import detectar_sensores_inactivos_automatico
@@ -666,8 +670,265 @@ def sincronizar_grafo(c):
     c.nota(f"Neo4j: {correctos} envíos sincronizados; errores: {errores}.")
 
 
+# ---------------------------------------------------------------- día 3
+
+PAIS_DE = {
+    "Mendoza": "Argentina", "Paso Cristo Redentor": "Argentina", "Santiago": "Chile",
+    "Montevideo": "Uruguay", "Buenos Aires": "Argentina", "Rosario": "Argentina",
+    "Valencia": "España", "Madrid": "España", "Asunción": "Paraguay",
+    "Clorinda": "Argentina", "Ushuaia": "Argentina", "Panamá": "Panamá",
+    "Miami": "Estados Unidos", "Córdoba": "Argentina", "Bariloche": "Argentina",
+    "Uspallata": "Argentina",
+}
+COORDS["Uspallata"] = (-32.5931, -69.3466)
+TIPOS_CARGA = {
+    "VINO": "Vino embotellado", "CARNE": "Carne congelada",
+    "ALIMENTOS": "Alimentos secos", "YERBA": "Yerba mate", "GENERAL": "Carga general",
+}
+# Partidas por envío: (tipo, peso kg, frágil).
+PARTIDAS = {
+    "E1": [("VINO", "18000", True)], "E2": [("VINO", "19500", True)],
+    "E3": [("VINO", "17200", True)], "E4": [("CARNE", "24000", False)],
+    "E5": [("CARNE", "22500", False)],
+    "E6": [("ALIMENTOS", "26000", False), ("GENERAL", "3500", False)],
+    "E7": [("YERBA", "21000", False)], "E8": [("GENERAL", "2800", True)],
+    "E9": [("VINO", "18800", True)], "E10": [("GENERAL", "4200", True)],
+    "E11": [("CARNE", "23800", False)], "E12": [("YERBA", "20500", False)],
+    "E14": [("VINO", "19000", True)],
+}
+INCIDENTES_DIA3 = [
+    ("E7", "Control fronterizo demorado", "Media", "Demora de 6 h en el paso de Clorinda",
+     "2026-10-11 12:00"),
+    ("E5", "Daño en embalaje", "Baja", "Pallet con film roto; sin pérdida de mercadería",
+     "2026-10-07 21:30"),
+]
+# Envío demorado nuevo (el anterior se entregó el 30/10).
+ENVIO_DEMORADO = dict(
+    clave="E14", cliente="VINEDOS", origen="Mendoza", destino="Santiago", prioridad="Alta",
+    creado="2026-10-27 09:00", contenedor=("C13", "TDSU1000130", "Refrigerado", "28.30",
+                                           ["Temperatura", "Humedad", "GPS"]),
+    tramo=("Terrestre", "Mendoza", "Santiago", "2026-10-28 08:00", "2026-10-30 12:00",
+           "CAMION2", "ANDINOS"),
+    eventos=[("CARGA_INICIADA", "2026-10-27 15:00", "Mendoza", "Carga refrigerada", {}),
+             ("EN_TRANSITO", "2026-10-28 08:00", "Mendoza", "Salida hacia Chile", {}),
+             ("RETRASO", "2026-10-29 10:00", "Uspallata", "Corte de ruta por protesta",
+              {"motivo": "Corte de ruta por protesta en Uspallata", "demora_horas": 36})],
+    incidente=("Retraso", "Alta", "Corte de ruta por protesta en Uspallata (36 h)",
+               "2026-10-29 10:00"),
+    en_transito_en="Uspallata",
+)
+REPORTES_DEMO = [
+    # (usuario: clave de USUARIOS o "ADMIN", cliente, tipo, formato, desde)
+    ("VINEDOS", "VINEDOS", "PUNTUALIDAD", "CSV", "2026-08-01"),
+    ("VINEDOS", "VINEDOS", "CONDICIONES_CARGA", "PDF", "2026-10-01"),
+    ("ADMIN", "FRIGORIFICO", "INCIDENTES", "CSV", "2026-09-01"),
+]
+
+
+def _id_envio_por_clave(e):
+    fila = q("SELECT id_envio FROM envio WHERE origen = %s AND destino = %s "
+             "AND fecha_creacion = %s", (e["origen"], e["destino"], t(e["creado"])))
+    return fila[0][0] if fila else None
+
+
+def cargar_dia3(c):
+    from app.repositories import tarifas_repository
+    from app.services import reportes_cobrables_service as cobrables
+
+    # 1. Países de los envíos de ejemplo (los de prueba viejos quedan sin dato).
+    for k, e in ENVIOS.items():
+        envio_repository.actualizar_paises_envio(
+            c.ids["envio"][k], PAIS_DE[e["origen"]], PAIS_DE[e["destino"]])
+    c.nota(f"Países de origen y destino en {len(ENVIOS)} envíos de ejemplo.")
+
+    # 2. Envío demorado nuevo, con incidente abierto.
+    d = ENVIO_DEMORADO
+    kc, codigo, tipo_c, capacidad, sensores = d["contenedor"]
+    id_cont = contenedor_repository.crear_contenedor(
+        Contenedor(codigo, tipo_c, Decimal(capacidad), "Disponible"))
+    c.ids["contenedor"][kc] = id_cont
+    c.ids["sensor"][kc] = {s: sensor_repository.crear_sensor(Sensor(
+        id_cont, s, "TecnoSens", date(2026, 10, 20), "Activo")) for s in sensores}
+    id_envio = envio_repository.crear_envio(
+        Envio(c.ids["cliente"][d["cliente"]], d["origen"], d["destino"], "Pendiente",
+              d["prioridad"], pais_origen=PAIS_DE[d["origen"]],
+              pais_destino=PAIS_DE[d["destino"]]),
+        fecha_creacion=t(d["creado"]))
+    c.ids["envio"][d["clave"]] = id_envio
+    medio, ori, dest, sal, lleg, veh, op = d["tramo"]
+    tramo_repository.crear_tramo(Tramo(id_envio, c.ids["vehiculo"][veh], medio, ori, dest,
+                                       t(sal), t(lleg), c.ids["operador"][op]))
+    if not envio_contenedor_repository.asociar_contenedor_db(id_envio, id_cont):
+        raise RuntimeError("No se pudo asociar el contenedor del envío demorado.")
+    for tipo, fecha, lugar, desc, detalle in d["eventos"]:
+        registrar_evento(c, id_envio, tipo, t(fecha), lugar, desc, detalle)
+    tipo_i, sev, desc, fecha = d["incidente"]
+    incidente_repository.crear_incidente(id_envio, tipo_i, sev, desc, t(fecha))
+    ENVIOS[d["clave"]] = dict(contenedor=kc, en_transito_en=d["en_transito_en"])
+    c.nota(f"Envío demorado {id_envio} (Mendoza -> Santiago, llegada estimada 30/10 12:00) "
+           "con evento RETRASO e incidente de Retraso abierto.")
+
+    # 3. Partidas de carga (peso real) para el ranking por volumen.
+    existentes = {r[0] for r in tarifas_repository.listar_tipos_carga()}
+    for codigo_t, descripcion in TIPOS_CARGA.items():
+        if codigo_t not in existentes:
+            tarifas_repository.crear_tipo_carga(codigo_t, descripcion)
+    total_kg = Decimal("0")
+    for k, partidas in PARTIDAS.items():
+        for tipo_carga, peso, fragil in partidas:
+            tarifas_repository.agregar_carga(c.ids["envio"][k], tipo_carga, Decimal(peso), fragil,
+                                             TIPOS_CARGA[tipo_carga])
+            total_kg += Decimal(peso)
+    c.nota(f"Partidas de carga: {sum(len(p) for p in PARTIDAS.values())} ({total_kg:,.0f} kg).")
+
+    # 4. Incidentes cerrados en Paraguay y Uruguay.
+    for k, tipo_i, sev, desc, fecha in INCIDENTES_DIA3:
+        id_inc = incidente_repository.crear_incidente(c.ids["envio"][k], tipo_i, sev, desc, t(fecha))
+        incidente_repository.actualizar_estado_incidente(id_inc, "Cerrado")
+    c.nota(f"Incidentes cerrados adicionales: {len(INCIDENTES_DIA3)}.")
+
+    # 5. NoSQL del envío nuevo: lecturas recientes, grafo, alertas y predicciones.
+    if not c.solo_postgres:
+        from app.repositories.lectura_iot_repository import registrar_lectura_db
+        lat0, lon0 = COORDS[d["en_transito_en"]]
+        ahora = datetime.now(timezone.utc)
+        for h in range(6, -1, -2):
+            momento = ahora - timedelta(hours=h, minutes=random.randint(0, 20))
+            for tipo_s, id_sensor in c.ids["sensor"][kc].items():
+                v = {"bateria": 85.0}
+                if tipo_s == "GPS":
+                    v.update(gps_latitud=round(lat0 + random.uniform(-0.01, 0.01), 6),
+                             gps_longitud=round(lon0 + random.uniform(-0.01, 0.01), 6))
+                elif tipo_s == "Temperatura":
+                    v["temperatura"] = round(random.uniform(3, 6), 2)
+                elif tipo_s == "Humedad":
+                    v["humedad"] = round(random.uniform(55, 70), 1)
+                registrar_lectura_db(id_sensor, id_cont, fecha_hora=momento, **v)
+        from app.services.sincronizacion_service import sincronizar_envio_neo4j
+        sincronizar_envio_neo4j(id_envio)
+        from app.services.predicciones_service import actualizar_predicciones_activas
+        actualizar_predicciones_activas()
+        c.nota("Envío demorado: lecturas recientes en Cassandra, grafo en Neo4j y predicciones.")
+
+    # 6. Reportes cobrables de ejemplo (generados y facturados).
+    hoy = cobrables.hoy()
+    for usuario, cliente, tipo, formato, desde in REPORTES_DEMO:
+        if c.solo_postgres and tipo in ("OPERADORES", "CONDICIONES_CARGA", "INCIDENTES"):
+            continue        # usan Neo4j, Cassandra o MongoDB
+        r = cobrables.solicitar_reporte(c.ids["cliente"][cliente], c.ids["usuario"][usuario],
+                                        tipo, formato, {"desde": desde, "hasta": hoy.isoformat()})
+        c.nota(f"Reporte {r['id_reporte']} {tipo} {formato} para {cliente}: {r['estado']} "
+               f"({r['filas']} filas, factura {r['id_factura']}).")
+
+
+# ---------------------------------------------------------------- día 3B
+
+# Alertas climáticas: (ubicación, fenómeno, severidad, desde, hasta, descripción)
+ALERTAS_CLIMA = [
+    ("Mendoza", "Nevadas en alta montaña", "Alta", "2026-10-30", "2026-11-02",
+     "Paso Cristo Redentor con cierres intermitentes."),
+    ("Buenos Aires", "Tormenta fuerte", "Media", "2026-10-31", "2026-11-01",
+     "Alerta amarilla por lluvias y ráfagas."),
+    ("Uruguay", "Crecida del río", "Media", "2026-10-31", "2026-11-02",
+     "Demoras en accesos portuarios."),
+    ("Rosario", "Niebla", "Baja", "2026-10-10", "2026-10-11",
+     "Alerta vencida: no debe afectar envíos en curso."),
+]
+# Fallas de sensor: (código del contenedor, tipo de sensor, falla)
+FALLAS_SENSOR = [
+    ("TDSU1000103", "Humedad", "imposible"),       # envío Buenos Aires -> Miami
+    ("TDSU1000119", "Temperatura", "congelada"),   # envío Montevideo -> Rosario
+    ("MSCU1234571", "Temperatura", "salto"),       # envío Buenos Aires -> Madrid
+]
+REPORTE_PREDICTIVO = ("VINEDOS", "VINEDOS", "PREDICTIVO", "CSV")
+SESION_DEMO = "VINEDOS"      # usuario cuya sesión cierra el administrador
+
+
+def cargar_dia3b(c):
+    from app.repositories import sesion_repository
+    from app.services import reportes_cobrables_service as cobrables
+
+    if not c.solo_postgres:
+        from app.repositories.alerta_climatica_repository import registrar_alerta_climatica
+        from app.repositories.lectura_iot_repository import registrar_lectura_db
+        from app.repositories.regla_alerta_repository import reglas_vigentes, umbral
+        from app.services.procesos_periodicos_service import (
+            ejecutar_predicciones_diarias, ejecutar_revision_sensores)
+        from app.services.simulacion_fallas_service import lecturas_de_falla
+
+        # 1. Alertas climáticas (fuente del riesgo climático).
+        for ubicacion, fenomeno, severidad, desde, hasta, descripcion in ALERTAS_CLIMA:
+            registrar_alerta_climatica(ubicacion, fenomeno, severidad, date.fromisoformat(desde),
+                                       date.fromisoformat(hasta), ADMIN, descripcion)
+        c.nota(f"MongoDB: {len(ALERTAS_CLIMA)} alertas climáticas (una vencida).")
+
+        # 2. Lecturas con fallas de sensor (Cassandra).
+        vigentes = reglas_vigentes()
+        ahora = datetime.now(timezone.utc) - timedelta(minutes=1)
+        for codigo, tipo_sensor, falla in FALLAS_SENSOR:
+            fila = q("""SELECT s.id_sensor, s.id_contenedor FROM sensor_iot s
+                        JOIN contenedor ct ON ct.id_contenedor = s.id_contenedor
+                        WHERE ct.codigo_internacional = %s AND s.tipo = %s
+                          AND s.estado = 'Activo'""", (codigo, tipo_sensor))
+            if len(fila) != 1:
+                raise RuntimeError(f"No se identifica el sensor {tipo_sensor} de {codigo}.")
+            id_sensor, id_cont = fila[0]
+            lecturas = lecturas_de_falla(falla, tipo_sensor, ahora,
+                                         umbral(vigentes, "lecturas_congeladas", "MAX", 6),
+                                         umbral(vigentes, "salto_temperatura", "MAX", 10.0))
+            for fecha, valores in lecturas:
+                registrar_lectura_db(id_sensor, id_cont, fecha_hora=fecha, **valores)
+            c.nota(f"Cassandra: sensor {id_sensor} ({codigo}): {len(lecturas)} lectura(s) "
+                   f"con falla '{falla}'.")
+
+        # 3. Revisión periódica: sin transmisión + umbrales + fallas, con mensajes.
+        revision = ejecutar_revision_sensores()
+        lecturas = revision["lecturas"]
+        c.nota(f"MongoDB: revisión de sensores: {revision['alertas_procesadas']} alertas de "
+               f"sin transmisión; {lecturas['fallas']} fallas de sensor y "
+               f"{lecturas['anomalias']} anomalías de carga; {lecturas['alertas_nuevas']} "
+               f"alertas nuevas y {lecturas['mensajes']} mensajes; errores: "
+               f"{len(revision['errores']) + len(lecturas['errores'])}.")
+
+        # 4. Predicción diaria con clima e historial de rutas.
+        predicciones = ejecutar_predicciones_diarias()
+        c.nota(f"MongoDB: {predicciones['guardadas']} predicciones (v4), "
+               f"{predicciones['riesgos_altos']} de riesgo alto, errores: {predicciones['errores']}.")
+
+    # 5. Reporte cobrable predictivo del cliente (se factura al generarse).
+    usuario, cliente, tipo, formato = REPORTE_PREDICTIVO
+    r = cobrables.solicitar_reporte(c.ids["cliente"][cliente], c.ids["usuario"][usuario],
+                                    tipo, formato, {})
+    c.nota(f"Reporte {r['id_reporte']} {tipo} {formato} para {cliente}: {r['estado']} "
+           f"({r['filas']} filas, factura {r['id_factura']}).")
+
+    # 6. Sesión de un usuario de cliente cerrada por el administrador.
+    id_sesion = sesion_repository.iniciar_sesion_db(c.ids["usuario"][SESION_DEMO])
+    if not sesion_repository.cerrar_sesion_ajena_db(id_sesion, ADMIN):
+        raise RuntimeError("No se pudo cerrar la sesión de ejemplo.")
+    c.nota(f"Sesión {id_sesion} del usuario de {SESION_DEMO} cerrada por el administrador.")
+
+
+def dia3b_cargado():
+    from app.database.mongo_connection import get_mongo_database
+    ubicacion, fenomeno, _, desde, *_ = ALERTAS_CLIMA[0]
+    return get_mongo_database()["alertas_climaticas"].find_one(
+        {"ubicacion": ubicacion, "fenomeno": fenomeno, "fecha_desde": desde}) is not None
+
+
 def reconstruir_ids(c):
     """IDs de una carga ya hecha en PostgreSQL (para reanudar o refrescar)."""
+    for k, datos in CLIENTES.items():
+        c.ids["cliente"][k] = q("SELECT id_cliente FROM cliente WHERE cuit = %s", (datos[1],))[0][0]
+    for k, datos in OPERADORES.items():
+        c.ids["operador"][k] = q("SELECT id_operador FROM operador_logistico WHERE cuit = %s",
+                                 (datos[1],))[0][0]
+    for k, datos in PROVEEDORES.items():
+        c.ids["proveedor"][k] = q("SELECT id_proveedor FROM proveedor WHERE cuit = %s",
+                                  (datos[1],))[0][0]
+    for k, (_, ident, _) in VEHICULOS.items():
+        c.ids["vehiculo"][k] = q("SELECT id_vehiculo FROM vehiculo WHERE identificacion = %s",
+                                 (ident,))[0][0]
     codigos = {v[0]: k for k, v in CONTENEDORES.items()}
     for codigo, id_cont in q("SELECT codigo_internacional, id_contenedor FROM contenedor "
                              "WHERE codigo_internacional = ANY(%s)", (list(codigos),)):
@@ -700,6 +961,13 @@ def main(argv=None):
                    help="Solo PostgreSQL (ensayo en una copia): no toca MongoDB, Cassandra ni Neo4j.")
     p.add_argument("--refrescar-lecturas", action="store_true",
                    help="Solo lecturas recientes, alertas y predicciones (día de la demo).")
+    p.add_argument("--dia3", action="store_true",
+                   help="Agrega los datos del día 3 (países, envío demorado, partidas de carga, "
+                        "incidentes y reportes cobrables). Carga única.")
+    p.add_argument("--dia3b", action="store_true",
+                   help="Agrega los datos del día 3B (alertas climáticas, fallas de sensor, "
+                        "alertas con mensajes, predicciones, reporte predictivo y cierre de "
+                        "una sesión). Carga única.")
     p.add_argument("--reanudar-nosql", action="store_true",
                    help="Completa MongoDB, Cassandra y Neo4j si la carga se cortó después "
                         "de PostgreSQL (no duplica lo ya cargado).")
@@ -727,6 +995,32 @@ def main(argv=None):
                                          "WHERE id_contenedor = %s", (mapa[codigo],)))
         cargar_lecturas_recientes(c)
         detectar_alertas_y_predicciones(c, list(mapa.values()))
+        return 0
+
+    if args.dia3:
+        if not cargado:
+            sys.exit("Primero hay que hacer la carga completa.")
+        if _id_envio_por_clave(ENVIO_DEMORADO):
+            sys.exit("Los datos del día 3 ya están cargados (carga única). No se escribe nada.")
+        reconstruir_ids(c)
+        print(f"Base: {base} | modo: día 3"
+              f"{' (solo PostgreSQL)' if args.solo_postgres else ''}\n")
+        cargar_dia3(c)
+        print("\nDatos del día 3 cargados.")
+        return 0
+
+    if args.dia3b:
+        if not cargado or not _id_envio_por_clave(ENVIO_DEMORADO):
+            sys.exit("Primero hay que cargar los datos completos y los del día 3.")
+        if q("SELECT 1 FROM reporte WHERE tipo = 'PREDICTIVO'"):
+            sys.exit("Los datos del día 3B ya están cargados (carga única). No se escribe nada.")
+        if not args.solo_postgres and dia3b_cargado():
+            sys.exit("Las alertas climáticas del día 3B ya existen (carga única). No se escribe nada.")
+        reconstruir_ids(c)
+        print(f"Base: {base} | modo: día 3B"
+              f"{' (solo PostgreSQL)' if args.solo_postgres else ''}\n")
+        cargar_dia3b(c)
+        print("\nDatos del día 3B cargados.")
         return 0
 
     if args.reanudar_nosql:

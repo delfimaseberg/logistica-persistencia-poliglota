@@ -7,6 +7,11 @@ from app.database.postgres_connection import get_postgres_connection
 from app.database.mongo_connection import get_mongo_database
 
 
+# La bandeja de entrada muestra los mensajes privados y los de alertas.
+TIPOS_BANDEJA = ("Privado", "Alerta")
+REMITENTE_ALERTAS = "Sistema de alertas"
+
+
 def obtener_usuario_activo(id_usuario):
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
@@ -61,6 +66,13 @@ def coleccion_mensajes():
         [("remitente_id", 1), ("fecha_hora", -1)],
         name="idx_mensajes_remitente_fecha"
     )
+    # Un solo mensaje por alerta y destinatario, aunque se repita la emisión.
+    coleccion.create_index(
+        [("alerta_id", 1), ("destinatario_id", 1)],
+        unique=True,
+        partialFilterExpression={"alerta_id": {"$type": "string"}},
+        name="uq_mensajes_alerta_destinatario"
+    )
     return coleccion
 
 
@@ -92,7 +104,7 @@ def obtener_bandeja_entrada(id_usuario):
     return list(
         coleccion_mensajes()
         .find({
-            "tipo": "Privado",
+            "tipo": {"$in": list(TIPOS_BANDEJA)},
             "destinatario_id": id_usuario
         })
         .sort("fecha_hora", -1)
@@ -146,7 +158,7 @@ def marcar_mensaje_leido(id_mensaje, destinatario_id):
     resultado = coleccion_mensajes().update_one(
         {
             "_id": identificador,
-            "tipo": "Privado",
+            "tipo": {"$in": list(TIPOS_BANDEJA)},
             "destinatario_id": destinatario_id
         },
         {
@@ -162,7 +174,7 @@ def marcar_mensaje_leido(id_mensaje, destinatario_id):
 
 def contar_mensajes_no_leidos(id_usuario):
     return coleccion_mensajes().count_documents({
-        "tipo": "Privado",
+        "tipo": {"$in": list(TIPOS_BANDEJA)},
         "destinatario_id": id_usuario,
         "leido": False
     })
@@ -346,3 +358,49 @@ def obtener_destinatarios_permitidos(id_usuario, tipo_parte, id_parte):
                 ORDER BY u.nombre, u.apellido
             """, {"yo": id_usuario, "tipo": tipo_parte, "id": id_parte})
             return cursor.fetchall()
+
+
+# ------------------------------------------------------------------
+# Mensajes de alerta (emitidos por el sistema)
+# ------------------------------------------------------------------
+
+def destinatarios_alerta(id_envio=None):
+    """Usuarios internos activos y, si hay envío, los usuarios activos de su cliente.
+
+    Devuelve [(id_usuario, es_interno)].
+    """
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
+            cursor.execute("""
+                SELECT u.id_usuario,
+                       num_nonnulls(u.id_cliente, u.id_proveedor, u.id_operador) = 0
+                FROM usuario u
+                WHERE u.estado = 'ACTIVO'
+                  AND (num_nonnulls(u.id_cliente, u.id_proveedor, u.id_operador) = 0
+                       OR (%(envio)s::bigint IS NOT NULL AND u.id_cliente = (
+                           SELECT e.id_cliente FROM envio e
+                           WHERE e.id_envio = %(envio)s::bigint)))
+                ORDER BY u.id_usuario
+            """, {"envio": id_envio})
+            return cursor.fetchall()
+
+
+def registrar_mensaje_alerta(id_alerta, destinatario_id, contenido, fecha_hora=None):
+    """Mensaje del sistema por una alerta. Devuelve True si se creó."""
+    from pymongo.errors import DuplicateKeyError
+    documento = {
+        "tipo": "Alerta",
+        "remitente_id": None,
+        "remitente_nombre": REMITENTE_ALERTAS,
+        "destinatario_id": destinatario_id,
+        "grupo_id": None,
+        "alerta_id": str(id_alerta),
+        "contenido": contenido,
+        "fecha_hora": fecha_hora or datetime.now(timezone.utc),
+        "leido": False,
+    }
+    try:
+        coleccion_mensajes().insert_one(documento)
+        return True
+    except DuplicateKeyError:
+        return False

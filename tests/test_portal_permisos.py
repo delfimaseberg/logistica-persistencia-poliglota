@@ -116,11 +116,15 @@ def test_menu_interno_renumerado_con_facturacion_y_reportes_separados():
 
 def test_reportes_salieron_de_facturacion():
     from app.ui import menu_facturacion, menu_reportes
+    from app.services import reportes_pantallas
     en_facturacion = {v[1] for v in menu_facturacion.OPCIONES.values()}
     en_reportes = {v[1] for v in menu_reportes.OPCIONES.values()}
-    assert facturacion_service.reporte_envios_service in en_reportes
     assert facturacion_service.reporte_facturacion_service in en_reportes
+    assert facturacion_service.reporte_ingresos_service in en_reportes
     assert not en_facturacion & en_reportes
+    # "Envíos por estado" pasó al submenú de reportes operativos (día 3A).
+    operativos = [v[0] for v in reportes_pantallas.REPORTES_OPERATIVOS.values()]
+    assert "Envíos por estado" in operativos
 
 
 def test_portal_del_cliente_no_tiene_operaciones_de_escritura():
