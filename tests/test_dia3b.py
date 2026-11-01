@@ -647,7 +647,7 @@ def test_sin_transmision_identifica_el_contenedor_por_codigo():
         procesos.detectar_sensores_inactivos_automatico(ahora=AHORA)
     descripcion = emitir.call_args.kwargs["descripcion"]
     assert "contenedor MSCU1234587" in descripcion and "contenedor 2" not in descripcion
-    assert "sensor de gps" in descripcion
+    assert "sensor de GPS" in descripcion
 
 
 def test_sesion_cerrada_avisa_antes_de_validar_la_opcion(capsys):
@@ -672,3 +672,18 @@ def test_predicciones_no_duplica_el_ranking_de_reportes():
     texto = (Path(__file__).resolve().parents[1] / "app" / "ui" / "menu_predicciones.py").read_text(encoding="utf-8")
     assert "Ranking de clientes por envíos" not in texto
     assert 'REPORTES_RANKINGS["2"]' in texto
+
+
+def test_nombre_del_tipo_de_sensor_respeta_las_siglas():
+    assert det.nombre_tipo_sensor("GPS") == "GPS"
+    assert det.nombre_tipo_sensor("Humedad") == "humedad"
+    assert det.nombre_tipo_sensor(" Vibración ") == "vibración"
+
+
+def test_descripcion_sin_transmision_en_hora_argentina():
+    texto = det.descripcion_sin_transmision(
+        "GPS", "MSCU1234587", datetime(2026, 10, 27, 11, 42, tzinfo=timezone.utc), 24.0)
+    assert texto == ("El sensor de GPS del contenedor MSCU1234587 no transmite desde "
+                     "27/10/2026 08:42. Umbral: 24 horas.")
+    assert det.descripcion_sin_transmision("Humedad", "TDSU1000124") == (
+        "El sensor de humedad del contenedor TDSU1000124 no tiene lecturas registradas.")

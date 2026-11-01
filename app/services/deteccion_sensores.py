@@ -46,6 +46,28 @@ REGLAS_POR_DEFECTO = {
 }
 
 
+def nombre_tipo_sensor(tipo):
+    """Tipo de sensor para un texto: 'humedad', 'temperatura'; las siglas
+    (GPS) quedan en mayúsculas."""
+    tipo = " ".join(str(tipo or "").split())
+    return tipo if tipo.isupper() else tipo.lower()
+
+
+def descripcion_sin_transmision(tipo_sensor, codigo_contenedor, ultima=None, horas=None):
+    """Texto de las alertas de sensor sin lecturas o sin transmisión reciente.
+
+    ultima: fecha (datetime) de la última lectura; sin ella, "sin lecturas".
+    """
+    sensor = f"El sensor de {nombre_tipo_sensor(tipo_sensor)} del contenedor {codigo_contenedor}"
+    if ultima is None:
+        return f"{sensor} no tiene lecturas registradas."
+    if ultima.tzinfo is None:
+        ultima = ultima.replace(tzinfo=timezone.utc)
+    from zoneinfo import ZoneInfo
+    local = ultima.astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
+    return f"{sensor} no transmite desde {local:%d/%m/%Y %H:%M}. Umbral: {horas:g} horas."
+
+
 def _numero(valor):
     """float, None si falta o no es número. NaN e infinito se devuelven tal cual."""
     if valor is None or isinstance(valor, bool):

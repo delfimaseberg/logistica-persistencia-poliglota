@@ -7,6 +7,7 @@ from app.repositories.lectura_iot_repository import (
     consultar_ultima_lectura_db,
 )
 from app.services.alertas_service import emitir_alerta
+from app.services.deteccion_sensores import descripcion_sin_transmision
 from app.repositories.regla_alerta_repository import reglas_vigentes
 from app.services.predicciones_service import (
     actualizar_predicciones_activas,
@@ -58,7 +59,7 @@ def detectar_sensores_inactivos_automatico(horas=24, ahora=None, severidad="Medi
         id_contenedor = sensor[1]
         # En los textos, el contenedor se identifica por su código.
         codigo = sensor[2]
-        tipo_sensor = str(sensor[3]).lower()
+        tipo_sensor = sensor[3]
         estado = str(sensor[6]).strip().lower()
 
         if estado != "activo":
@@ -72,10 +73,7 @@ def detectar_sensores_inactivos_automatico(horas=24, ahora=None, severidad="Medi
             if lectura is None:
                 resumen["sin_lecturas"].append(id_sensor)
                 tipo = "Sensor sin lecturas registradas"
-                descripcion = (
-                    f"El sensor de {tipo_sensor} del contenedor "
-                    f"{codigo} no tiene lecturas registradas."
-                )
+                descripcion = descripcion_sin_transmision(tipo_sensor, codigo)
 
             else:
                 fecha = lectura.fecha_hora
@@ -93,12 +91,8 @@ def detectar_sensores_inactivos_automatico(horas=24, ahora=None, severidad="Medi
                 })
 
                 tipo = "Sensor sin transmisión reciente"
-                descripcion = (
-                    f"El sensor de {tipo_sensor} del contenedor "
-                    f"{codigo} no transmite desde "
-                    f"{fecha.astimezone(ZONA_ARGENTINA):%d/%m/%Y %H:%M}. "
-                    f"Umbral: {horas:g} horas."
-                )
+                descripcion = descripcion_sin_transmision(
+                    tipo_sensor, codigo, fecha, horas)
 
             # Una alerta por sensor, tipo y día evita duplicados
             # si el proceso se ejecuta varias veces durante el día.

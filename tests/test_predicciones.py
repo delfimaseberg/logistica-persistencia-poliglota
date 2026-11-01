@@ -270,6 +270,14 @@ def test_prioridad_media_no_suma_riesgo():
 
 
 @patch(
+    "app.repositories.alerta_climatica_repository.alertas_para_lugares",
+    return_value=[]
+)
+@patch(
+    "app.services.predicciones_service.historial_rutas",
+    return_value={"rutas": {}, "general": {"envios": 0, "atrasados": 0}}
+)
+@patch(
     "app.services.predicciones_service.guardar_prediccion"
 )
 @patch(
@@ -281,7 +289,9 @@ def test_prioridad_media_no_suma_riesgo():
 def test_actualizacion_masiva_sin_interaccion(
     mock_listar,
     mock_obtener,
-    mock_guardar
+    mock_guardar,
+    mock_historial,
+    mock_clima
 ):
     mock_listar.return_value = [
         (1, "Cliente", "A", "B", "En tránsito"),
@@ -299,8 +309,18 @@ def test_actualizacion_masiva_sin_interaccion(
     assert resumen["errores"] == 0
     assert mock_obtener.call_count == 1
     assert mock_guardar.call_count == 1
+    # El historial de rutas se calcula una vez para todo el lote.
+    assert mock_historial.call_count == 1
 
 
+@patch(
+    "app.repositories.alerta_climatica_repository.alertas_para_lugares",
+    return_value=[]
+)
+@patch(
+    "app.services.predicciones_service.historial_rutas",
+    return_value={"rutas": {}, "general": {"envios": 0, "atrasados": 0}}
+)
 @patch(
     "app.services.predicciones_service.guardar_prediccion"
 )
@@ -313,7 +333,9 @@ def test_actualizacion_masiva_sin_interaccion(
 def test_actualizacion_masiva_registra_errores(
     mock_listar,
     mock_obtener,
-    mock_guardar
+    mock_guardar,
+    mock_historial,
+    mock_clima
 ):
     mock_listar.return_value = [
         (1, "Cliente", "A", "B", "En tránsito"),
