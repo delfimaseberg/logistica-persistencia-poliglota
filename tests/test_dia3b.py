@@ -257,7 +257,7 @@ def test_alerta_registrada_marca_si_es_nueva():
     coleccion = MagicMock()
     coleccion.update_one.return_value.upserted_id = "nuevo"
     coleccion.find_one.return_value = {"_id": "nuevo", "mensajes_emitidos": False}
-    with patch.object(repo, "coleccion_alertas", return_value=coleccion):
+    with patch.object(repo, "coleccion_alertas", return_value=coleccion),          patch.object(repo, "ultimo_evento_envio", return_value=None):
         resultado = repo.registrar_alerta(1, 2, "Temperatura alta", "Alta", "d", "L1", 3)
     assert resultado["nueva"] is True
     insertado = coleccion.update_one.call_args.args[1]["$setOnInsert"]

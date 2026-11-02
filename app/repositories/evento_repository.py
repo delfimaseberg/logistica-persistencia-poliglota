@@ -29,6 +29,31 @@ def listar_eventos_envio(id_envio):
     )
 
 
+def ultimo_evento_envio(id_envio, hasta=None):
+    """Último evento del envío hasta ese momento (el vigente), o None."""
+    hasta = hasta or datetime.now(timezone.utc)
+    return get_mongo_database()[COLECCION_EVENTOS].find_one(
+        {"envio_id": int(id_envio), "fecha_hora": {"$lte": hasta}},
+        sort=[("fecha_hora", -1), ("_id", -1)],
+    )
+
+
+def buscar_eventos_por_id(ids_evento):
+    """{id en texto: evento} para mostrar varios eventos de una vez."""
+    from bson import ObjectId
+    from bson.errors import InvalidId
+    validos = []
+    for id_evento in ids_evento:
+        try:
+            validos.append(ObjectId(str(id_evento)))
+        except (InvalidId, TypeError):
+            continue
+    if not validos:
+        return {}
+    cursor = get_mongo_database()[COLECCION_EVENTOS].find({"_id": {"$in": validos}})
+    return {str(evento["_id"]): evento for evento in cursor}
+
+
 def listar_eventos_envios(ids_envio):
     """Eventos de varios envíos en orden cronológico."""
     if not ids_envio:
