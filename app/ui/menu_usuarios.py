@@ -10,6 +10,11 @@ from app.services.sesion_service import (
     consultar_sesiones_activas_service
 )
 
+from app.services.contrasena_service import (
+    restablecer_contrasena_service,
+    desbloquear_usuario_service
+)
+
 from app.services.autenticacion import verificar_permiso
 
 from app.ui.menu_roles import mostrar_menu_roles
@@ -37,10 +42,12 @@ def mostrar_menu_usuarios():
         print("4. Modificar usuario")
         print("5. Eliminar usuario")
         print("6. Gestión de roles")
-        print("7. Sesiones activas (consultar y cerrar)")
+        print("7. Sesiones activas y usuarios bloqueados")
+        print("8. Restablecer contraseña de un usuario")
+        print("9. Desbloquear usuario")
         print("0. Volver al menú principal")
 
-        opcion = input("\nSeleccione una opción: ").strip()
+        opcion = input("\nSeleccioná una opción: ").strip()
 
         if opcion == "1":
             ejecutar_operacion(registrar_usuario, 5)
@@ -65,6 +72,12 @@ def mostrar_menu_usuarios():
                 consultar_sesiones_activas_service,
                 5
             )
+
+        elif opcion == "8":
+            ejecutar_operacion(restablecer_contrasena_service, 5)
+
+        elif opcion == "9":
+            ejecutar_operacion(desbloquear_usuario_service, 5)
 
         elif opcion == "0":
             break

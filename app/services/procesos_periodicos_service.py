@@ -12,6 +12,7 @@ from app.repositories.regla_alerta_repository import reglas_vigentes
 from app.services.predicciones_service import (
     actualizar_predicciones_activas,
 )
+from app.utils.errores import mensaje_error
 from app.utils.logger import obtener_logger
 
 
@@ -127,7 +128,7 @@ def detectar_sensores_inactivos_automatico(horas=24, ahora=None, severidad="Medi
         except Exception as error:
             resumen["errores"].append({
                 "sensor_id": id_sensor,
-                "error": str(error),
+                "error": mensaje_error(error),
             })
 
             logger.exception(
@@ -231,7 +232,7 @@ def ejecutar_todos_los_procesos(horas_sensores=None, procesos=None):
                     horas=horas_sensores,
                 )
         except Exception as error:
-            resultado["errores"][proceso] = str(error)
+            resultado["errores"][proceso] = mensaje_error(error)
             logger.exception(
                 "Falló el proceso periódico de %s",
                 proceso,

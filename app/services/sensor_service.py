@@ -27,6 +27,9 @@ from app.utils.validaciones_sensor import (
     validar_id_sensor,
     validar_id_contenedor
 )
+from app.utils import formato
+from app.utils.errores import mensaje_error
+from app.services.autenticacion import requiere_permiso
 
 
 def pedir(mensaje, funcion):
@@ -34,11 +37,11 @@ def pedir(mensaje, funcion):
         try:
             return funcion(input(mensaje))
         except ValueError as error:
-            print(f"Error: {error}")
+            print(f"Error: {mensaje_error(error)}")
 
 
 def pausar():
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
 def mostrar_sensor(sensor):
@@ -48,7 +51,7 @@ def mostrar_sensor(sensor):
     print(f"Código contenedor: {sensor[2]}")
     print(f"Tipo: {sensor[3]}")
     print(f"Fabricante: {sensor[4] or 'No especificado'}")
-    print(f"Fecha instalación: {sensor[5] or 'No especificada'}")
+    print(f"Fecha de instalación: {formato.fecha(sensor[5]) if sensor[5] else 'No especificada'}")
     print(f"Estado: {sensor[6]}")
 
 
@@ -87,6 +90,7 @@ def pedir_contenedor():
         return id_contenedor
 
 
+@requiere_permiso(1)
 def registrar_sensor():
     print("\n--- REGISTRAR SENSOR IoT ---")
 
@@ -132,12 +136,13 @@ def registrar_sensor():
         mostrar_sensor(buscar_sensor_por_id(id_sensor))
 
     except Exception as error:
-        print(f"\nError al registrar sensor: {error}")
+        print(f"\nError al registrar sensor: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def listar_sensores_service():
     print("\n--- LISTAR SENSORES ---")
 
@@ -154,12 +159,13 @@ def listar_sensores_service():
             mostrar_sensor(sensor)
 
     except Exception as error:
-        print(f"\nError al listar sensores: {error}")
+        print(f"\nError al listar sensores: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def buscar_sensor_service():
     print("\n--- BUSCAR SENSOR ---")
 
@@ -178,12 +184,13 @@ def buscar_sensor_service():
         mostrar_sensor(sensor)
 
     except Exception as error:
-        print(f"\nError al buscar sensor: {error}")
+        print(f"\nError al buscar sensor: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def consultar_sensores_contenedor_service():
     print("\n--- SENSORES DE UN CONTENEDOR ---")
 
@@ -213,12 +220,13 @@ def consultar_sensores_contenedor_service():
             mostrar_sensor(sensor)
 
     except Exception as error:
-        print(f"\nError al consultar sensores: {error}")
+        print(f"\nError al consultar sensores: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def modificar_sensor_service():
     print("\n--- MODIFICAR SENSOR ---")
 
@@ -237,7 +245,7 @@ def modificar_sensor_service():
         print("\nDatos actuales:")
         mostrar_sensor(actual)
 
-        print("\n¿Qué desea modificar?")
+        print("\n¿Qué querés modificar?")
         print("1. Contenedor")
         print("2. Tipo")
         print("3. Fabricante")
@@ -271,7 +279,7 @@ def modificar_sensor_service():
                 )
                 print(
                     "Para conservar la trazabilidad, "
-                    "dé de baja este sensor y registre uno nuevo."
+                    "da de baja este sensor y registrá uno nuevo."
                 )
                 return
 
@@ -292,7 +300,7 @@ def modificar_sensor_service():
                     "de un sensor que ya tiene lecturas."
                 )
                 print(
-                    "Dé de baja este sensor y registre "
+                    "Da de baja este sensor y registrá "
                     "otro con el nuevo tipo."
                 )
                 return
@@ -338,12 +346,13 @@ def modificar_sensor_service():
             print("No se pudo modificar el sensor.")
 
     except Exception as error:
-        print(f"\nError al modificar sensor: {error}")
+        print(f"\nError al modificar sensor: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def eliminar_sensor_service():
     print("\n--- DAR DE BAJA SENSOR ---")
 
@@ -387,7 +396,7 @@ def eliminar_sensor_service():
             print("\nNo se pudo dar de baja el sensor.")
 
     except Exception as error:
-        print(f"\nError al dar de baja el sensor: {error}")
+        print(f"\nError al dar de baja el sensor: {mensaje_error(error)}")
 
     finally:
         pausar()

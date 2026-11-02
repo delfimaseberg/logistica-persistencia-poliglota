@@ -17,10 +17,13 @@ from app.repositories.lectura_iot_repository import (
     consultar_lecturas_contenedor_db,
     consultar_ultima_lectura_db
 )
+from app.utils import formato
+from app.utils.errores import mensaje_error
+from app.services.autenticacion import requiere_permiso
 
 
 def pausar():
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
 def pedir_id(mensaje):
@@ -34,7 +37,7 @@ def pedir_id(mensaje):
             return valor
 
         except ValueError:
-            print("Error: ingrese un ID entero positivo.")
+            print("Error: ingresá un ID entero positivo.")
 
 
 def pedir_decimal(mensaje, minimo=None, maximo=None):
@@ -57,7 +60,7 @@ def pedir_decimal(mensaje, minimo=None, maximo=None):
             return valor
 
         except ValueError:
-            print("Error: ingrese un número válido.")
+            print("Error: ingresá un número válido.")
 
 
 def pedir_bateria():
@@ -78,7 +81,7 @@ def pedir_bateria():
             return valor
 
         except ValueError:
-            print("Error: ingrese un valor entre 0 y 100.")
+            print("Error: ingresá un valor entre 0 y 100.")
             texto = input("Batería (%): ").strip()
 
             if not texto:
@@ -123,7 +126,6 @@ def mostrar_lectura(lectura):
         f"{fecha_argentina.strftime('%d/%m/%Y %H:%M:%S')}"
     )
 
-    print(f"ID lectura: {lectura.id_lectura}")
 
     campos = [
         ("Temperatura", "temperatura", "°C"),
@@ -138,9 +140,11 @@ def mostrar_lectura(lectura):
         valor = getattr(lectura, atributo, None)
 
         if valor is not None:
-            print(f"{etiqueta}: {valor} {unidad}".rstrip())
+            decimales = 5 if atributo.startswith("gps_") else 2
+            print(f"{etiqueta}: {formato.compacto(valor, decimales)} {unidad}".rstrip())
 
 
+@requiere_permiso(1)
 def registrar_lectura_service():
     print("\n--- REGISTRAR LECTURA IoT ---")
 
@@ -213,7 +217,7 @@ def registrar_lectura_service():
 
         bateria = pedir_bateria()
 
-        id_lectura = registrar_lectura_db(
+        registrar_lectura_db(
             id_sensor=id_sensor,
             id_contenedor=id_contenedor,
             temperatura=temperatura,
@@ -225,17 +229,17 @@ def registrar_lectura_service():
         )
 
         print("\nLectura IoT registrada correctamente.")
-        print(f"ID lectura: {id_lectura}")
         print(f"Sensor: {id_sensor}")
-        print(f"Contenedor: {id_contenedor}")
+        print(f"Contenedor: {contenedor[1]}")
 
     except Exception as error:
-        print(f"\nError al registrar la lectura: {error}")
+        print(f"\nError al registrar la lectura: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def consultar_lecturas_sensor_service():
     print("\n--- CONSULTAR LECTURAS POR SENSOR ---")
 
@@ -259,12 +263,13 @@ def consultar_lecturas_sensor_service():
             mostrar_lectura(lectura)
 
     except Exception as error:
-        print(f"\nError al consultar lecturas: {error}")
+        print(f"\nError al consultar lecturas: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def consultar_lecturas_contenedor_service():
     print("\n--- CONSULTAR LECTURAS POR CONTENEDOR ---")
 
@@ -289,12 +294,13 @@ def consultar_lecturas_contenedor_service():
             mostrar_lectura(lectura)
 
     except Exception as error:
-        print(f"\nError al consultar lecturas: {error}")
+        print(f"\nError al consultar lecturas: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def consultar_ultima_lectura_service():
     print("\n--- ÚLTIMA LECTURA DE UN SENSOR ---")
 
@@ -307,13 +313,14 @@ def consultar_ultima_lectura_service():
             print("\nNo hay lecturas registradas.")
             return
 
+        contenedor = buscar_contenedor_por_id(lectura.contenedor_id)
         print(f"\nSensor: {id_sensor}")
-        print(f"Contenedor: {lectura.contenedor_id}")
+        print(f"Contenedor: {contenedor[1] if contenedor else '-'}")
 
         mostrar_lectura(lectura)
 
     except Exception as error:
-        print(f"\nError al consultar la última lectura: {error}")
+        print(f"\nError al consultar la última lectura: {mensaje_error(error)}")
 
     finally:
         pausar()

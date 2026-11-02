@@ -41,14 +41,6 @@ def abrir_sesion_neo4j():
     return driver.session()
 
 
-def cerrar_conexion_neo4j():
-    global _driver
-
-    if _driver is not None:
-        _driver.close()
-        _driver = None
-
-
 def probar_conexion_neo4j():
     driver = None
 

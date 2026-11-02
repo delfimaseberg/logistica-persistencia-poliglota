@@ -33,6 +33,7 @@ from app.services.sincronizacion_service import (
     sincronizar_envio_neo4j,
     reconciliar_envio,
     reparar_pendientes,
+    resincronizar_envio,
     resincronizar_todos
 )
 
@@ -42,6 +43,7 @@ from app.utils.validaciones_logistica import (
     validar_entero_positivo_logistica,
     normalizar
 )
+from app.utils import formato
 from app.utils.validaciones_trazabilidad import (
     ZONA_ARGENTINA,
     TIPOS_EVENTO,
@@ -56,6 +58,8 @@ from app.utils.validaciones_trazabilidad import (
     muestrear,
     fusionar_recorrido
 )
+from app.utils.errores import mensaje_error
+from app.services.autenticacion import requiere_permiso
 
 
 logger = obtener_logger("trazabilidad")
@@ -72,11 +76,11 @@ def pedir(mensaje, funcion, *args):
         try:
             return funcion(input(mensaje), *args)
         except ValueError as error:
-            print(f"Error: {error}")
+            print(f"Error: {mensaje_error(error)}")
 
 
 def pausar():
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
 def formatear_fecha(fecha):
@@ -86,7 +90,7 @@ def formatear_fecha(fecha):
     if fecha.tzinfo is None:
         fecha = fecha.replace(tzinfo=timezone.utc)
 
-    return fecha.astimezone(ZONA_ARGENTINA).strftime("%Y-%m-%d %H:%M")
+    return fecha.astimezone(ZONA_ARGENTINA).strftime("%d/%m/%Y %H:%M")
 
 
 def formatear_duracion(delta):
@@ -126,7 +130,7 @@ def pedir_envio():
 def mostrar_evento(numero, evento):
     ubicacion = evento.get("ubicacion") or {}
     print("--------------------------------")
-    print(f"{numero}. {evento['tipo']}")
+    print(f"{numero}. {formato.evento(evento['tipo'])}")
     print(f"   Fecha: {formatear_fecha(evento['fecha_hora'])}")
     print(f"   Ubicación: {ubicacion.get('nombre', '-')}")
 
@@ -149,7 +153,7 @@ def elegir_tipo_evento():
     print("\nTipo de evento:")
 
     for numero, tipo in enumerate(TIPOS_EVENTO, start=1):
-        print(f"{numero}. {tipo}")
+        print(f"{numero}. {formato.evento(tipo)}")
 
     print("0. Cancelar")
 
@@ -162,7 +166,7 @@ def elegir_tipo_evento():
         if opcion.isdigit() and 1 <= int(opcion) <= len(TIPOS_EVENTO):
             return TIPOS_EVENTO[int(opcion) - 1]
 
-        print("Error: seleccione una opción de la lista.")
+        print("Error: seleccioná una opción de la lista.")
 
 
 def pedir_detalle(tipo):
@@ -190,6 +194,7 @@ def pedir_detalle(tipo):
     return detalle
 
 
+@requiere_permiso(1)
 def registrar_evento_service():
     print("\n--- REGISTRAR EVENTO LOGÍSTICO ---")
 
@@ -217,7 +222,7 @@ def registrar_evento_service():
                 envio[5], tipo, tipos_registrados(id_envio)
             )
         except ValueError as error:
-            print(f"\nNo se puede registrar el evento: {error}")
+            print(f"\nNo se puede registrar el evento: {mensaje_error(error)}")
             return
 
         for advertencia in advertencias:
@@ -264,7 +269,7 @@ def registrar_evento_service():
         detalle = pedir_detalle(tipo)
 
         confirmacion = input(
-            f"\n¿Registrar evento {tipo} para el envío "
+            f"\n¿Registrar el evento «{formato.evento(tipo)}» para el envío "
             f"{id_envio}? (S/N): "
         ).strip().upper()
 
@@ -326,11 +331,12 @@ def registrar_evento_service():
                     print("\nAdvertencia: evento guardado; la actualización del estado quedó pendiente.")
                 except Exception as error_pendiente:
                     logger.exception("No se pudo persistir el pendiente de estado: %s", error_pendiente)
-                    print("\nADVERTENCIA: estado no actualizado y pendiente no guardado. Revisar logs/app.log.")
+                    print("\nADVERTENCIA: no se pudo actualizar el estado del envío ni dejarlo pendiente. "
+                          "El detalle quedó registrado para revisión.")
 
     except Exception as error:
         logger.exception("Error al registrar evento: %s", error)
-        print(f"\nError al registrar el evento: {error}")
+        print(f"\nError al registrar el evento: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -340,6 +346,7 @@ def registrar_evento_service():
 # 2. Historial completo de un envío (MongoDB)
 # ------------------------------------------------------------------
 
+@requiere_permiso(1, portal=("CLIENTE",), portal_con_dato=True)
 def historial_envio_service(envio=None):
     """envio: fila ya verificada (portal del cliente); si falta, se pide."""
     print("\n--- HISTORIAL DE EVENTOS DE UN ENVÍO ---")
@@ -368,7 +375,7 @@ def historial_envio_service(envio=None):
 
     except Exception as error:
         logger.exception("Error al consultar historial: %s", error)
-        print(f"\nError al consultar el historial: {error}")
+        print(f"\nError al consultar el historial: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -378,6 +385,7 @@ def historial_envio_service(envio=None):
 # 3. Seguimiento temporal (PostgreSQL + MongoDB)
 # ------------------------------------------------------------------
 
+@requiere_permiso(1, portal=("CLIENTE",), portal_con_dato=True)
 def seguimiento_temporal_service(envio=None):
     """envio: fila ya verificada (portal del cliente); si falta, se pide."""
     print("\n--- SEGUIMIENTO TEMPORAL DE UN ENVÍO ---")
@@ -434,7 +442,7 @@ def seguimiento_temporal_service(envio=None):
                 salto = f"  (+{formatear_duracion(fecha - anterior)})"
 
             print(
-                f"  {formatear_fecha(fecha)}  {evento['tipo']:<15} "
+                f"  {formatear_fecha(fecha)}  {formato.evento(evento['tipo']):<15} "
                 f"{ubicacion}{salto}"
             )
             anterior = fecha
@@ -453,7 +461,7 @@ def seguimiento_temporal_service(envio=None):
 
     except Exception as error:
         logger.exception("Error en seguimiento temporal: %s", error)
-        print(f"\nError en el seguimiento temporal: {error}")
+        print(f"\nError en el seguimiento temporal: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -463,6 +471,7 @@ def seguimiento_temporal_service(envio=None):
 # 4. Ruta completa de un envío (Neo4j)
 # ------------------------------------------------------------------
 
+@requiere_permiso(1, portal=("CLIENTE",), portal_con_dato=True)
 def ruta_completa_service(envio=None):
     """envio: fila ya verificada (portal del cliente); si falta, se pide."""
     print("\n--- RUTA COMPLETA DE UN ENVÍO ---")
@@ -477,7 +486,7 @@ def ruta_completa_service(envio=None):
 
         if not filas:
             print(
-                "\nEl envío no está en el grafo. Use la opción "
+                "\nEl envío no está en el grafo. Usá la opción "
                 "'Sincronizar o reparar' del menú de trazabilidad."
             )
             return
@@ -509,9 +518,8 @@ def ruta_completa_service(envio=None):
                 f"operador {fila['operador'] or 'sin datos'}]"
             )
             print(
-                f"   Salida: {(fila['salida'] or '-')[:16].replace('T', ' ')} | "
-                f"Llegada estimada: "
-                f"{(fila['llegada'] or '-')[:16].replace('T', ' ')}"
+                f"   Salida: {formato.fecha_hora(fila['salida'])} | "
+                f"Llegada estimada: {formato.fecha_hora(fila['llegada'])}"
             )
 
         print(
@@ -524,7 +532,7 @@ def ruta_completa_service(envio=None):
 
     except Exception as error:
         logger.exception("Error al consultar la ruta: %s", error)
-        print(f"\nError al consultar la ruta: {error}")
+        print(f"\nError al consultar la ruta: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -546,9 +554,10 @@ def pedir_cantidad_meses():
         if texto.isdigit() and 1 <= int(texto) <= 12:
             return int(texto)
 
-        print("Error: ingrese un número entre 1 y 12.")
+        print("Error: ingresá un número entre 1 y 12.")
 
 
+@requiere_permiso(1)
 def recorrido_contenedor_service():
     print("\n--- RECORRIDO DE UN CONTENEDOR ---")
 
@@ -609,12 +618,12 @@ def recorrido_contenedor_service():
 
             print(
                 f"  {formatear_fecha(item['fecha'])}  "
-                f"{item['origen']:<6} {item['texto']}"
+                f"{'Evento' if item['origen'] == 'EVENTO' else 'GPS':<6} {item['texto']}"
             )
 
     except Exception as error:
         logger.exception("Error al reconstruir recorrido: %s", error)
-        print(f"\nError al reconstruir el recorrido: {error}")
+        print(f"\nError al reconstruir el recorrido: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -624,6 +633,7 @@ def recorrido_contenedor_service():
 # 6. Sincronizar o reparar la proyección (PostgreSQL -> Neo4j)
 # ------------------------------------------------------------------
 
+@requiere_permiso(1)
 def sincronizar_proyeccion_service():
     print("\n--- SINCRONIZAR / REPARAR LA RED DE RUTAS ---")
 
@@ -661,8 +671,15 @@ def sincronizar_proyeccion_service():
                 validar_entero_positivo_logistica,
                 "El ID del envío"
             )
-            sincronizar_envio_neo4j(id_envio)
-            print("\nFinalizó el intento de sincronización.")
+            if buscar_envio_por_id(id_envio) is None:
+                print(f"\nNo existe el envío {id_envio}.")
+            else:
+                motivo = resincronizar_envio(id_envio)
+                if motivo is None:
+                    print(f"\nEnvío {id_envio} sincronizado correctamente.")
+                else:
+                    print(f"\nEl envío {id_envio} no se pudo sincronizar: {motivo}")
+                    print("Quedó pendiente; podés reintentarlo con la opción 1.")
 
         elif opcion == "3":
             correctos, errores = resincronizar_todos()
@@ -696,7 +713,7 @@ def sincronizar_proyeccion_service():
 
     except Exception as error:
         logger.exception("Error al sincronizar: %s", error)
-        print(f"\nError al sincronizar: {error}")
+        print(f"\nError al sincronizar: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -733,7 +750,7 @@ def cliente_visible(sesion):
     - Usuario interno (sin parte): todos.
     """
     if sesion is None:
-        raise PermissionError("Debe iniciar sesión.")
+        raise PermissionError("Debés iniciar sesión.")
 
     if sesion.get("id_cliente") is not None:
         return sesion["id_cliente"]
@@ -750,26 +767,29 @@ def cliente_visible(sesion):
     return None
 
 
+@requiere_permiso(1, portal=("CLIENTE",))
 def quien_llevo_contenedor_service():
     print("\n--- ¿QUIÉN LLEVÓ EL CONTENEDOR? ---")
 
     try:
         restringido = cliente_visible(obtener_sesion_actual())
 
-        id_contenedor = pedir(
-            "ID del contenedor: ",
-            validar_entero_positivo_logistica,
-            "El ID del contenedor"
-        )
+        from app.repositories.contenedor_repository import buscar_contenedor_por_codigo
 
-        filas = operadores_de_contenedor(id_contenedor, restringido)
+        codigo = input("Código del contenedor (ej. TDSU1000130): ").strip().upper()
+        contenedor = buscar_contenedor_por_codigo(codigo) if codigo else None
+        if contenedor is None:
+            print("\nNo existe un contenedor con ese código.")
+            return
+
+        filas = operadores_de_contenedor(contenedor[0], restringido)
 
         if not filas:
-            print(
-                "\nNo hay tramos para ese contenedor"
-                + (" en sus envíos." if restringido else ".")
-                + " Si los datos son nuevos, sincronice la red de rutas (opción 6)."
-            )
+            if restringido:
+                print("\nEse contenedor no tiene tramos en tus envíos.")
+            else:
+                print("\nNo hay tramos para ese contenedor. Si los datos son nuevos, "
+                      "sincronice la red de rutas (opción 6).")
             return
 
         for fila in filas:
@@ -777,20 +797,21 @@ def quien_llevo_contenedor_service():
                 f"Envío {fila['id_envio']} ({fila['cliente']}) | "
                 f"Tramo {fila['id_tramo']} | {fila['medio']} | "
                 f"{fila['origen']} -> {fila['destino']} | "
-                f"Salida {(fila['salida'] or '-')[:10]} | "
+                f"Salida {formato.fecha(fila['salida'])} | "
                 f"Operador: {fila['operador'] or 'sin asignar'}"
             )
 
     except PermissionError as error:
-        print(f"\n{error}")
+        print(f"\n{mensaje_error(error)}")
     except Exception as error:
         logger.exception("Error al consultar operadores del contenedor")
-        print(f"\nError al consultar la red de operadores: {error}")
+        print(f"\nError al consultar la red de operadores: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def red_operadores_cliente_service():
     print("\n--- RED CLIENTE - OPERADORES - ENVÍOS ---")
 
@@ -825,10 +846,10 @@ def red_operadores_cliente_service():
             )
 
     except PermissionError as error:
-        print(f"\n{error}")
+        print(f"\n{mensaje_error(error)}")
     except Exception as error:
         logger.exception("Error al consultar la red del cliente")
-        print(f"\nError al consultar la red de operadores: {error}")
+        print(f"\nError al consultar la red de operadores: {mensaje_error(error)}")
 
     finally:
         pausar()

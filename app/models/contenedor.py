@@ -1,3 +1,6 @@
+from app.utils import formato
+
+
 class Contenedor:
     def __init__(
         self,
@@ -15,6 +18,6 @@ class Contenedor:
         return (
             f"Código internacional: {self.codigo_internacional}\n"
             f"Tipo: {self.tipo}\n"
-            f"Capacidad: {self.capacidad}\n"
+            f"Capacidad: {formato.compacto(self.capacidad)} toneladas\n"
             f"Estado: {self.estado}"
         )

@@ -17,6 +17,7 @@ from app.services.sesion_service import (
     iniciar_sesion_service,
     cerrar_sesion_service
 )
+from app.services.contrasena_service import cambiar_mi_contrasena_service
 
 from app.services.autenticacion import (
     es_interno,
@@ -24,6 +25,7 @@ from app.services.autenticacion import (
     tomar_aviso_cierre,
     verificar_permiso
 )
+from app.utils.errores import mensaje_error
 
 
 # Menú de usuarios internos: (texto, función, nivel mínimo).
@@ -42,7 +44,9 @@ OPCIONES_INTERNAS = {
     "12": ("Proveedores", mostrar_menu_proveedores, 3),
     "13": ("Operadores logísticos", mostrar_menu_operadores, 3),
 }
-OPCION_CERRAR_SESION = "14"
+# Cerrar sesión es siempre la última opción antes de Salir (igual que en los portales).
+OPCION_CAMBIAR_CONTRASENA = "14"
+OPCION_CERRAR_SESION = "15"
 
 
 def ejecutar_modulo(funcion, nivel_minimo=1):
@@ -67,13 +71,14 @@ def mostrar_menu_interno(usuario):
     print("------------------------------------------")
     for clave, (texto, _, _) in OPCIONES_INTERNAS.items():
         print(f"{clave}. {texto}")
+    print(f"{OPCION_CAMBIAR_CONTRASENA}. Cambiar mi contraseña")
     print(f"{OPCION_CERRAR_SESION}. Cerrar sesión")
     print("0. Salir")
 
-    opcion = input("\nSeleccione una opción: ").strip()
+    opcion = input("\nSeleccioná una opción: ").strip()
 
-    # Si un administrador cerró la sesión mientras se elegía, se avisa
-    # antes de interpretar la opción (el menú vuelve al inicio de sesión).
+    # Si un administrador cerró la sesión mientras se elegía (o venció por
+    # inactividad), se avisa antes de interpretar la opción.
     if obtener_sesion_actual() is None:
         return False
 
@@ -82,11 +87,13 @@ def mostrar_menu_interno(usuario):
         ejecutar_modulo(funcion, nivel)
     elif opcion == OPCION_CERRAR_SESION:
         cerrar_sesion_service()
+    elif opcion == OPCION_CAMBIAR_CONTRASENA:
+        cambiar_mi_contrasena_service()
     elif opcion == "0":
         if cerrar_sesion_service():
             print("\nCerrando el sistema...")
             return True
-        print("No se pudo cerrar la sesión. Intente nuevamente.")
+        print("No se pudo cerrar la sesión. Intentá nuevamente.")
     else:
         print("\nOpción inválida.")
     return False
@@ -97,7 +104,7 @@ def mostrar_menu():
         try:
             usuario = obtener_sesion_actual()
         except Exception as error:
-            print(f"\nError al consultar la sesión: {error}")
+            print(f"\nError al consultar la sesión: {mensaje_error(error)}")
             return
 
         if usuario is None:
@@ -110,7 +117,7 @@ def mostrar_menu():
             print("1. Iniciar sesión")
             print("0. Salir")
 
-            opcion = input("\nSeleccione una opción: ").strip()
+            opcion = input("\nSeleccioná una opción: ").strip()
 
             if opcion == "1":
                 iniciar_sesion_service()

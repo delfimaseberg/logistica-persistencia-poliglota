@@ -19,7 +19,7 @@ def mostrar_menu_vehiculos():
         print("5. Eliminar vehículo")
         print("0. Volver")
 
-        opcion = input("\nSeleccione una opción: ").strip()
+        opcion = input("\nSeleccioná una opción: ").strip()
 
         if opcion == "1":
             registrar_vehiculo()

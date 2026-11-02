@@ -32,7 +32,7 @@ def mostrar_menu_predicciones():
         print("7. Alertas climáticas (registrar, listar, anular)")
         print("0. Volver al menú principal")
 
-        opcion = input("\nSeleccione una opción: ").strip()
+        opcion = input("\nSeleccioná una opción: ").strip()
 
         if opcion == "1":
             evaluar_envio_service()

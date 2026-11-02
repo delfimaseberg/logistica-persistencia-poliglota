@@ -7,6 +7,7 @@ Las consultas de reportes cobrables reciben SIEMPRE el id_cliente.
 import json
 
 from app.database.postgres_connection import get_postgres_connection
+from app.utils.errores import mensaje_error
 
 
 ZONA = "America/Argentina/Buenos_Aires"
@@ -213,7 +214,7 @@ def ranking_rutas_incidentes(desde, hasta):
 
 
 def ranking_clientes_volumen(desde, hasta):
-    """Volumen real: contenedores, capacidad (m3) y peso declarado (kg)."""
+    """Volumen real: contenedores, capacidad (toneladas) y peso declarado (kg)."""
     return _q(f"""
         WITH envios AS (
             SELECT e.id_envio, e.id_cliente
@@ -323,6 +324,8 @@ def listar_tipos_reporte(solo_activos=True):
 
 
 def actualizar_precio_tipo_reporte(codigo, precio, id_usuario):
+    from app.utils.validaciones_datos import validar_importe
+    precio = validar_importe(precio, "El precio")
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute("""
@@ -377,7 +380,7 @@ def marcar_error(id_reporte, error):
             cursor.execute("""
                 UPDATE reporte SET estado = 'ERROR', error = %s
                 WHERE id_reporte = %s AND estado = 'SOLICITADO'
-            """, (str(error)[:2000], id_reporte))
+            """, (mensaje_error(error)[:2000], id_reporte))
 
 
 COLUMNAS_REPORTE = (

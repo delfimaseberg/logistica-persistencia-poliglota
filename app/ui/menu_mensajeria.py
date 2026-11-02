@@ -37,12 +37,13 @@ OPCIONES = {
 
 
 def opciones_para(sesion):
-    """Los usuarios externos no administran grupos (solo participan)."""
+    """Los usuarios externos no administran grupos (solo participan).
+
+    Las opciones visibles se numeran de forma consecutiva (1, 2, 3...).
+    """
     interno = sesion is not None and es_interno(sesion)
-    return {
-        clave: opcion for clave, opcion in OPCIONES.items()
-        if interno or not opcion[2]
-    }
+    visibles = [opcion for opcion in OPCIONES.values() if interno or not opcion[2]]
+    return {str(numero): opcion for numero, opcion in enumerate(visibles, 1)}
 
 
 def mostrar_menu_mensajeria():
@@ -54,7 +55,7 @@ def mostrar_menu_mensajeria():
     while True:
         sesion = obtener_sesion_actual()
         if sesion is None:
-            print("\nDebe iniciar sesión para continuar.")
+            print("\nDebés iniciar sesión para continuar.")
             return
 
         opciones = opciones_para(sesion)
@@ -66,7 +67,7 @@ def mostrar_menu_mensajeria():
             print(f"{clave}. {texto}")
         print("0. Volver")
 
-        opcion = input("\nSeleccione una opción: ").strip()
+        opcion = input("\nSeleccioná una opción: ").strip()
 
         if opcion == "0":
             break

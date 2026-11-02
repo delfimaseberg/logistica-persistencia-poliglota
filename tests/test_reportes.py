@@ -220,7 +220,7 @@ def test_operadores_desde_neo4j_solo_envios_del_cliente():
         tabla = cobrables.generar_operadores(5, {**PARAMS, "id_contenedor": 40})
     assert ids.call_args.args == (5, D1, D2)
     assert grafo.call_args.args == (5, [5, 6], 40)
-    assert tabla.filas[0][-1] == "Andinos" and tabla.filas[0][6] == "2026-08-05 08:00"
+    assert tabla.filas[0][-1] == "Andinos" and tabla.filas[0][6] == "05/08/2026 08:00"
 
 
 def test_condiciones_de_carga_desde_cassandra_por_contenedor():
@@ -241,7 +241,7 @@ def test_condiciones_de_carga_desde_cassandra_por_contenedor():
     assert cass.call_args.args[1] == contenedor[4] and cass.call_args.args[2] == contenedor[5]
     fila = tabla.filas[0]
     assert fila[3:9] == (5, 4.0, 9.5, 85.0, 85.0, 2)
-    assert fila[9] == "-32.9000, -68.0000" and fila[10] == "-33.4000, -68.0000"
+    assert fila[9] == "-32,9000 ; -68,0000" and fila[10] == "-33,4000 ; -68,0000"
 
 
 # ------------------------------------------------------- ciclo completo
@@ -426,7 +426,7 @@ def con_sesion(s):
 def test_funciones_internas_de_reportes_bloqueadas_para_clientes(funcion, capsys):
     with con_sesion(sesion(cli=5)), patch("builtins.input", side_effect=AssertionError):
         assert funcion() is None
-    assert "solo para usuarios internos" in capsys.readouterr().out
+    assert "no disponible para usuarios de clientes" in capsys.readouterr().out
 
 
 def test_portal_solicita_siempre_para_el_cliente_de_la_sesion():
@@ -443,7 +443,7 @@ def test_portal_no_muestra_reportes_ajenos(capsys):
          patch.object(repo, "obtener_reporte", return_value=reporte(id_cliente=9)), \
          patch("builtins.input", side_effect=["9", ""]):
         pantallas.ver_mi_reporte_service()
-    assert "No existe un reporte con ese número entre sus reportes" in capsys.readouterr().out
+    assert "No existe un reporte con ese número entre tus reportes" in capsys.readouterr().out
 
 
 def test_mis_reportes_solo_para_usuarios_de_cliente(capsys):

@@ -1,17 +1,23 @@
 
 from app.models.cliente import Cliente
 from app.repositories.cliente_repository import (
+    dato_en_uso,
     crear_cliente,
     listar_clientes,
     buscar_cliente_por_id,
     modificar_cliente,
     eliminar_cliente
 )
-from app.utils.validaciones import (
-    texto_obligatorio,
+from app.services.autenticacion import requiere_permiso
+from app.utils.validaciones_datos import (
+    LARGOS_CONTACTO,
+    es_argentina,
     validar_email,
-    validar_telefono
+    validar_identificacion_fiscal,
+    validar_largo,
+    validar_telefono,
 )
+from app.utils.errores import mensaje_error
 
 
 def pedir_dato(mensaje, validador, *args):
@@ -19,7 +25,39 @@ def pedir_dato(mensaje, validador, *args):
         try:
             return validador(input(mensaje), *args)
         except ValueError as error:
-            print(f"Error: {error}")
+            print(f"Error: {mensaje_error(error)}")
+
+
+def _sin_repetir(campo, valor, excluir_id, texto):
+    if dato_en_uso(campo, valor, excluir_id):
+        raise ValueError(f"Ya existe otro cliente con ese {texto}.")
+    return valor
+
+
+def pedir_datos_cliente(excluir_id=None):
+    """Pide y valida los datos (el país antes del CUIT: de él depende el formato)."""
+    razon_social = pedir_dato(
+        "Razón social: ",
+        lambda v: validar_largo(v, "La razón social", LARGOS_CONTACTO["razon_social"]),
+    )
+    pais = pedir_dato("País: ", lambda v: validar_largo(v, "El país", LARGOS_CONTACTO["pais"]))
+    etiqueta = "CUIT" if es_argentina(pais) else "Identificación fiscal"
+    cuit = pedir_dato(
+        f"{etiqueta}: ",
+        lambda v: _sin_repetir("cuit", validar_identificacion_fiscal(v, pais), excluir_id,
+                               "CUIT" if es_argentina(pais) else "número de identificación"),
+    )
+    email = pedir_dato(
+        "Email: ",
+        lambda v: _sin_repetir("email", validar_email(v), excluir_id, "email"),
+    )
+    telefono = pedir_dato("Teléfono (opcional): ", validar_telefono)
+    direccion = pedir_dato(
+        "Dirección: ",
+        lambda v: validar_largo(v, "La dirección", LARGOS_CONTACTO["direccion"]),
+    )
+    estado = pedir_estado_cliente()
+    return razon_social, cuit, email, telefono, direccion, pais, estado
 
 
 def pedir_id_cliente():
@@ -38,7 +76,7 @@ def pedir_estado_cliente():
         print("1. ACTIVO")
         print("2. INACTIVO")
 
-        opcion = input("Seleccione una opción: ").strip()
+        opcion = input("Seleccioná una opción: ").strip()
 
         if opcion == "1":
             return "ACTIVO"
@@ -46,7 +84,7 @@ def pedir_estado_cliente():
         if opcion == "2":
             return "INACTIVO"
 
-        print("Opción inválida. Seleccione 1 o 2.")
+        print("Opción inválida. Seleccioná 1 o 2.")
 
 
 def mostrar_cliente(cliente):
@@ -66,44 +104,11 @@ Estado: {cliente[7]}
 """)
 
 
+@requiere_permiso(1)
 def registrar_cliente():
     print("\n--- REGISTRAR CLIENTE ---")
 
-    razon_social = pedir_dato(
-        "Razón social: ",
-        texto_obligatorio,
-        "La razón social"
-    )
-
-    cuit = pedir_dato(
-        "CUIT: ",
-        texto_obligatorio,
-        "El CUIT"
-    )
-
-    email = pedir_dato(
-        "Email: ",
-        validar_email
-    )
-
-    telefono = pedir_dato(
-        "Teléfono: ",
-        validar_telefono
-    )
-
-    direccion = pedir_dato(
-        "Dirección: ",
-        texto_obligatorio,
-        "La dirección"
-    )
-
-    pais = pedir_dato(
-        "País: ",
-        texto_obligatorio,
-        "El país"
-    )
-
-    estado = pedir_estado_cliente()
+    razon_social, cuit, email, telefono, direccion, pais, estado = pedir_datos_cliente()
 
     cliente = Cliente(
         razon_social,
@@ -122,11 +127,12 @@ def registrar_cliente():
         print(f"ID asignado: {id_cliente}")
 
     except Exception as error:
-        print(f"\nError al registrar el cliente: {error}")
+        print(f"\nError al registrar el cliente: {mensaje_error(error)}")
 
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
+@requiere_permiso(1)
 def listar_clientes_service():
     print("\n--- LISTADO DE CLIENTES ---")
 
@@ -141,11 +147,12 @@ def listar_clientes_service():
                 mostrar_cliente(cliente)
 
     except Exception as error:
-        print(f"Error al listar los clientes: {error}")
+        print(f"Error al listar los clientes: {mensaje_error(error)}")
 
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
+@requiere_permiso(1)
 def buscar_cliente_service():
     print("\n--- BUSCAR CLIENTE ---")
 
@@ -156,11 +163,12 @@ def buscar_cliente_service():
         mostrar_cliente(cliente)
 
     except Exception as error:
-        print(f"Error al buscar el cliente: {error}")
+        print(f"Error al buscar el cliente: {mensaje_error(error)}")
 
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
+@requiere_permiso(1)
 def modificar_cliente_service():
     print("\n--- MODIFICAR CLIENTE ---")
 
@@ -171,49 +179,17 @@ def modificar_cliente_service():
 
         if cliente_actual is None:
             print("Cliente no encontrado.")
-            input("\nPresione Enter para continuar...")
+            input("\nPresioná Enter para continuar...")
             return
 
         print("\nCliente actual:")
         mostrar_cliente(cliente_actual)
 
-        print("Ingrese los nuevos datos:")
+        print("Ingresá los nuevos datos:")
 
-        razon_social = pedir_dato(
-            "Razón social: ",
-            texto_obligatorio,
-            "La razón social"
+        razon_social, cuit, email, telefono, direccion, pais, estado = (
+            pedir_datos_cliente(excluir_id=id_cliente)
         )
-
-        cuit = pedir_dato(
-            "CUIT: ",
-            texto_obligatorio,
-            "El CUIT"
-        )
-
-        email = pedir_dato(
-            "Email: ",
-            validar_email
-        )
-
-        telefono = pedir_dato(
-            "Teléfono: ",
-            validar_telefono
-        )
-
-        direccion = pedir_dato(
-            "Dirección: ",
-            texto_obligatorio,
-            "La dirección"
-        )
-
-        pais = pedir_dato(
-            "País: ",
-            texto_obligatorio,
-            "El país"
-        )
-
-        estado = pedir_estado_cliente()
 
         cliente_modificado = Cliente(
             razon_social,
@@ -236,11 +212,12 @@ def modificar_cliente_service():
             print("\nNo se pudo modificar el cliente.")
 
     except Exception as error:
-        print(f"\nError al modificar el cliente: {error}")
+        print(f"\nError al modificar el cliente: {mensaje_error(error)}")
 
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
+@requiere_permiso(1)
 def eliminar_cliente_service():
     print("\n--- ELIMINAR CLIENTE ---")
 
@@ -251,14 +228,14 @@ def eliminar_cliente_service():
 
         if cliente is None:
             print("Cliente no encontrado.")
-            input("\nPresione Enter para continuar...")
+            input("\nPresioná Enter para continuar...")
             return
 
         print("\nCliente a eliminar:")
         mostrar_cliente(cliente)
 
         confirmacion = input(
-            "¿Está seguro de que desea eliminarlo? (S/N): "
+            "¿Seguro que querés eliminarlo? (S/N): "
         ).strip().upper()
 
         if confirmacion != "S":
@@ -272,6 +249,6 @@ def eliminar_cliente_service():
                 print("No se pudo eliminar el cliente.")
 
     except Exception as error:
-        print(f"\nError al eliminar el cliente: {error}")
+        print(f"\nError al eliminar el cliente: {mensaje_error(error)}")
 
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")

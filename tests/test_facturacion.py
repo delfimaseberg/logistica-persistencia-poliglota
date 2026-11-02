@@ -26,7 +26,7 @@ def test_pago_negativo_no_permitido():
 
 
 def test_formato_dinero():
-    assert service.dinero(Decimal("1500.50")) == "$1,500.50"
+    assert service.dinero(Decimal("1500.50")) == "$1.500,50"
 
 
 def test_seleccionar_elemento_por_numero():

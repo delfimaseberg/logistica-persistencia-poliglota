@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 
 from fpdf import FPDF
 
+from app.utils import formato
+
 
 ZONA = ZoneInfo("America/Argentina/Buenos_Aires")
 # Configurable para ensayos (REPORTES_DIR); por defecto, reportes_generados/.
@@ -49,14 +51,18 @@ def texto(valor):
         return valor.strftime("%d/%m/%Y %H:%M")
     if isinstance(valor, date):
         return valor.strftime("%d/%m/%Y")
+    if isinstance(valor, bool):
+        return "Sí" if valor else "No"
     if isinstance(valor, Decimal):
         # Cantidades (sin decimales en la base) se muestran enteras; los
         # importes (NUMERIC con escala 2) conservan los dos decimales.
+        # Formato argentino: 1.500,00.
         if valor.as_tuple().exponent >= 0:
-            return f"{valor:,.0f}"
-        return f"{valor:,.2f}"
+            return formato.entero(valor)
+        return formato.numero(valor, 2)
     if isinstance(valor, float):
-        return f"{valor:,.2f}"
+        # Horas, porcentajes y promedios: un decimal si alcanza.
+        return formato.numero(valor, 1 if round(valor, 1) == round(valor, 2) else 2)
     if isinstance(valor, (list, tuple)):
         return ", ".join(texto(v) for v in valor)
     return str(valor)
@@ -77,7 +83,7 @@ def imprimir_tabla(tabla, vacio=None):
         print("-+-".join("-" * a for a in anchos))
         for fila in celdas:
             print(" | ".join(v[:a].ljust(a) for v, a in zip(fila, anchos)))
-        print(f"({len(tabla.filas)} fila(s))")
+        print(f"Total: {len(tabla.filas)} {'fila' if len(tabla.filas) == 1 else 'filas'}")
     for nota in tabla.notas:
         print(f"Nota: {nota}")
 

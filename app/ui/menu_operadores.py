@@ -34,7 +34,7 @@ def mostrar_menu_operadores():
         print("14. Facturas recibidas vencidas o por vencer")
         print("0. Volver al menú principal")
 
-        opcion = input("\nSeleccione una opción: ").strip()
+        opcion = input("\nSeleccioná una opción: ").strip()
 
         acciones = {
             "1": servicio.registrar_tercero_service,

@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from app.database.mongo_connection import get_mongo_database
+from app.utils.errores import mensaje_error
 
 
 COLECCION_EVENTOS = "eventos_logisticos"
@@ -42,16 +43,6 @@ def listar_eventos_envios(ids_envio):
     )
 
 
-def listar_eventos_entregados():
-    """Lista eventos de entrega para conciliarlos con PostgreSQL."""
-    db = get_mongo_database()
-    return list(
-        db[COLECCION_EVENTOS]
-        .find({"tipo": "ENTREGADO"})
-        .sort("fecha_hora", 1)
-    )
-
-
 def tipos_registrados(id_envio):
     db = get_mongo_database()
 
@@ -76,7 +67,7 @@ def registrar_pendiente_sync(id_envio, error):
         {"envio_id": int(id_envio), "resuelto": False},
         {
             "$set": {
-                "ultimo_error": str(error)[:500],
+                "ultimo_error": mensaje_error(error)[:500],
                 "fecha_actualizacion": ahora
             },
             "$inc": {"intentos": 1},
@@ -120,7 +111,7 @@ def registrar_pendiente_estado(id_envio, estado, evento_id, error,
         {"evento_id": str(evento_id)},
         {"$set": {"envio_id": int(id_envio), "estado": estado,
                   "fecha_entrega": fecha_entrega,
-                  "ultimo_error": str(error)[:500], "resuelto": False,
+                  "ultimo_error": mensaje_error(error)[:500], "resuelto": False,
                   "fecha_actualizacion": ahora},
          "$setOnInsert": {"fecha_creacion": ahora}},
         upsert=True,

@@ -2,11 +2,18 @@ import re
 from datetime import datetime
 
 
+def es_obligatorio(nombre):
+    """'La dirección' -> 'La dirección es obligatoria.' (concuerda con el artículo)."""
+    primera = str(nombre).split(" ", 1)[0].lower()
+    terminacion = {"la": "obligatoria", "las": "obligatorias", "los": "obligatorios"}.get(primera, "obligatorio")
+    return f"{nombre} es {terminacion}."
+
+
 def texto_obligatorio(valor, nombre_campo):
     valor = valor.strip()
 
     if not valor:
-        raise ValueError(f"{nombre_campo} es obligatorio.")
+        raise ValueError(es_obligatorio(nombre_campo))
 
     return valor
 
@@ -16,18 +23,6 @@ def validar_entero_positivo(valor, nombre_campo):
         numero = int(valor)
     except ValueError:
         raise ValueError(f"{nombre_campo} debe ser un número entero.")
-
-    if numero <= 0:
-        raise ValueError(f"{nombre_campo} debe ser mayor que 0.")
-
-    return numero
-
-
-def validar_numero_positivo(valor, nombre_campo):
-    try:
-        numero = float(valor)
-    except ValueError:
-        raise ValueError(f"{nombre_campo} debe ser un número.")
 
     if numero <= 0:
         raise ValueError(f"{nombre_campo} debe ser mayor que 0.")

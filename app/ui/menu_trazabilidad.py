@@ -29,7 +29,7 @@ def mostrar_menu_trazabilidad():
         print("8. Red cliente - operadores - envíos")
         print("0. Volver al menú principal")
 
-        opcion = input("\nSeleccione una opción: ").strip()
+        opcion = input("\nSeleccioná una opción: ").strip()
 
         if opcion == "1":
             registrar_evento_service()

@@ -21,6 +21,9 @@ from app.utils.validaciones_contenedor import (
 from app.utils.validaciones_logistica import (
     validar_entero_positivo_logistica
 )
+from app.utils.errores import mensaje_error
+from app.utils import formato
+from app.services.autenticacion import requiere_permiso
 
 
 def pedir(mensaje, funcion):
@@ -28,11 +31,11 @@ def pedir(mensaje, funcion):
         try:
             return funcion(input(mensaje))
         except ValueError as error:
-            print(f"Error: {error}")
+            print(f"Error: {mensaje_error(error)}")
 
 
 def pausar():
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
 def mostrar_contenedor(contenedor):
@@ -40,7 +43,7 @@ def mostrar_contenedor(contenedor):
     print(f"ID contenedor: {contenedor[0]}")
     print(f"Código internacional: {contenedor[1]}")
     print(f"Tipo: {contenedor[2]}")
-    print(f"Capacidad: {contenedor[3]} toneladas")
+    print(f"Capacidad: {formato.compacto(contenedor[3])} toneladas")
     print(f"Estado: {contenedor[4]}")
 
 
@@ -59,6 +62,7 @@ def pedir_codigo(id_actual=None):
         print("Error: ese código ya está registrado.")
 
 
+@requiere_permiso(1)
 def registrar_contenedor():
     print("\n--- REGISTRAR CONTENEDOR ---")
 
@@ -97,12 +101,13 @@ def registrar_contenedor():
         )
 
     except Exception as error:
-        print(f"\nError al registrar el contenedor: {error}")
+        print(f"\nError al registrar el contenedor: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def listar_contenedores_service():
     print("\n--- LISTAR CONTENEDORES ---")
 
@@ -119,12 +124,13 @@ def listar_contenedores_service():
             mostrar_contenedor(contenedor)
 
     except Exception as error:
-        print(f"\nError al listar contenedores: {error}")
+        print(f"\nError al listar contenedores: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def buscar_contenedor_service():
     print("\n--- BUSCAR CONTENEDOR ---")
 
@@ -145,12 +151,13 @@ def buscar_contenedor_service():
         mostrar_contenedor(contenedor)
 
     except Exception as error:
-        print(f"\nError al buscar contenedor: {error}")
+        print(f"\nError al buscar contenedor: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def modificar_contenedor_service():
     print("\n--- MODIFICAR CONTENEDOR ---")
 
@@ -170,7 +177,7 @@ def modificar_contenedor_service():
 
         mostrar_contenedor(actual)
 
-        print("\n¿Qué desea modificar?")
+        print("\n¿Qué querés modificar?")
         print("1. Código internacional")
         print("2. Tipo")
         print("3. Capacidad")
@@ -241,12 +248,13 @@ def modificar_contenedor_service():
             print("No se pudo modificar el contenedor.")
 
     except Exception as error:
-        print(f"\nError al modificar contenedor: {error}")
+        print(f"\nError al modificar contenedor: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def eliminar_contenedor_service():
     print("\n--- ELIMINAR CONTENEDOR ---")
 
@@ -281,7 +289,7 @@ def eliminar_contenedor_service():
         mostrar_contenedor(contenedor)
 
         confirmacion = input(
-            "\n¿Confirma la eliminación? (S/N): "
+            "\n¿Confirmás la eliminación? (S/N): "
         ).strip().upper()
 
         if confirmacion != "S":
@@ -294,7 +302,7 @@ def eliminar_contenedor_service():
             print("No se pudo eliminar.")
 
     except Exception as error:
-        print(f"\nError al eliminar contenedor: {error}")
+        print(f"\nError al eliminar contenedor: {mensaje_error(error)}")
 
     finally:
         pausar()

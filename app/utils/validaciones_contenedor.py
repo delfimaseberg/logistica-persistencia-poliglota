@@ -49,8 +49,8 @@ def validar_capacidad(valor):
     if capacidad <= 0:
         raise ValueError("La capacidad debe ser mayor que cero.")
 
-    if capacidad > Decimal("99999999.99"):
-        raise ValueError("La capacidad supera el máximo permitido.")
+    if capacidad > Decimal("100"):
+        raise ValueError("La capacidad no puede superar 100 toneladas.")
 
     if capacidad.as_tuple().exponent < -2:
         raise ValueError(

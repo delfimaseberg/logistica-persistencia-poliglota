@@ -11,6 +11,8 @@ from app.repositories.lectura_iot_repository import (
     registrar_lectura_db,
     consultar_ultima_lectura_db
 )
+from app.utils.errores import mensaje_error
+from app.services.autenticacion import requiere_permiso
 
 
 INTERVALO_SEGUNDOS = 10
@@ -46,11 +48,12 @@ def controlar_sensores(sensores):
                 atrasados.append(id_sensor)
 
         except Exception as error:
-            errores.append((id_sensor, str(error)))
+            errores.append((id_sensor, mensaje_error(error)))
 
     return sin_lecturas, atrasados, errores
 
 
+@requiere_permiso(1)
 def monitoreo_continuo_service():
     print("\n--- MONITOREO IoT CONTINUO ---")
     print(
@@ -69,7 +72,7 @@ def monitoreo_continuo_service():
 
     if confirmacion != "S":
         print("\nMonitoreo cancelado.")
-        input("\nPresione Enter para continuar...")
+        input("\nPresioná Enter para continuar...")
         return
 
     rondas = 0
@@ -96,7 +99,7 @@ def monitoreo_continuo_service():
             except Exception as error:
                 total_errores += 1
                 print(
-                    f"\nError al consultar sensores: {error}"
+                    f"\nError al consultar sensores: {mensaje_error(error)}"
                 )
                 print(
                     f"Nuevo intento en "
@@ -179,7 +182,7 @@ def monitoreo_continuo_service():
 
                         print(
                             f"Error al registrar lectura "
-                            f"del sensor {id_sensor}: {error}"
+                            f"del sensor {id_sensor}: {mensaje_error(error)}"
                         )
 
             print(
@@ -208,4 +211,4 @@ def monitoreo_continuo_service():
             "de cada sensor."
         )
 
-        input("\nPresione Enter para volver...")
+        input("\nPresioná Enter para volver...")

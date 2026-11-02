@@ -56,16 +56,3 @@ def listar_tramos_de_envio(id_envio):
             """, (id_envio,))
             return cursor.fetchall()
 
-
-def buscar_tramo_por_id(id_tramo):
-    with get_postgres_connection() as conexion:
-        with conexion.cursor() as cursor:
-            cursor.execute("""
-                SELECT
-                    id_tramo, id_envio, id_vehiculo,
-                    medio_transporte, origen, destino,
-                    fecha_salida, fecha_estimada_llegada
-                FROM tramo
-                WHERE id_tramo = %s
-            """, (id_tramo,))
-            return cursor.fetchone()

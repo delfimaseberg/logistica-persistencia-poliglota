@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 from app.repositories.lectura_iot_repository import registrar_lectura_db
 from app.repositories.regla_alerta_repository import reglas_vigentes, umbral
 from app.services.monitoreo_avanzado_service import sensores_activos
+from app.utils.errores import mensaje_error
+from app.services.autenticacion import requiere_permiso
 
 
 FALLAS = {
@@ -15,7 +17,7 @@ FALLAS = {
 
 
 def pausar():
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
 def lecturas_de_falla(falla, tipo_sensor, ahora, congeladas=6, salto_maximo=10.0):
@@ -30,19 +32,20 @@ def lecturas_de_falla(falla, tipo_sensor, ahora, congeladas=6, salto_maximo=10.0
         return [(ahora, {"bateria": 150.0})]
     if falla == "congelada":
         if tipo not in ("temperatura", "humedad"):
-            raise ValueError("Elija un sensor de temperatura o de humedad.")
+            raise ValueError("Elegí un sensor de temperatura o de humedad.")
         valor = 5.5 if campo == "temperatura" else 60.0
         cantidad = int(congeladas)
         return [(ahora - timedelta(minutes=5 * (cantidad - 1 - i)),
                  {campo: valor, "bateria": 80.0}) for i in range(cantidad)]
     if falla == "salto":
         if tipo != "temperatura":
-            raise ValueError("Elija un sensor de temperatura.")
+            raise ValueError("Elegí un sensor de temperatura.")
         return [(ahora - timedelta(minutes=10), {"temperatura": 4.0, "bateria": 80.0}),
                 (ahora, {"temperatura": round(4.0 + salto_maximo + 5, 1), "bateria": 80.0})]
     raise ValueError("Falla desconocida.")
 
 
+@requiere_permiso(1)
 def simular_falla_sensor_service():
     print("\n--- SIMULAR FALLA DE SENSOR ---")
     try:
@@ -80,8 +83,8 @@ def simular_falla_sensor_service():
             print(f"Alertas nuevas: {resumen['alertas_nuevas']} "
                   f"(mensajes enviados: {resumen['mensajes']})")
     except ValueError as error:
-        print(f"No se simuló: {error}")
+        print(f"No se simuló: {mensaje_error(error)}")
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()

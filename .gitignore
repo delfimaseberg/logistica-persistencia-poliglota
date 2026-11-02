@@ -32,3 +32,6 @@ ANALISIS_PROMOCION.md
 
 # Reportes cobrables generados (CSV/PDF)
 reportes_generados/
+
+# Logs de la aplicación
+logs/

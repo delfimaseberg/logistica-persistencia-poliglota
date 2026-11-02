@@ -22,11 +22,15 @@ from app.database.postgres_connection import get_postgres_connection
 from app.repositories.lectura_iot_repository import ultimas_lecturas_sensor
 from app.repositories.regla_alerta_repository import VARIABLES, reglas_vigentes, umbral
 from app.services.alertas_service import emitir_alerta
+from app.utils.validaciones_datos import LARGO_DESCRIPCION
 from app.services.deteccion_sensores import (
     es_lectura_valida_para_umbrales,
     evaluar_umbrales,
     fallas_de_sensor,
 )
+from app.utils import formato
+from app.utils.errores import mensaje_error
+from app.services.autenticacion import requiere_permiso
 
 
 # Los umbrales están en la tabla regla_alerta (ABM de reglas de alerta).
@@ -52,13 +56,14 @@ def mostrar_incidente(fila):
     print("-" * 45)
     print(f"ID: {fila[0]} | Envío: {fila[1]}")
     print(f"Tipo: {fila[2]}")
-    print(f"Fecha: {fila[3]}")
+    print(f"Fecha: {formato.fecha_hora(fila[3])}")
     print(f"Severidad: {fila[4]} | Estado: {fila[5]}")
     print(f"Descripción: {fila[6]}")
     if len(fila) >= 9:
         print(f"Ruta: {fila[7]} -> {fila[8]}")
 
 
+@requiere_permiso(1)
 def registrar_incidente_service():
     print("\n--- REGISTRAR INCIDENTE ---")
 
@@ -94,6 +99,9 @@ def registrar_incidente_service():
         if not descripcion:
             print("La descripción es obligatoria.")
             return
+        if len(descripcion) > LARGO_DESCRIPCION:
+            print(f"La descripción no puede superar {LARGO_DESCRIPCION} caracteres.")
+            return
 
         confirmar = input("¿Registrar incidente? (S/N): ").strip().upper()
         if confirmar != "S":
@@ -108,11 +116,12 @@ def registrar_incidente_service():
         print("Estado: Abierto")
 
     except Exception as error:
-        print(f"Error al registrar incidente: {error}")
+        print(f"Error al registrar incidente: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def consultar_incidentes_service():
     print("\n--- CONSULTAR INCIDENTES ---")
 
@@ -143,11 +152,12 @@ def consultar_incidentes_service():
     except ValueError:
         print("El ID del envío debe ser numérico.")
     except Exception as error:
-        print(f"Error al consultar incidentes: {error}")
+        print(f"Error al consultar incidentes: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def cambiar_estado_incidente_service():
     print("\n--- ACTUALIZAR INCIDENTE ---")
 
@@ -184,7 +194,7 @@ def cambiar_estado_incidente_service():
             print("No se pudo actualizar.")
 
     except Exception as error:
-        print(f"Error al actualizar incidente: {error}")
+        print(f"Error al actualizar incidente: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -318,7 +328,8 @@ def _texto_umbrales(vigentes):
         nombre, unidad = VARIABLES[variable][0], VARIABLES[variable][1]
         signo = "menor a" if limite == "MIN" else "mayor a"
         for valor, severidad, _ in sorted(reglas):
-            lineas.append(f"  {nombre} {signo} {valor:g} {unidad} -> {severidad}".rstrip())
+            condicion = f"{nombre} {signo} {formato.compacto(valor)} {unidad}".rstrip()
+            lineas.append(f"  {condicion} -> {severidad}")
     return lineas
 
 
@@ -388,10 +399,11 @@ def revisar_lecturas_sensores(ahora=None, horas_vigencia=24):
                     resumen["incidentes"] += 1
                 resumen["detalle"].append((id_sensor, tipo, descripcion, id_incidente))
         except Exception as error:
-            resumen["errores"].append((id_sensor, str(error)))
+            resumen["errores"].append((id_sensor, mensaje_error(error)))
     return resumen
 
 
+@requiere_permiso(1)
 def detectar_alertas_service():
     print("\n--- DETECTAR ANOMALÍAS Y FALLAS DE SENSORES ---")
     print("Se analizan las lecturas de las últimas 24 horas de cada sensor activo.")
@@ -403,7 +415,7 @@ def detectar_alertas_service():
         print("También se detectan fallas del sensor: valores imposibles, "
               "lecturas congeladas y saltos bruscos.")
     except Exception as error:
-        print(f"No se pudieron leer las reglas de alerta: {error}")
+        print(f"No se pudieron leer las reglas de alerta: {mensaje_error(error)}")
         pausar()
         return
 
@@ -429,7 +441,7 @@ def detectar_alertas_service():
         print(f"Errores: {len(resumen['errores'])}")
         print("Si una alerta ya existía no se repite ni se vuelve a notificar.")
     except Exception as error:
-        print(f"Error en la detección: {error}")
+        print(f"Error en la detección: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -457,6 +469,7 @@ def mostrar_alerta(alerta, numero):
         print(f"   Nota: {alerta['nota_atencion']}")
 
 
+@requiere_permiso(1)
 def consultar_alertas_service():
     print("\n--- CONSULTAR ALERTAS ---")
 
@@ -487,11 +500,12 @@ def consultar_alertas_service():
     except ValueError:
         print("El número de sensor debe ser numérico.")
     except Exception as error:
-        print(f"Error al consultar alertas: {error}")
+        print(f"Error al consultar alertas: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def atender_alerta_service():
     print("\n--- MARCAR ALERTA COMO ATENDIDA ---")
 
@@ -517,6 +531,6 @@ def atender_alerta_service():
             print("No se encontró la alerta.")
 
     except Exception as error:
-        print(f"Error al actualizar alerta: {error}")
+        print(f"Error al actualizar alerta: {mensaje_error(error)}")
     finally:
         pausar()

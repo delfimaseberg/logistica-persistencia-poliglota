@@ -100,9 +100,9 @@ def test_umbrales_informan_la_regla_mas_severa_que_se_cumple():
     vigentes = dict(REGLAS_POR_DEFECTO)
     vigentes[("temperatura", "MAX")] = [(8.0, "Alta", ""), (12.0, "Crítica", "")]
     assert det.evaluar_umbrales(lectura(0, temperatura=10.0), vigentes) == [
-        ("Temperatura alta", "Alta", "Temperatura alta: valor 10.00, límite 8.00")]
+        ("Temperatura alta", "Alta", "Temperatura alta: valor 10, límite 8")]
     assert det.evaluar_umbrales(lectura(0, temperatura=13.0), vigentes) == [
-        ("Temperatura alta", "Crítica", "Temperatura alta: valor 13.00, límite 12.00")]
+        ("Temperatura alta", "Crítica", "Temperatura alta: valor 13, límite 12")]
 
 
 def test_sin_reglas_activas_no_hay_alerta_de_esa_variable():
@@ -161,7 +161,7 @@ def test_deteccion_lee_las_reglas_de_la_base():
                       return_value={("humedad", "MAX"): [(50.0, "Alta", "")]}) as reglas:
         resultado = incidentes_service.detectar_anomalias(lectura(0, humedad=60.0))
     reglas.assert_called_once()
-    assert resultado == [("Humedad alta", "Alta", "Humedad alta: valor 60.00, límite 50.00")]
+    assert resultado == [("Humedad alta", "Alta", "Humedad alta: valor 60, límite 50")]
 
 
 def test_horas_sin_transmision_salen_de_la_regla():
@@ -418,7 +418,7 @@ def test_reporte_riesgo_ordena_por_nivel_y_probabilidad():
         tabla = rs.reporte_riesgo_envios()
     assert [f[0] for f in tabla.filas] == [18, 14, 16]
     assert tabla.filas[0][5] == "100,0 %" and tabla.filas[2][4] == "Sin predicción"
-    assert tabla.filas[0][8] == "Llegada estimada vencida (100%)"
+    assert tabla.filas[0][8] == "Llegada estimada vencida (100 %)"
 
 
 def test_rutas_que_suelen_atrasarse():
@@ -465,13 +465,14 @@ def test_el_administrador_cierra_una_sesion_ajena():
     cerrar.assert_called_once_with(31, 4)
 
 
+@pytest.mark.sesion_real
 def test_el_usuario_desalojado_ve_el_aviso_una_vez():
     from app.services import autenticacion
     cursor = MagicMock()
     cursor.fetchone.return_value = None
     autenticacion.establecer_sesion(31, 7)
     with patch.object(autenticacion, "get_postgres_connection", return_value=conexion_mock(cursor)), \
-         patch("app.repositories.sesion_repository.cerrada_por_otro", return_value=True):
+         patch("app.repositories.sesion_repository.motivo_cierre", return_value="ADMINISTRADOR"):
         assert autenticacion.obtener_sesion_actual() is None
     assert autenticacion.tomar_aviso_cierre() == "Tu sesión fue cerrada por un administrador."
     assert autenticacion.tomar_aviso_cierre() is None
@@ -523,8 +524,8 @@ def test_tabla_no_muestra_la_fuente_y_usa_mensaje_vacio(capsys):
 def test_cantidades_enteras_e_importes_con_decimales():
     from app.utils.exportar_reportes import texto
     assert texto(Decimal("3")) == "3"
-    assert texto(Decimal("1500.00")) == "1,500.00"
-    assert texto(Decimal("0.67")) == "0.67"
+    assert texto(Decimal("1500.00")) == "1.500,00"
+    assert texto(Decimal("0.67")) == "0,67"
 
 
 def test_parametros_en_lenguaje_natural():
@@ -621,7 +622,7 @@ def test_pantallas_de_prediccion_muestran_la_probabilidad_y_no_el_puntaje(capsys
          patch("builtins.input", side_effect=["S", ""]):
         pred.actualizar_predicciones_service()
     salida = capsys.readouterr().out
-    assert "Envío 18: ALTO (66,7 %)" in salida and "/100" not in salida
+    assert "Envío 18: ALTO | probabilidad de demora: 66,7 %" in salida and "/100" not in salida
 
 
 def test_mensaje_de_alerta_sin_none_y_con_codigo_de_contenedor():
@@ -634,7 +635,7 @@ def test_mensaje_de_alerta_sin_none_y_con_codigo_de_contenedor():
 def test_congelada_menciona_solo_lo_que_mide_el_sensor():
     serie = [lectura(5 * i, temperatura=5.5) for i in range(6)]
     descripcion = det.fallas_de_sensor(serie, REGLAS_POR_DEFECTO)[0][2]
-    assert "temperatura 5.5" in descripcion and "humedad" not in descripcion and "None" not in descripcion
+    assert "temperatura 5,5" in descripcion and "humedad" not in descripcion and "None" not in descripcion
 
 
 def test_sin_transmision_identifica_el_contenedor_por_codigo():

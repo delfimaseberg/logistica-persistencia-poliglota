@@ -6,6 +6,8 @@ from app.repositories.rol_repository import (
     modificar_rol,
     eliminar_rol
 )
+from app.utils.errores import mensaje_error
+from app.services.autenticacion import requiere_permiso
 
 
 def pedir_id_rol():
@@ -22,10 +24,10 @@ def pedir_descripcion():
     while True:
         descripcion = input("Descripción: ").strip()
 
-        if descripcion:
+        if descripcion and len(descripcion) <= 255:
             return descripcion
 
-        print("Error: la descripción es obligatoria.")
+        print("Error: la descripción es obligatoria (hasta 255 caracteres).")
 
 
 def pedir_nivel_permisos():
@@ -58,6 +60,7 @@ Nivel de permisos: {rol[2]}
 """)
 
 
+@requiere_permiso(5)
 def registrar_rol():
     print("\n--- REGISTRAR ROL ---")
 
@@ -76,11 +79,12 @@ def registrar_rol():
         print(f"ID asignado: {id_rol}")
 
     except Exception as error:
-        print(f"\nError al registrar el rol: {error}")
+        print(f"\nError al registrar el rol: {mensaje_error(error)}")
 
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
+@requiere_permiso(5)
 def listar_roles_service():
     print("\n--- LISTADO DE ROLES ---")
 
@@ -95,11 +99,12 @@ def listar_roles_service():
                 mostrar_rol(rol)
 
     except Exception as error:
-        print(f"Error al listar los roles: {error}")
+        print(f"Error al listar los roles: {mensaje_error(error)}")
 
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
+@requiere_permiso(5)
 def buscar_rol_service():
     print("\n--- BUSCAR ROL ---")
 
@@ -110,11 +115,12 @@ def buscar_rol_service():
         mostrar_rol(rol)
 
     except Exception as error:
-        print(f"Error al buscar el rol: {error}")
+        print(f"Error al buscar el rol: {mensaje_error(error)}")
 
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
+@requiere_permiso(5)
 def modificar_rol_service():
     print("\n--- MODIFICAR ROL ---")
 
@@ -125,13 +131,13 @@ def modificar_rol_service():
 
         if rol_actual is None:
             print("Rol no encontrado.")
-            input("\nPresione Enter para continuar...")
+            input("\nPresioná Enter para continuar...")
             return
 
         print("\nRol actual:")
         mostrar_rol(rol_actual)
 
-        print("Ingrese los nuevos datos:")
+        print("Ingresá los nuevos datos:")
 
         descripcion = pedir_descripcion()
         nivel_permisos = pedir_nivel_permisos()
@@ -152,11 +158,12 @@ def modificar_rol_service():
             print("\nNo se pudo modificar el rol.")
 
     except Exception as error:
-        print(f"\nError al modificar el rol: {error}")
+        print(f"\nError al modificar el rol: {mensaje_error(error)}")
 
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
+@requiere_permiso(5)
 def eliminar_rol_service():
     print("\n--- ELIMINAR ROL ---")
 
@@ -167,14 +174,14 @@ def eliminar_rol_service():
 
         if rol is None:
             print("Rol no encontrado.")
-            input("\nPresione Enter para continuar...")
+            input("\nPresioná Enter para continuar...")
             return
 
         print("\nRol a eliminar:")
         mostrar_rol(rol)
 
         confirmacion = input(
-            "¿Está seguro de que desea eliminarlo? (S/N): "
+            "¿Seguro que querés eliminarlo? (S/N): "
         ).strip().upper()
 
         if confirmacion != "S":
@@ -188,6 +195,6 @@ def eliminar_rol_service():
                 print("No se pudo eliminar el rol.")
 
     except Exception as error:
-        print(f"\nError al eliminar el rol: {error}")
+        print(f"\nError al eliminar el rol: {mensaje_error(error)}")
 
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")

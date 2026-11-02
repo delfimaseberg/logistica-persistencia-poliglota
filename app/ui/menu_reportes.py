@@ -36,7 +36,7 @@ def mostrar_menu_reportes():
             print(f"{clave}. {texto}")
         print("0. Volver al menú principal")
 
-        opcion = input("\nSeleccione una opción: ").strip()
+        opcion = input("\nSeleccioná una opción: ").strip()
 
         if opcion == "0":
             break

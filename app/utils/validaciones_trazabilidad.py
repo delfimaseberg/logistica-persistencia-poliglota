@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from math import isfinite
 from zoneinfo import ZoneInfo
 
+from app.utils import formato
 from app.utils.validaciones_logistica import normalizar
 
 
@@ -210,7 +211,7 @@ def fusionar_recorrido(eventos, puntos_gps):
             "fecha": _con_zona(evento["fecha_hora"]),
             "origen": "EVENTO",
             "texto": (
-                f"{evento['tipo']} en {ubicacion} "
+                f"{formato.evento(evento['tipo'])} en {ubicacion} "
                 f"(envío {evento['envio_id']})"
             )
         })
@@ -220,7 +221,8 @@ def fusionar_recorrido(eventos, puntos_gps):
             "fecha": _con_zona(punto["fecha_hora"]),
             "origen": "GPS",
             "texto": (
-                f"lat {punto['lat']:.5f}, lon {punto['lon']:.5f} "
+                f"latitud {formato.numero(punto['lat'], 5)} | "
+                f"longitud {formato.numero(punto['lon'], 5)} "
                 f"(sensor {punto['sensor_id']})"
             )
         })

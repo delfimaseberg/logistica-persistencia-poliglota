@@ -10,6 +10,9 @@ from app.utils.validaciones_financieras import (
     FinanzasNoConfiguradas,
     validar_apertura_verificada,
 )
+from app.utils.errores import mensaje_error
+from app.utils import formato
+from app.utils.validaciones_datos import IMPORTE_MAXIMO
 
 # Al archivo logs/app.log (no a la consola, para no ensuciar los menús).
 logger = obtener_logger("cierre_cuenta")
@@ -319,7 +322,7 @@ def cerrar_mes_todos(periodo, hoy=None):
             continue
         except Exception as error:
             resumen["errores"].append(
-                {"id_cliente": id_cliente, "cliente": nombre, "error": str(error)}
+                {"id_cliente": id_cliente, "cliente": nombre, "error": mensaje_error(error)}
             )
             continue
 
@@ -345,6 +348,9 @@ def cerrar_mes_todos(periodo, hoy=None):
 def validar_datos_apertura(saldo_inicial, fecha_vigencia, referencia, hoy=None):
     hoy = hoy or hoy_argentina()
     saldo = _dinero(saldo_inicial, "El saldo inicial")
+    if abs(saldo) > IMPORTE_MAXIMO:
+        raise CierreBloqueado(
+            f"El saldo inicial no puede superar {formato.dinero(IMPORTE_MAXIMO)}.")
     if not isinstance(fecha_vigencia, date) or isinstance(fecha_vigencia, datetime):
         raise CierreBloqueado("La fecha de vigencia debe ser una fecha calendario.")
     if fecha_vigencia > hoy:

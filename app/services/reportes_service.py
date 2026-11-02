@@ -13,6 +13,7 @@ from functools import wraps
 
 from app.repositories import reportes_repository as repo
 from app.utils.exportar_reportes import Tabla
+from app.utils import formato
 
 
 def con_vacio(mensaje):
@@ -259,7 +260,7 @@ def reporte_ranking_rutas(desde, hasta):
 def reporte_ranking_volumen(desde, hasta):
     return Tabla(
         "Ranking de clientes por volumen transportado",
-        ["Cliente", "País", "Envíos", "Contenedores", "Capacidad (m3)", "Peso (kg)"],
+        ["Cliente", "País", "Envíos", "Contenedores", "Capacidad (t)", "Peso (kg)"],
         repo.ranking_clientes_volumen(desde, hasta), "PostgreSQL",
         ["Ordenado por peso declarado en las partidas de carga y, a igual peso, "
          "por capacidad de contenedores. No incluye envíos cancelados."],
@@ -311,7 +312,7 @@ def _principal_factor(prediccion):
     if not factores:
         return "Sin factores de demora"
     mayor = max(factores, key=lambda f: f["probabilidad"])
-    return f"{mayor['factor']} ({mayor['probabilidad']:.0%})"
+    return f"{mayor['factor']} ({formato.porcentaje(mayor['probabilidad'] * 100, 0)})"
 
 
 def reporte_riesgo_envios(id_cliente=None):
@@ -377,7 +378,7 @@ def reporte_rutas_atraso():
     notas = ["Atrasado: entregado después de la llegada estimada o con un retraso informado."]
     if general["envios"]:
         notas.append(f"Tasa general: {general['atrasados']} de {general['envios']} "
-                     f"({general['atrasados'] * 100 / general['envios']:.1f} %).")
+                     f"({formato.porcentaje(general['atrasados'] * 100 / general['envios'])}).")
     tabla = Tabla("Rutas que suelen atrasarse",
                   ["Ruta", "Entregados", "Atrasados", "% de atraso", "Historial propio"],
                   filas, "PostgreSQL + MongoDB (eventos RETRASO)", notas)

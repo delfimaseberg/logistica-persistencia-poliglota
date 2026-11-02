@@ -1,30 +1,32 @@
 """Casos de uso de reglas tarifarias y tarifas por envío."""
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from app.repositories import tarifas_repository as repo
-from app.services.tarifas_calculo import (
-    CalculoTarifaInvalido,
-    calcular_componentes,
-    validar_estructura_componentes,
+from app.services.tarifas_calculo import validar_estructura_componentes
+from app.utils.validaciones_datos import (
+    DISTANCIA_MAXIMA_KM, PESO_MAXIMO_KG, controlar_cantidad, controlar_maximo,
 )
-from app.utils.validaciones_financieras import validar_tarifa_aprobada
+from app.services.autenticacion import requiere_permiso
 
 
 def _hoy_buenos_aires():
     return datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).date()
 
 
+@requiere_permiso(3, lanzar=True)
 def registrar_tipo_carga(codigo, descripcion):
     codigo = str(codigo or "").strip().upper()
     descripcion = str(descripcion or "").strip()
-    if not codigo or len(codigo) > 40 or not descripcion:
-        raise ValueError("El código y la descripción de la categoría son obligatorios.")
+    if not codigo or len(codigo) > 40 or not descripcion or len(descripcion) > 150:
+        raise ValueError("El código (hasta 40 caracteres) y la descripción (hasta 150) "
+                         "de la categoría son obligatorios.")
     return repo.crear_tipo_carga(codigo, descripcion)
 
 
+@requiere_permiso(3, lanzar=True)
 def registrar_partida_carga(id_envio, tipo_carga, peso_kg, fragil, descripcion=None):
     try:
         peso = Decimal(str(peso_kg))
@@ -34,11 +36,15 @@ def registrar_partida_carga(id_envio, tipo_carga, peso_kg, fragil, descripcion=N
         raise ValueError("El peso real debe ser mayor a cero.")
     if max(0, -peso.as_tuple().exponent) > 3:
         raise ValueError("El peso admite hasta tres decimales de kg.")
+    controlar_cantidad(peso, "El peso de la partida", PESO_MAXIMO_KG, "kg")
     if not isinstance(fragil, bool):
         raise ValueError("La fragilidad debe indicarse explícitamente.")
+    if descripcion and len(str(descripcion)) > 1000:
+        raise ValueError("La descripción de la partida no puede superar 1000 caracteres.")
     return repo.agregar_carga(id_envio, tipo_carga, peso, fragil, descripcion)
 
 
+@requiere_permiso(3, lanzar=True)
 def registrar_distancia_tramo(id_tramo, distancia_km):
     try:
         distancia = Decimal(str(distancia_km))
@@ -48,10 +54,12 @@ def registrar_distancia_tramo(id_tramo, distancia_km):
         raise ValueError("La distancia debe ser mayor a cero.")
     if max(0, -distancia.as_tuple().exponent) > 3:
         raise ValueError("La distancia admite hasta tres decimales de km.")
+    controlar_cantidad(distancia, "La distancia", DISTANCIA_MAXIMA_KM, "km")
     if not repo.actualizar_distancia_tramo(id_tramo, distancia):
         raise ValueError("No existe ese tramo.")
 
 
+@requiere_permiso(3, lanzar=True)
 def crear_regla(codigo, version, moneda, desde, hasta, usuario_id, componentes):
     codigo = str(codigo or "").strip().upper()
     moneda = str(moneda or "").strip().upper()
@@ -77,10 +85,14 @@ def crear_regla(codigo, version, moneda, desde, hasta, usuario_id, componentes):
         importe = Decimal(str(component["importe"]))
         if max(0, -importe.as_tuple().exponent) > 6:
             raise ValueError("Los componentes de regla admiten hasta seis decimales.")
+        if not importe.is_finite() or importe < 0:
+            raise ValueError("Los importes de la regla no pueden ser negativos.")
+        controlar_maximo(importe, "El importe del componente")
     return repo.crear_regla(codigo, int(version), moneda, desde, hasta,
                             usuario_id, componentes)
 
 
+@requiere_permiso(3, lanzar=True)
 def aprobar_regla(id_regla, usuario_id, referencia):
     if not str(referencia or "").strip():
         raise ValueError("La aprobación requiere una referencia documentada.")
@@ -94,100 +106,6 @@ def aprobar_regla(id_regla, usuario_id, referencia):
         raise ValueError("En esta versión solo se pueden aprobar reglas vigentes hoy.")
     validar_estructura_componentes(regla["componentes"])
     return repo.aprobar_regla(id_regla, usuario_id, str(referencia).strip())
-
-
-def calcular_tarifa_envio(id_envio, id_regla, usuario_id):
-    datos = repo.obtener_datos_calculo(id_envio, id_regla)
-    hoy = _hoy_buenos_aires()
-    regla = datos["regla"]
-    if regla["vigente_desde"] > hoy or (
-        regla["vigente_hasta"] is not None and regla["vigente_hasta"] < hoy
-    ):
-        raise ValueError("La regla aprobada no está vigente hoy.")
-    validar_estructura_componentes(datos["componentes"])
-    calculo = calcular_componentes(datos["cargas"], datos["tramos"], datos["componentes"])
-    entradas = {
-        "envio": datos["envio"],
-        "cargas": datos["cargas"],
-        "tramos": datos["tramos"],
-    }
-    calculo["entradas"] = entradas
-    id_tarifa, version, snapshot = repo.guardar_tarifa_borrador(
-        id_envio, regla, calculo, usuario_id
-    )
-    return {
-        "id_tarifa": id_tarifa,
-        "version_tarifa": version,
-        "id_envio": id_envio,
-        "regla": regla,
-        "importe_base": calculo["importe_base"],
-        "detalle": calculo["detalle"],
-        "snapshot": snapshot,
-        "estado": "BORRADOR_NO_FACTURABLE",
-        "motivo": (
-            "El importe es el subtotal comercial calculado. La tarifa no está aprobada; "
-            "requiere moneda de cuenta y configuración fiscal aprobada antes de facturar."
-        ),
-    }
-
-
-def aprobar_tarifa_envio(id_tarifa, id_configuracion_fiscal, importe_impuestos,
-                         importe_total, referencia, usuario_id):
-    borrador = repo.cargar_borrador_tarifa(id_tarifa)
-    if not borrador or borrador["estado"] != "BORRADOR":
-        raise ValueError("La tarifa no existe o no está en borrador.")
-    perfiles = repo.listar_configuraciones_fiscales()
-    fila = next((x for x in perfiles if x[0] == id_configuracion_fiscal), None)
-    if fila is None:
-        raise ValueError("No existe una configuración fiscal activa para esa selección.")
-    snapshot = borrador.get("detalle_calculo") or {}
-    regla_snapshot = snapshot.get("regla", {}) if isinstance(snapshot, dict) else {}
-    moneda_regla = regla_snapshot.get("moneda")
-    if not moneda_regla or str(moneda_regla).upper() != str(borrador["moneda_cuenta"] or "").upper():
-        raise ValueError("La moneda de la regla no coincide con la moneda configurada de la cuenta.")
-    perfil = {
-        "id_configuracion_fiscal": fila[0], "codigo": fila[1], "version": fila[2],
-        "tratamiento": fila[3], "tasa": fila[4], "vigente_desde": fila[5],
-        "vigente_hasta": fila[6], "referencia_aprobacion": fila[7],
-        "aprobado_por": fila[8], "aprobado_en": fila[9], "aprobada": True,
-        "activa": fila[10],
-    }
-    try:
-        impuestos = Decimal(str(importe_impuestos))
-        total = Decimal(str(importe_total))
-    except (InvalidOperation, TypeError, ValueError):
-        raise ValueError("Los importes fiscales y el total deben ser decimales válidos.")
-    if not impuestos.is_finite() or impuestos < 0 or not total.is_finite() or total <= 0:
-        raise ValueError("Los importes fiscales o el total no son válidos.")
-    if max(0, -impuestos.as_tuple().exponent) > 2 or max(0, -total.as_tuple().exponent) > 2:
-        raise ValueError("Los importes fiscales y el total admiten hasta dos decimales.")
-    ahora = datetime.now(timezone.utc)
-    tarifa = {
-        "estado": "APROBADA", "moneda": borrador["moneda_cuenta"],
-        "importe_base": borrador["importe_base"], "importe_impuestos": impuestos,
-        "importe_total": total, "tratamiento_impositivo": perfil["tratamiento"],
-        "tasa_impositiva": perfil["tasa"],
-        "referencia_aprobacion": referencia, "aprobado_por": usuario_id,
-        "aprobado_en": ahora, "id_configuracion_fiscal": id_configuracion_fiscal,
-    }
-    validar_tarifa_aprobada(tarifa, borrador["moneda_cuenta"], perfil, _hoy_buenos_aires())
-    if not str(referencia or "").strip():
-        raise ValueError("La aprobación requiere una referencia documentada.")
-    valores = {
-        "importe_impuestos": impuestos, "importe_total": total,
-        "moneda": borrador["moneda_cuenta"],
-        "id_configuracion_fiscal": id_configuracion_fiscal,
-        "tratamiento_impositivo": perfil["tratamiento"],
-        "tasa_impositiva": perfil["tasa"],
-    }
-    repo.aprobar_tarifa(id_tarifa, valores, usuario_id, str(referencia).strip())
-
-
-def obtener_detalle_tarifa(id_tarifa):
-    tarifa = repo.obtener_tarifa(id_tarifa)
-    if tarifa is None:
-        raise ValueError("No existe esa tarifa.")
-    return tarifa
 
 
 def reemplazar_tarifa_aprobada(id_tarifa, usuario_id, motivo):

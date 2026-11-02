@@ -21,6 +21,8 @@ from app.utils.validaciones_logistica import (
     validar_identificacion,
     validar_entero_positivo_logistica
 )
+from app.utils.errores import mensaje_error
+from app.services.autenticacion import requiere_permiso
 
 
 def pedir(mensaje, funcion, *args):
@@ -28,11 +30,11 @@ def pedir(mensaje, funcion, *args):
         try:
             return funcion(input(mensaje), *args)
         except ValueError as error:
-            print(f"Error: {error}")
+            print(f"Error: {mensaje_error(error)}")
 
 
 def pausar():
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
 def mostrar_vehiculo(vehiculo):
@@ -53,15 +55,15 @@ def mostrar_ayuda_identificacion(tipo):
     print("\n--- IDENTIFICACIÓN DEL VEHÍCULO ---")
 
     if tipo == "Terrestre":
-        print("Ingrese la patente del vehículo.")
+        print("Ingresá la patente del vehículo.")
         print("Ejemplo: AB123CD")
 
     elif tipo == "Marítimo":
-        print("Ingrese el identificador del buque.")
+        print("Ingresá el identificador del buque.")
         print("Ejemplo: IMO 9876543")
 
     elif tipo == "Aéreo":
-        print("Ingrese la matrícula de la aeronave.")
+        print("Ingresá la matrícula de la aeronave.")
         print("Ejemplo: LV-ABC")
 
 
@@ -118,9 +120,10 @@ def pedir_operador(tipo):
         if valor.isdigit() and int(valor) in ids:
             return int(valor)
 
-        print("Error: elija uno de los operadores listados.")
+        print("Error: elegí uno de los operadores listados.")
 
 
+@requiere_permiso(1)
 def registrar_vehiculo():
     print("\n--- REGISTRAR VEHÍCULO ---")
 
@@ -165,12 +168,13 @@ def registrar_vehiculo():
         mostrar_vehiculo(vehiculo_guardado)
 
     except Exception as error:
-        print(f"\nError al registrar el vehículo: {error}")
+        print(f"\nError al registrar el vehículo: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def listar_vehiculos_service():
     print("\n--- LISTAR VEHÍCULOS ---")
 
@@ -187,12 +191,13 @@ def listar_vehiculos_service():
             mostrar_vehiculo(vehiculo)
 
     except Exception as error:
-        print(f"\nError al listar vehículos: {error}")
+        print(f"\nError al listar vehículos: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def buscar_vehiculo_service():
     print("\n--- BUSCAR VEHÍCULO ---")
 
@@ -212,12 +217,13 @@ def buscar_vehiculo_service():
         mostrar_vehiculo(vehiculo)
 
     except Exception as error:
-        print(f"\nError al buscar vehículo: {error}")
+        print(f"\nError al buscar vehículo: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def modificar_vehiculo_service():
     print("\n--- MODIFICAR VEHÍCULO ---")
 
@@ -237,14 +243,14 @@ def modificar_vehiculo_service():
         print("\nDatos actuales:")
         mostrar_vehiculo(actual)
 
-        print("\n¿Qué desea modificar?")
+        print("\n¿Qué querés modificar?")
         print("1. Tipo de vehículo")
         print("2. Identificación")
         print("3. Operador logístico")
         print("4. Estado")
         print("0. Cancelar")
 
-        opcion = input("\nSeleccione una opción: ").strip()
+        opcion = input("\nSeleccioná una opción: ").strip()
 
         if opcion == "0":
             print("Modificación cancelada.")
@@ -286,7 +292,7 @@ def modificar_vehiculo_service():
                 # El operador anterior puede no tener la nueva modalidad.
                 if id_operador is not None:
                     print(
-                        "\nCambió el tipo: elija de nuevo el operador."
+                        "\nCambió el tipo: elegí de nuevo el operador."
                     )
                     id_operador = pedir_operador(tipo)
 
@@ -331,12 +337,13 @@ def modificar_vehiculo_service():
             print("\nNo se pudo modificar el vehículo.")
 
     except Exception as error:
-        print(f"\nError al modificar vehículo: {error}")
+        print(f"\nError al modificar vehículo: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def eliminar_vehiculo_service():
     print("\n--- ELIMINAR VEHÍCULO ---")
 
@@ -364,7 +371,7 @@ def eliminar_vehiculo_service():
         mostrar_vehiculo(vehiculo)
 
         confirmacion = input(
-            "\n¿Está seguro de que desea eliminar este vehículo? (S/N): "
+            "\n¿Seguro que querés eliminar este vehículo? (S/N): "
         ).strip().upper()
 
         if confirmacion != "S":
@@ -379,7 +386,7 @@ def eliminar_vehiculo_service():
             print("\nNo se pudo eliminar el vehículo.")
 
     except Exception as error:
-        print(f"\nError al eliminar vehículo: {error}")
+        print(f"\nError al eliminar vehículo: {mensaje_error(error)}")
 
     finally:
         pausar()

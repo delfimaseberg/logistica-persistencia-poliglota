@@ -9,6 +9,7 @@ from app.repositories import terceros_repository as repo
 from app.repositories import cuenta_tercero_repository as cuentas
 from app.services.autenticacion import obtener_sesion_actual, solo_internos
 from app.services.sincronizacion_service import sincronizar_envio_neo4j
+from app.utils import formato
 from app.utils.logger import obtener_logger
 from app.utils.validaciones import (
     texto_obligatorio,
@@ -24,6 +25,14 @@ from app.utils.validaciones_terceros import (
     validar_rubro,
 )
 from app.utils.validaciones_logistica import MEDIOS_TRANSPORTE
+from app.utils.errores import mensaje_error
+from app.utils.validaciones_datos import (
+    LARGOS_CONTACTO,
+    validar_email as validar_email_dato,
+    validar_largo,
+    validar_telefono as validar_telefono_dato,
+)
+from app.services.autenticacion import requiere_permiso
 
 
 logger = obtener_logger("terceros")
@@ -55,7 +64,7 @@ _FUNCIONES = {
 # ------------------------------------------------------------ utilidades
 
 def pausar():
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
 def pedir(mensaje, validador, *args, valor_actual=None):
@@ -67,7 +76,7 @@ def pedir(mensaje, validador, *args, valor_actual=None):
         try:
             return validador(texto, *args)
         except ValueError as error:
-            print(f"Error: {error}")
+            print(f"Error: {mensaje_error(error)}")
 
 
 def pedir_id(mensaje):
@@ -75,7 +84,7 @@ def pedir_id(mensaje):
         valor = input(mensaje).strip()
         if valor.isdigit() and int(valor) > 0:
             return int(valor)
-        print("Error: ingrese un número entero positivo.")
+        print("Error: ingresá un número entero positivo.")
 
 
 def pedir_fecha(mensaje, por_defecto=None):
@@ -86,7 +95,7 @@ def pedir_fecha(mensaje, por_defecto=None):
         try:
             return datetime.strptime(texto, "%Y-%m-%d").date()
         except ValueError:
-            print("Error: use el formato AAAA-MM-DD.")
+            print("Error: usá el formato AAAA-MM-DD.")
 
 
 def _texto_opcional(valor):
@@ -94,7 +103,7 @@ def _texto_opcional(valor):
 
 
 def _dinero(valor):
-    return f"${valor:,.2f}"
+    return formato.dinero(valor)
 
 
 def _id_usuario_actual():
@@ -158,26 +167,25 @@ def _pedir_datos(tipo, actual=None):
 
     datos = {
         "razon_social": pedir(
-            f"Razón social{sufijo}: ", texto_obligatorio, "La razón social",
-            valor_actual=valor(1),
+            f"Razón social{sufijo}: ", validar_largo, "La razón social",
+            LARGOS_CONTACTO["razon_social"], valor_actual=valor(1),
         ),
         "cuit": pedir(
             f"CUIT{sufijo}: ", validar_cuit, valor_actual=valor(2)
         ),
         "email": pedir(
-            f"Email{sufijo}: ", validar_email, valor_actual=valor(3)
+            f"Email{sufijo}: ", validar_email_dato, valor_actual=valor(3)
         ),
         "telefono": pedir(
-            f"Teléfono (opcional){sufijo}: ",
-            lambda v: validar_telefono(v) or None,
+            f"Teléfono (opcional){sufijo}: ", validar_telefono_dato,
             valor_actual=valor(4),
         ),
         "direccion": pedir(
-            f"Dirección (opcional){sufijo}: ", _texto_opcional,
-            valor_actual=valor(5),
+            f"Dirección (opcional){sufijo}: ", validar_largo, "La dirección",
+            LARGOS_CONTACTO["direccion"], False, valor_actual=valor(5),
         ),
         "pais": pedir(
-            f"País{sufijo}: ", texto_obligatorio, "El país",
+            f"País{sufijo}: ", validar_largo, "El país", LARGOS_CONTACTO["pais"],
             valor_actual=valor(6),
         ),
     }
@@ -188,6 +196,7 @@ def _pedir_datos(tipo, actual=None):
 
 # ------------------------------------------------------------------ ABM
 
+@requiere_permiso(3)
 @solo_internos
 def registrar_tercero_service(tipo):
     print(f"\n--- REGISTRAR {NOMBRES[tipo].upper()} ---")
@@ -200,11 +209,12 @@ def registrar_tercero_service(tipo):
         logger.info("Alta de %s %s", tipo, id_nuevo)
         print(f"\n{NOMBRES[tipo].capitalize()} registrado. ID: {id_nuevo}")
     except Exception as error:
-        print(f"\nError al registrar: {error}")
+        print(f"\nError al registrar: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3)
 def listar_terceros_service(tipo):
     print(f"\n--- LISTADO DE {NOMBRES[tipo].upper()}ES ---"
           if tipo == "PROVEEDOR" else "\n--- LISTADO DE OPERADORES LOGÍSTICOS ---")
@@ -216,11 +226,12 @@ def listar_terceros_service(tipo):
         for fila in filas:
             mostrar_tercero(tipo, fila)
     except Exception as error:
-        print(f"Error al listar: {error}")
+        print(f"Error al listar: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3)
 def buscar_tercero_service(tipo):
     print(f"\n--- BUSCAR {NOMBRES[tipo].upper()} ---")
     try:
@@ -230,11 +241,12 @@ def buscar_tercero_service(tipo):
             return
         mostrar_tercero(tipo, fila)
     except Exception as error:
-        print(f"Error al buscar: {error}")
+        print(f"Error al buscar: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3)
 @solo_internos
 def modificar_tercero_service(tipo):
     print(f"\n--- MODIFICAR {NOMBRES[tipo].upper()} ---")
@@ -244,7 +256,7 @@ def modificar_tercero_service(tipo):
             print("No existe.")
             return
         mostrar_tercero(tipo, actual)
-        print("\nIngrese los nuevos datos (Enter conserva el valor actual):")
+        print("\nIngresá los nuevos datos (Enter conserva el valor actual):")
         datos = _pedir_datos(tipo, actual)
 
         otro = _FUNCIONES[tipo]["por_cuit"](datos["cuit"])
@@ -258,11 +270,12 @@ def modificar_tercero_service(tipo):
         else:
             print("\nNo se pudo modificar.")
     except Exception as error:
-        print(f"\nError al modificar: {error}")
+        print(f"\nError al modificar: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3)
 @solo_internos
 def baja_tercero_service(tipo):
     print(f"\n--- DAR DE BAJA {NOMBRES[tipo].upper()} (baja lógica) ---")
@@ -297,11 +310,12 @@ def baja_tercero_service(tipo):
         else:
             print("\nNo se pudo dar de baja.")
     except Exception as error:
-        print(f"\nError en la baja: {error}")
+        print(f"\nError en la baja: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3)
 @solo_internos
 def reactivar_tercero_service(tipo):
     print(f"\n--- REACTIVAR {NOMBRES[tipo].upper()} ---")
@@ -313,13 +327,14 @@ def reactivar_tercero_service(tipo):
         else:
             print("\nNo existe o ya estaba activo.")
     except Exception as error:
-        print(f"\nError al reactivar: {error}")
+        print(f"\nError al reactivar: {mensaje_error(error)}")
     finally:
         pausar()
 
 
 # ------------------------------------------------------- operador: tramos
 
+@requiere_permiso(3)
 def tramos_operador_service():
     print("\n--- TRAMOS REALIZADOS POR UN OPERADOR ---")
     try:
@@ -337,11 +352,12 @@ def tramos_operador_service():
                 f"{'Facturado' if t[8] else 'Sin facturar'}"
             )
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3)
 @solo_internos
 def asignar_operador_vehiculo_service():
     print("\n--- ASIGNAR OPERADOR A UN VEHÍCULO ---")
@@ -373,11 +389,12 @@ def asignar_operador_vehiculo_service():
         print("\nVehículo actualizado. Los tramos ya registrados conservan "
               "su operador.")
     except Exception as error:
-        print(f"\nError: {error}")
+        print(f"\nError: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3)
 @solo_internos
 def asignar_operador_tramo_service():
     print("\n--- ASIGNAR OPERADOR A UN TRAMO SIN OPERADOR ---")
@@ -411,13 +428,14 @@ def asignar_operador_tramo_service():
         print("\nOperador asignado.")
         sincronizar_envio_neo4j(id_envio)
     except Exception as error:
-        print(f"\nError: {error}")
+        print(f"\nError: {mensaje_error(error)}")
     finally:
         pausar()
 
 
 # ------------------------------------------------------- cuenta corriente
 
+@requiere_permiso(3)
 @solo_internos
 def registrar_factura_recibida_service(tipo):
     print(f"\n--- REGISTRAR FACTURA RECIBIDA ({NOMBRES[tipo]}) ---")
@@ -470,11 +488,12 @@ def registrar_factura_recibida_service(tipo):
         print(f"\nFactura registrada. ID interno: {id_factura}")
         print("Aumenta lo que le debemos en su cuenta corriente.")
     except Exception as error:
-        print(f"\nError al registrar la factura: {error}")
+        print(f"\nError al registrar la factura: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3)
 @solo_internos
 def registrar_pago_emitido_service(tipo):
     print(f"\n--- REGISTRAR PAGO A {NOMBRES[tipo].upper()} ---")
@@ -507,11 +526,12 @@ def registrar_pago_emitido_service(tipo):
         logger.info("Pago emitido %s a factura recibida %s", id_pago, id_factura)
         print(f"\nPago registrado. ID: {id_pago}. Estado de la factura: {estado}")
     except Exception as error:
-        print(f"\nError al registrar el pago: {error}")
+        print(f"\nError al registrar el pago: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3)
 def consultar_cuenta_tercero_service(tipo):
     print(f"\n--- CUENTA CORRIENTE ({NOMBRES[tipo]}) ---")
     try:
@@ -521,7 +541,7 @@ def consultar_cuenta_tercero_service(tipo):
         cuenta = cuentas.consultar_cuenta_tercero(tipo, titular[0])
         print(f"\n{titular[1]}")
         if cuenta is None:
-            print("Todavía no tiene movimientos. Saldo: $0.00")
+            print("Todavía no tiene movimientos. Saldo: $0,00")
             return
         print(f"Facturas recibidas: {cuenta['cantidad_facturas']} | "
               f"Facturado: {_dinero(cuenta['facturado'])}")
@@ -542,11 +562,12 @@ def consultar_cuenta_tercero_service(tipo):
                     f"Pendiente {_dinero(f[6])} | {f[7]} | {origen}"
                 )
     except Exception as error:
-        print(f"Error al consultar: {error}")
+        print(f"Error al consultar: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3)
 def movimientos_tercero_service(tipo):
     print(f"\n--- MOVIMIENTOS DE CUENTA ({NOMBRES[tipo]}) ---")
     try:
@@ -561,15 +582,16 @@ def movimientos_tercero_service(tipo):
         for fecha, tipo_mov, importe, referencia, detalle in movimientos:
             acumulado += importe
             print(
-                f"{fecha:%d/%m/%Y} | {tipo_mov:<16} | {importe:>14,.2f} | "
-                f"saldo {acumulado:>14,.2f} | ref {referencia} | {detalle or ''}"
+                f"{fecha:%d/%m/%Y} | {_dinero(importe):>15} | saldo {_dinero(acumulado):>15} | "
+                f"{formato.descripcion_movimiento(tipo_mov, referencia, detalle)}"
             )
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3)
 def vencimientos_service():
     print("\n--- FACTURAS RECIBIDAS VENCIDAS O POR VENCER ---")
     try:
@@ -593,6 +615,6 @@ def vencimientos_service():
             )
         print(f"\nTotal pendiente en el listado: {_dinero(total)}")
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()

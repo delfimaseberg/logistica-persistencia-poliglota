@@ -26,6 +26,7 @@ from app.repositories.mensajeria_repository import (
     registrar_mensaje_grupo,
     obtener_mensajes_grupo
 )
+from app.utils.errores import mensaje_error
 
 
 ZONA_ARGENTINA = ZoneInfo("America/Argentina/Buenos_Aires")
@@ -255,7 +256,7 @@ def listar_usuarios_mensajeria_service():
             print(f"{numero}. {describir_usuario(usuario, con_email)}")
 
     except Exception as error:
-        print(f"Error al consultar usuarios: {error}")
+        print(f"Error al consultar usuarios: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -301,7 +302,7 @@ def enviar_mensaje_service():
         print("\nMensaje enviado correctamente.")
 
     except Exception as error:
-        print(f"Error al enviar mensaje: {error}")
+        print(f"Error al enviar mensaje: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -327,7 +328,7 @@ def consultar_bandeja_service():
             mostrar_mensaje(mensaje, numero)
 
     except Exception as error:
-        print(f"Error al consultar bandeja: {error}")
+        print(f"Error al consultar bandeja: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -350,7 +351,7 @@ def consultar_enviados_service():
             mostrar_mensaje(mensaje, numero)
 
     except Exception as error:
-        print(f"Error al consultar mensajes: {error}")
+        print(f"Error al consultar mensajes: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -388,7 +389,7 @@ def consultar_conversacion_service():
             mostrar_mensaje(mensaje, numero)
 
     except Exception as error:
-        print(f"Error al consultar conversación: {error}")
+        print(f"Error al consultar conversación: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -433,7 +434,7 @@ def marcar_leido_service():
             print("No se pudo actualizar el mensaje.")
 
     except Exception as error:
-        print(f"Error al actualizar mensaje: {error}")
+        print(f"Error al actualizar mensaje: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -467,7 +468,7 @@ def crear_grupo_service():
         print("Quedaste registrado como administrador del grupo.")
 
     except Exception as error:
-        print(f"Error al crear grupo: {error}")
+        print(f"Error al crear grupo: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -500,7 +501,7 @@ def listar_grupos_service():
             )
 
     except Exception as error:
-        print(f"Error al consultar grupos: {error}")
+        print(f"Error al consultar grupos: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -565,7 +566,7 @@ def agregar_miembro_service():
             print("No se pudo agregar el usuario. Puede que ya pertenezca al grupo.")
 
     except Exception as error:
-        print(f"Error al agregar miembro: {error}")
+        print(f"Error al agregar miembro: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -605,7 +606,7 @@ def enviar_mensaje_grupo_service():
         print("\nMensaje enviado al grupo correctamente.")
 
     except Exception as error:
-        print(f"Error al enviar mensaje al grupo: {error}")
+        print(f"Error al enviar mensaje al grupo: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -639,7 +640,7 @@ def consultar_mensajes_grupo_service():
             mostrar_mensaje(mensaje, numero)
 
     except Exception as error:
-        print(f"Error al consultar mensajes del grupo: {error}")
+        print(f"Error al consultar mensajes del grupo: {mensaje_error(error)}")
 
     finally:
         pausar()

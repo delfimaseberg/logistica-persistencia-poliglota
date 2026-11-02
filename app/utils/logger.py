@@ -18,10 +18,13 @@ def obtener_logger(nombre):
     raiz = logging.getLogger("logistica")
 
     if not _configurado:
-        os.makedirs(DIRECTORIO_LOGS, exist_ok=True)
+        # LOGS_DIR permite separar los logs (los tests escriben en una
+        # carpeta temporal y no en el log real de la aplicación).
+        directorio = os.getenv("LOGS_DIR", DIRECTORIO_LOGS)
+        os.makedirs(directorio, exist_ok=True)
 
         manejador = RotatingFileHandler(
-            os.path.join(DIRECTORIO_LOGS, ARCHIVO_LOG),
+            os.path.join(directorio, ARCHIVO_LOG),
             maxBytes=1_000_000,
             backupCount=3,
             encoding="utf-8"

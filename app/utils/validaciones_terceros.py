@@ -66,13 +66,13 @@ def validar_modalidades(valores):
         if coincidencia is None:
             raise ValueError(
                 "Modalidad inválida: "
-                f"{valor}. Use: {', '.join(MEDIOS_TRANSPORTE)}."
+                f"{valor}. Usá: {', '.join(MEDIOS_TRANSPORTE)}."
             )
         if coincidencia not in resultado:
             resultado.append(coincidencia)
 
     if not resultado:
-        raise ValueError("Indique al menos una modalidad.")
+        raise ValueError("Indicá al menos una modalidad.")
 
     return resultado
 
@@ -104,7 +104,8 @@ def importe_positivo(valor, mensaje):
     importe = importe.quantize(Decimal("0.01"))
     if importe <= 0:
         raise ValueError(mensaje)
-    return importe
+    from app.utils.validaciones_datos import controlar_maximo
+    return controlar_maximo(importe)
 
 
 def validar_numero_comprobante(valor):
