@@ -1,4 +1,4 @@
-"""Pantallas de alertas climáticas (fuente del riesgo climático, punto 29)."""
+"""Pantallas de alertas climáticas (fuente del riesgo climático, requisito 29)."""
 
 from datetime import date, timedelta
 

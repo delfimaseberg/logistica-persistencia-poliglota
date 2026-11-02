@@ -123,7 +123,7 @@ def test_reportes_salieron_de_facturacion():
     assert facturacion_service.reporte_facturacion_service in en_reportes
     assert facturacion_service.reporte_ingresos_service in en_reportes
     assert not en_facturacion & en_reportes
-    # "Envíos por estado" pasó al submenú de reportes operativos (día 3A).
+    # "Envíos por estado" está en el submenú de reportes operativos.
     operativos = [v[0] for v in reportes_pantallas.REPORTES_OPERATIVOS.values()]
     assert "Envíos por estado" in operativos
 

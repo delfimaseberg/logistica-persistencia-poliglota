@@ -1,4 +1,4 @@
-"""ABM de reglas de alerta (punto 9): umbrales que usa la detección."""
+"""ABM de reglas de alerta (requisito 9): umbrales que usa la detección."""
 
 from app.repositories import regla_alerta_repository as repo
 from app.services.autenticacion import obtener_sesion_actual, solo_internos

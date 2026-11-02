@@ -9,11 +9,11 @@ Uso (PowerShell, desde la raíz del proyecto):
     # carga completa sobre la base de .env (PostgreSQL + MongoDB + Cassandra + Neo4j)
     python scripts\\datos_demo\\cargar_datos_demo.py --base logistica_poliglota
 
-    # ensayo solo de PostgreSQL sobre una copia descartable
+    # solo PostgreSQL, sobre una base descartable
     $env:POSTGRES_DB = "logistica_poliglota_demo_ensayo"
     python scripts\\datos_demo\\cargar_datos_demo.py --base logistica_poliglota_demo_ensayo --solo-postgres
 
-    # datos de los días 3 y 3B (cada uno, carga única, después de la completa)
+    # datos adicionales (cada opción es una carga única, después de la completa)
     python scripts\\datos_demo\\cargar_datos_demo.py --base logistica_poliglota --dia3
     python scripts\\datos_demo\\cargar_datos_demo.py --base logistica_poliglota --dia3b
 
@@ -671,7 +671,9 @@ def sincronizar_grafo(c):
     c.nota(f"Neo4j: {correctos} envíos sincronizados; errores: {errores}.")
 
 
-# ---------------------------------------------------------------- día 3
+# ------------------------------------------------- datos adicionales (--dia3)
+# Países de los envíos, envío demorado, partidas de carga, incidentes y
+# reportes cobrables.
 
 PAIS_DE = {
     "Mendoza": "Argentina", "Paso Cristo Redentor": "Argentina", "Santiago": "Chile",
@@ -822,7 +824,9 @@ def cargar_dia3(c):
                f"({r['filas']} filas, factura {r['id_factura']}).")
 
 
-# ---------------------------------------------------------------- día 3B
+# ------------------------------------------------ datos adicionales (--dia3b)
+# Alertas climáticas, fallas de sensor, alertas con mensajes, predicciones,
+# reporte predictivo y cierre de una sesión.
 
 # Alertas climáticas: (ubicación, fenómeno, severidad, desde, hasta, descripción)
 ALERTAS_CLIMA = [
@@ -959,16 +963,16 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="Carga única de datos de ejemplo.")
     p.add_argument("--base", required=True, help="Nombre de la base PostgreSQL esperada.")
     p.add_argument("--solo-postgres", action="store_true",
-                   help="Solo PostgreSQL (ensayo en una copia): no toca MongoDB, Cassandra ni Neo4j.")
+                   help="Solo PostgreSQL (para una base descartable): no toca MongoDB, Cassandra ni Neo4j.")
     p.add_argument("--refrescar-lecturas", action="store_true",
-                   help="Solo lecturas recientes, alertas y predicciones (día de la demo).")
+                   help="Solo lecturas recientes, alertas y predicciones (para mostrar datos actuales).")
     p.add_argument("--dia3", action="store_true",
-                   help="Agrega los datos del día 3 (países, envío demorado, partidas de carga, "
-                        "incidentes y reportes cobrables). Carga única.")
+                   help="Agrega datos adicionales: países de los envíos, envío demorado, partidas "
+                        "de carga, incidentes y reportes cobrables. Carga única.")
     p.add_argument("--dia3b", action="store_true",
-                   help="Agrega los datos del día 3B (alertas climáticas, fallas de sensor, "
-                        "alertas con mensajes, predicciones, reporte predictivo y cierre de "
-                        "una sesión). Carga única.")
+                   help="Agrega datos adicionales: alertas climáticas, fallas de sensor, alertas "
+                        "con mensajes, predicciones, reporte predictivo y cierre de una sesión. "
+                        "Requiere --dia3. Carga única.")
     p.add_argument("--reanudar-nosql", action="store_true",
                    help="Completa MongoDB, Cassandra y Neo4j si la carga se cortó después "
                         "de PostgreSQL (no duplica lo ya cargado).")
@@ -1002,26 +1006,26 @@ def main(argv=None):
         if not cargado:
             sys.exit("Primero hay que hacer la carga completa.")
         if _id_envio_por_clave(ENVIO_DEMORADO):
-            sys.exit("Los datos del día 3 ya están cargados (carga única). No se escribe nada.")
+            sys.exit("Los datos de --dia3 ya están cargados (carga única). No se escribe nada.")
         reconstruir_ids(c)
-        print(f"Base: {base} | modo: día 3"
+        print(f"Base: {base} | modo: --dia3"
               f"{' (solo PostgreSQL)' if args.solo_postgres else ''}\n")
         cargar_dia3(c)
-        print("\nDatos del día 3 cargados.")
+        print("\nDatos de --dia3 cargados.")
         return 0
 
     if args.dia3b:
         if not cargado or not _id_envio_por_clave(ENVIO_DEMORADO):
-            sys.exit("Primero hay que cargar los datos completos y los del día 3.")
+            sys.exit("Primero hay que hacer la carga completa y la de --dia3.")
         if q("SELECT 1 FROM reporte WHERE tipo = 'PREDICTIVO'"):
-            sys.exit("Los datos del día 3B ya están cargados (carga única). No se escribe nada.")
+            sys.exit("Los datos de --dia3b ya están cargados (carga única). No se escribe nada.")
         if not args.solo_postgres and dia3b_cargado():
-            sys.exit("Las alertas climáticas del día 3B ya existen (carga única). No se escribe nada.")
+            sys.exit("Las alertas climáticas de --dia3b ya existen (carga única). No se escribe nada.")
         reconstruir_ids(c)
-        print(f"Base: {base} | modo: día 3B"
+        print(f"Base: {base} | modo: --dia3b"
               f"{' (solo PostgreSQL)' if args.solo_postgres else ''}\n")
         cargar_dia3b(c)
-        print("\nDatos del día 3B cargados.")
+        print("\nDatos de --dia3b cargados.")
         return 0
 
     if args.reanudar_nosql:

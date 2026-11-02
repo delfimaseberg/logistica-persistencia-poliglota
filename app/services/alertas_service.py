@@ -1,4 +1,4 @@
-"""Generación de alertas con emisión de mensajes (punto 26).
+"""Generación de alertas con emisión de mensajes (requisito 26).
 
 emitir_alerta guarda la alerta (MongoDB, colección alertas) y, si es nueva,
 deja un mensaje de tipo "Alerta" a todos los usuarios internos activos y a

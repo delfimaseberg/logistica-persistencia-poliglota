@@ -4,7 +4,7 @@
 --
 -- Idempotente. No modifica facturas, pagos ni saldos. Requiere 003-014.
 -- Antes de aplicar en la base principal se verifica aparte que la cantidad
--- de sensores a desactivar sea la esperada (ver procedimiento del día 3B).
+-- de sensores a desactivar sea la esperada.
 
 BEGIN;
 
