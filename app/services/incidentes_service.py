@@ -19,6 +19,7 @@ from app.repositories.alerta_repository import (
     vincular_incidente_alerta,
 )
 from app.database.postgres_connection import get_postgres_connection
+from app.repositories.evento_repository import buscar_eventos_por_id
 from app.repositories.lectura_iot_repository import ultimas_lecturas_sensor
 from app.repositories.regla_alerta_repository import VARIABLES, reglas_vigentes, umbral
 from app.services.alertas_service import emitir_alerta
@@ -454,7 +455,7 @@ def _fecha_alerta(fecha):
     return fecha.astimezone(ZONA_ARGENTINA).strftime("%d/%m/%Y %H:%M")
 
 
-def mostrar_alerta(alerta, numero):
+def mostrar_alerta(alerta, numero, eventos=None):
     print("-" * 45)
     print(f"{numero}. {alerta.get('tipo')} | {alerta.get('severidad')} | "
           f"{alerta.get('estado')} | {_fecha_alerta(alerta.get('fecha'))}")
@@ -464,6 +465,10 @@ def mostrar_alerta(alerta, numero):
     if alerta.get("incidente_id") is not None:
         lugar.append(f"incidente {alerta['incidente_id']}")
     print("   " + " | ".join(lugar))
+    evento = (eventos or {}).get(alerta.get("evento_id"))
+    if evento is not None:
+        print(f"   Último evento: {formato.evento(evento.get('tipo'))}, "
+              f"{_fecha_alerta(evento.get('fecha_hora'))}")
     print(f"   {alerta.get('descripcion')}")
     if alerta.get("nota_atencion"):
         print(f"   Nota: {alerta['nota_atencion']}")
@@ -494,8 +499,11 @@ def consultar_alertas_service():
         alertas = listar_alertas(opciones[opcion], sensor_id)
         print(f"\nAlertas encontradas: {len(alertas)}")
 
+        # Evento logístico vigente al detectar cada alerta (las alertas
+        # guardadas antes de este cambio no lo tienen).
+        eventos = buscar_eventos_por_id({a["evento_id"] for a in alertas if a.get("evento_id")})
         for numero, alerta in enumerate(alertas, 1):
-            mostrar_alerta(alerta, numero)
+            mostrar_alerta(alerta, numero, eventos)
 
     except ValueError:
         print("El número de sensor debe ser numérico.")

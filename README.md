@@ -71,10 +71,12 @@ MONGO_DB=logistica_poliglota
 
 CASSANDRA_HOST=127.0.0.1
 CASSANDRA_PORT=9042
+CASSANDRA_KEYSPACE=logistica_poliglota
 
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=TU_PASSWORD
+# Opcional: NEO4J_DATABASE= (por defecto, la base predeterminada de Neo4j)
 ```
 
 **Importante:** nunca subir `.env` ni contraseñas reales a GitHub.
@@ -88,16 +90,112 @@ docker compose up -d
 docker ps
 ```
 
-### 6. Configurar las bases de datos
+### 6. Crear las bases desde cero
 
-Los scripts se encuentran en `scripts/`:
+En PowerShell, desde la raíz del proyecto y con los contenedores levantados
+(paso 5). PostgreSQL es la instalación local (no está en `docker-compose.yml`);
+MongoDB, Cassandra y Neo4j corren en los contenedores `tp_mongodb`,
+`tp_cassandra` y `tp_neo4j`. Los nombres de bases coinciden con `.env`.
 
-- `postgresql_schema.sql`
-- `mongodb_schema.js`
-- `cassandra_schema.cql`
-- `neo4j_schema.cypher`
+**6.1 PostgreSQL: base, esquema y migraciones**
 
-Cada script debe ejecutarse en su motor correspondiente.
+```powershell
+$psql = "C:\Program Files\PostgreSQL\17\bin\psql.exe"   # ajustar a la versión instalada
+$env:PGCLIENTENCODING = "UTF8"
+& $psql -U postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE logistica_poliglota ENCODING 'UTF8'"
+& $psql -U postgres -d logistica_poliglota -v ON_ERROR_STOP=1 -f scripts\postgresql_schema.sql
+
+# Migraciones 003 a 016, en orden (sin la 002; ver abajo)
+foreach ($n in "003","004","005","006","007","008","009","010","011","012","013","014","015","016") {
+    $archivo = Get-ChildItem "scripts\migrations\${n}_*.sql"
+    & $psql -U postgres -d logistica_poliglota -v ON_ERROR_STOP=1 -f $archivo.FullName
+    if ($LASTEXITCODE -ne 0) { throw "Falló la migración $n; no seguir." }
+}
+```
+
+`postgresql_schema.sql` es el esquema inicial: lo que se agregó después está en
+las migraciones, por eso hay que aplicarlas todas a continuación. En una base nueva:
+
+- **002 no se aplica.** Era el primer borrador de los cierres mensuales; la 003
+  crea `cierre_cuenta_corriente` en su versión final (y adapta la tabla si una
+  base vieja ya tenía la 002).
+- **005** solo verifica que la 004 dejó las definiciones finales; en una base
+  nueva no cambia nada, pero se corre igual como control.
+- **009, 015 y 016** tienen además pasos de datos (moneda ARS en registros
+  existentes, países de los envíos de prueba 2 a 4, CUIT de Distribuidora del
+  Sur) que en una base vacía no afectan ninguna fila.
+- **`015_atender_alertas_entregados.py` no se aplica:** corrige alertas viejas
+  de "sin transmisión" de una base existente; en una base nueva no hay alertas
+  viejas y, desde la 015, los sensores pasan a Inactivo al entregar el envío.
+
+**6.2 PostgreSQL: roles y administrador**
+
+La carga de datos de ejemplo usa el rol 2 ("Usuario") y el usuario interno con
+id 4 (el administrador que aprueba precios y aperturas), que no se crean solos:
+
+```powershell
+& $psql -U postgres -d logistica_poliglota -v ON_ERROR_STOP=1 -c "INSERT INTO rol (descripcion, nivel_permisos) VALUES ('Administrador', 5), ('Usuario', 2)"
+
+# Administrador interno con id 4. La contraseña se pide oculta y tiene que cumplir
+# la política (ver "Seguridad y validaciones"). Cambiar nombre, apellido y email.
+@'
+from getpass import getpass
+from app.database.postgres_connection import get_postgres_connection
+from app.utils.politica_contrasena import validar_politica
+from app.utils.seguridad import generar_hash_contrasena
+nombre, apellido, email = "Admin", "Interno", "admin@empresa.example"
+clave = getpass("Contraseña del administrador: ")
+validar_politica(clave, email, nombre, apellido)
+with get_postgres_connection() as conexion, conexion.cursor() as cursor:
+    cursor.execute(
+        "INSERT INTO usuario (id_usuario, id_rol, nombre, apellido, email, "
+        "contrasena_encriptada, estado) OVERRIDING SYSTEM VALUE "
+        "VALUES (4, 1, %s, %s, %s, %s, 'ACTIVO')",
+        (nombre, apellido, email, generar_hash_contrasena(clave)))
+    cursor.execute("SELECT setval(pg_get_serial_sequence('usuario', 'id_usuario'), 4)")
+print("Administrador creado (id 4).")
+'@ | .\.venv\Scripts\python.exe -
+```
+
+**6.3 MongoDB: esquema y migración 001**
+
+```powershell
+docker cp scripts\mongodb_schema.js tp_mongodb:/tmp/mongodb_schema.js
+docker cp scripts\migrations\001_predicciones_unicas_por_dia.js tp_mongodb:/tmp/001_predicciones_unicas_por_dia.js
+docker exec tp_mongodb mongosh --quiet --file /tmp/mongodb_schema.js
+docker exec tp_mongodb mongosh --quiet --file /tmp/001_predicciones_unicas_por_dia.js
+```
+
+La 001 agrega el índice único de una predicción por envío y día, que no está
+en `mongodb_schema.js`.
+
+**6.4 Cassandra: esquema**
+
+Cassandra tarda alrededor de un minuto en aceptar conexiones después de
+levantar el contenedor (`docker exec tp_cassandra cqlsh -e "DESCRIBE KEYSPACES"`
+responde cuando ya está lista).
+
+```powershell
+docker cp scripts\cassandra_schema.cql tp_cassandra:/tmp/cassandra_schema.cql
+docker exec tp_cassandra cqlsh -f /tmp/cassandra_schema.cql
+```
+
+**6.5 Neo4j: esquema**
+
+```powershell
+$neo4j = ((Get-Content .env | Select-String '^NEO4J_PASSWORD=').ToString() -split '=', 2)[1]
+docker cp scripts\neo4j_schema.cypher tp_neo4j:/tmp/neo4j_schema.cypher
+docker exec tp_neo4j cypher-shell -u neo4j -p $neo4j -f /tmp/neo4j_schema.cypher
+Remove-Variable neo4j
+```
+
+**6.6 Datos de ejemplo y grafo**
+
+Cargar los datos de ejemplo (ver "Datos de ejemplo y verificación"). Después,
+para dejar el grafo igual a PostgreSQL, iniciar sesión en la aplicación con el
+administrador y elegir **6. Trazabilidad de envíos → 6. Sincronizar / reparar la
+red de rutas → 3. Resincronizar todos los envíos**: tiene que informar
+"Con error: 0". Por último, correr `python scripts\datos_demo\verificar_datos_demo.py`.
 
 ### 7. Probar conexiones
 
@@ -235,6 +333,11 @@ cliente, la respuesta es "no existe".
 - **Sensores al entregar:** al registrar el evento ENTREGADO, los sensores de
   sus contenedores pasan a Inactivo (motivo "Entrega del envío N"); si el
   contenedor vuelve a asociarse a un envío, se reactivan.
+- **Evento vigente:** cada alerta nueva de un contenedor con envío guarda el
+  último evento logístico de ese envío al momento de la detección (`evento_id`);
+  "Consultar alertas" lo muestra, por ejemplo "Último evento: Aduana, 31/10/2026
+  14:00". Las alertas sin envío, de envíos sin eventos o guardadas antes de este
+  cambio no tienen evento.
 
 ### Predicción de riesgo (entidad Predicción de Riesgo)
 
@@ -330,14 +433,16 @@ inválidos y duplicados por envío y día argentino; si encuentra duplicados,
 aborta antes de actualizar documentos o crear índices. Resolverlos y volver a
 revisar la migración antes de activar la versión nueva.
 
-Para la configuración local predeterminada, desde la raíz del proyecto:
+Con el contenedor `tp_mongodb`, desde la raíz del proyecto (es el mismo
+comando del paso 6.3):
 
 ```powershell
-mongosh "mongodb://localhost:27017/logistica_poliglota" --file .\scripts\migrations\001_predicciones_unicas_por_dia.js
+docker cp scripts\migrations\001_predicciones_unicas_por_dia.js tp_mongodb:/tmp/001_predicciones_unicas_por_dia.js
+docker exec tp_mongodb mongosh --quiet --file /tmp/001_predicciones_unicas_por_dia.js
 ```
 
-Si `MONGO_URI` apunta a otro servidor, sustituir la URI del comando por la de
-la base prevista; no aplicar la migración a una base de uso cotidiano por error.
+La migración trabaja sobre la base `logistica_poliglota` (fija en el script);
+no aplicarla a una base de uso cotidiano por error.
 
 ### Facturación, cobros y cuentas corrientes
 
@@ -444,23 +549,32 @@ Se aplican al pedir cada dato y otra vez en la capa de datos, antes de escribir
 
 ## Migraciones
 
-Se aplican en orden, una sola vez y con respaldo previo. Todas son idempotentes.
+Se aplican en orden numérico, una sola vez y con respaldo previo. Todas son
+idempotentes (volver a correrlas no cambia nada).
+
+- **Base nueva:** 003 a 016 y la 001 de MongoDB, como en el paso 6 de la
+  instalación (la 002 y `015_atender_alertas_entregados.py` no se aplican).
+- **Base existente:** aplicar solo las que falten, en orden, con el mismo
+  comando del paso 6.1 (`$env:PGCLIENTENCODING = "UTF8"` y `-v ON_ERROR_STOP=1`).
+  Si la base tenía alertas de "sin transmisión" de antes de la 015, correr
+  además el script de datos de la 015 (primero sin `--aplicar`, que solo cuenta):
 
 ```powershell
-psql -U postgres -d logistica_poliglota -v ON_ERROR_STOP=1 -f scripts\migrations\002_cierres_cuenta_corriente.sql
-# ... 003 a 015 en orden numérico ...
-mongosh "mongodb://localhost:27017/logistica_poliglota" --file scripts\migrations\001_predicciones_unicas_por_dia.js
+& $psql -U postgres -d logistica_poliglota -v ON_ERROR_STOP=1 -f scripts\migrations\016_seguridad_usuarios.sql
+python scripts\migrations\015_atender_alertas_entregados.py
 python scripts\migrations\015_atender_alertas_entregados.py --aplicar
 ```
 
 | Migración | Contenido |
 |---|---|
 | 001 (MongoDB) | Una predicción por envío y día (índice único) |
-| 002–009 | Cierres, libro de movimientos, tarifas, auditoría, moneda ARS |
+| 002 | Primer borrador de los cierres mensuales; reemplazada por la 003 (no se aplica en bases nuevas) |
+| 003–009 | Cierres, libro de movimientos, tarifas, auditoría, moneda ARS |
 | 010–012 | Proveedores, operadores, cuentas corrientes de terceros, usuarios por parte |
 | 013 | Factura por envío y por reporte, detalle de factura, fecha real de entrega |
 | 014 | Reportes cobrables y países de origen y destino del envío |
 | 015 | Reglas de alerta, reporte predictivo, sensores al entregar, cierre de sesiones ajenas |
+| 015 (datos, Python) | `015_atender_alertas_entregados.py`: pasa a Atendida las alertas viejas de "sin transmisión" de contenedores ya entregados (solo bases existentes) |
 | 016 | Seguridad: bloqueo por intentos, cambio obligatorio de contraseña, inactividad de sesiones, email único sin distinguir mayúsculas, fechas coherentes en tramos y facturas recibidas, CUIT corregido de Distribuidora del Sur |
 
 ## Datos de ejemplo y verificación

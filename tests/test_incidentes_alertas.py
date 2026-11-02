@@ -199,7 +199,7 @@ def test_alerta_mongodb_usa_clave_de_deteccion():
         alerta_repository,
         "coleccion_alertas",
         return_value=coleccion,
-    ):
+    ), patch.object(alerta_repository, "ultimo_evento_envio", return_value=None):
         alerta = alerta_repository.registrar_alerta(
             sensor_id=1,
             contenedor_id=2,
@@ -231,7 +231,7 @@ def test_alertas_de_tipos_diferentes_tienen_claves_distintas():
         alerta_repository,
         "coleccion_alertas",
         return_value=coleccion,
-    ):
+    ), patch.object(alerta_repository, "ultimo_evento_envio", return_value=None):
         alerta_repository.registrar_alerta(
             1, 2, "Temperatura alta", "Alta",
             "Temperatura elevada", "lectura-test-001", 3,
@@ -262,7 +262,7 @@ def test_alerta_existente_no_se_reinicia():
         alerta_repository,
         "coleccion_alertas",
         return_value=coleccion,
-    ):
+    ), patch.object(alerta_repository, "ultimo_evento_envio", return_value=None):
         resultado = alerta_repository.registrar_alerta(
             1, 2, "Temperatura alta", "Alta",
             "Temperatura elevada", "lectura-test-001", 3,
@@ -285,7 +285,7 @@ def test_alerta_se_vincula_a_incidente():
         alerta_repository,
         "coleccion_alertas",
         return_value=coleccion,
-    ):
+    ), patch.object(alerta_repository, "ultimo_evento_envio", return_value=None):
         resultado = alerta_repository.vincular_incidente_alerta(
             "507f1f77bcf86cd799439011",
             10,
@@ -305,7 +305,7 @@ def test_vincular_alerta_inexistente_produce_error():
         alerta_repository,
         "coleccion_alertas",
         return_value=coleccion,
-    ):
+    ), patch.object(alerta_repository, "ultimo_evento_envio", return_value=None):
         with pytest.raises(RuntimeError):
             alerta_repository.vincular_incidente_alerta(
                 "507f1f77bcf86cd799439011",
@@ -440,3 +440,65 @@ def test_incidente_antiguo_del_mismo_tipo_se_recupera():
 
     assert resultado == (10, "recuperado")
     vincular.assert_called_once_with(alerta["_id"], 10)
+
+
+# ------------------------------------------------------------ evento vigente de la alerta
+
+def test_alerta_con_envio_guarda_el_ultimo_evento_vigente():
+    from bson import ObjectId
+    coleccion = MagicMock()
+    coleccion.find_one.return_value = {"_id": "a1"}
+    evento = {"_id": ObjectId("6720f0a1b2c3d4e5f6a7b8c9"), "tipo": "ADUANA"}
+    with patch.object(alerta_repository, "coleccion_alertas", return_value=coleccion), \
+         patch.object(alerta_repository, "ultimo_evento_envio", return_value=evento) as ultimo:
+        alerta_repository.registrar_alerta(1, 2, "Temperatura alta", "Alta", "d", "L1", envio_id=14)
+    id_envio, momento = ultimo.call_args.args
+    assert id_envio == 14
+    insertado = coleccion.update_one.call_args.args[1]["$setOnInsert"]
+    assert insertado["evento_id"] == "6720f0a1b2c3d4e5f6a7b8c9"
+    assert insertado["fecha"] == momento          # el evento vigente al detectar
+
+
+def test_alerta_sin_envio_o_sin_eventos_queda_sin_evento():
+    coleccion = MagicMock()
+    coleccion.find_one.return_value = {"_id": "a1"}
+    with patch.object(alerta_repository, "coleccion_alertas", return_value=coleccion), \
+         patch.object(alerta_repository, "ultimo_evento_envio", return_value=None) as ultimo:
+        alerta_repository.registrar_alerta(1, 2, "Temperatura alta", "Alta", "d", "L1", envio_id=None)
+        ultimo.assert_not_called()
+        alerta_repository.registrar_alerta(1, 2, "Batería baja", "Media", "d", "L2", envio_id=14)
+    for llamada in coleccion.update_one.call_args_list:
+        assert llamada.args[1]["$setOnInsert"]["evento_id"] is None
+
+
+def test_ultimo_evento_busca_el_mas_reciente_hasta_la_deteccion():
+    from app.repositories import evento_repository
+    coleccion = MagicMock()
+    momento = datetime(2026, 10, 31, 17, 0, tzinfo=timezone.utc)
+    with patch.object(evento_repository, "get_mongo_database",
+                      return_value={"eventos_logisticos": coleccion}):
+        evento_repository.ultimo_evento_envio(14, momento)
+    filtro = coleccion.find_one.call_args.args[0]
+    assert filtro == {"envio_id": 14, "fecha_hora": {"$lte": momento}}
+    assert coleccion.find_one.call_args.kwargs["sort"][0] == ("fecha_hora", -1)
+
+
+def test_consultar_alertas_muestra_el_ultimo_evento(capsys):
+    alertas = [
+        {"_id": "a1", "tipo": "Temperatura alta", "severidad": "Alta", "estado": "Activa",
+         "fecha": datetime(2026, 10, 31, 18, 0, tzinfo=timezone.utc), "sensor_id": 35,
+         "envio_id": 14, "evento_id": "e1", "descripcion": "Temperatura alta: valor 9,78, límite 8"},
+        {"_id": "a2", "tipo": "Batería baja", "severidad": "Media", "estado": "Activa",
+         "fecha": datetime(2026, 10, 31, 18, 5, tzinfo=timezone.utc), "sensor_id": 36,
+         "envio_id": None, "evento_id": None, "descripcion": "Batería baja: valor 10, límite 20"},
+    ]
+    eventos = {"e1": {"_id": "e1", "tipo": "ADUANA",
+                      "fecha_hora": datetime(2026, 10, 31, 17, 0, tzinfo=timezone.utc)}}
+    with patch.object(incidentes_service, "listar_alertas", return_value=alertas), \
+         patch.object(incidentes_service, "buscar_eventos_por_id", return_value=eventos) as buscar, \
+         patch("builtins.input", side_effect=["1", "", ""]):
+        incidentes_service.consultar_alertas_service()
+    salida = capsys.readouterr().out
+    assert "Último evento: Aduana, 31/10/2026 14:00" in salida
+    assert salida.count("Último evento") == 1        # la alerta sin evento no muestra la línea
+    buscar.assert_called_once_with({"e1"})

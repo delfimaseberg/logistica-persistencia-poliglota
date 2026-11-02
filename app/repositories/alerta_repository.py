@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from bson import ObjectId
 
 from app.database.mongo_connection import get_mongo_database
+from app.repositories.evento_repository import ultimo_evento_envio
 
 
 def coleccion_alertas():
@@ -33,16 +34,20 @@ def registrar_alerta(
     clave_deteccion=None,
 ):
     coleccion = coleccion_alertas()
+    ahora = datetime.now(timezone.utc)
+
+    # Evento logístico vigente del envío al momento de la detección.
+    evento = ultimo_evento_envio(envio_id, ahora) if envio_id is not None else None
 
     documento = {
         "sensor_id": sensor_id,
         "contenedor_id": contenedor_id,
         "envio_id": envio_id,
-        "evento_id": None,
+        "evento_id": str(evento["_id"]) if evento else None,
         "tipo": tipo,
         "severidad": severidad,
         "descripcion": descripcion,
-        "fecha": datetime.now(timezone.utc),
+        "fecha": ahora,
         "estado": "Activa",
         "lectura_id": (
             str(lectura_id) if lectura_id is not None else None
