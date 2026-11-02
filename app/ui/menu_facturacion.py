@@ -43,7 +43,7 @@ def mostrar_menu_facturacion():
         print("14. Reglas tarifarias y datos de carga (avanzado)")
         print("0. Volver al menú principal")
 
-        opcion = input("\nSeleccione una opción: ").strip()
+        opcion = input("\nSeleccioná una opción: ").strip()
 
         if opcion == "0":
             break
@@ -59,4 +59,4 @@ def mostrar_menu_facturacion():
                 mostrar_menu_tarifas()
 
         else:
-            print("\nOpción inválida. Intente nuevamente.")
+            print("\nOpción inválida. Intentá nuevamente.")

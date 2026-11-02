@@ -18,6 +18,10 @@ from app.utils.validaciones import (
 )
 
 from app.services.sincronizacion_service import sincronizar_envio_neo4j
+from app.utils import formato
+from app.utils.errores import mensaje_error
+from app.utils.validaciones_datos import validar_largo
+from app.services.autenticacion import requiere_permiso
 
 
 ESTADOS = [
@@ -36,7 +40,7 @@ ESTADOS_EDITABLES = [
 ]
 
 MENSAJE_ENTREGA = (
-    "Para marcar un envío como Entregado registre el evento ENTREGADO en "
+    "Para marcar un envío como Entregado registrá el evento ENTREGADO en "
     "Trazabilidad (guarda la fecha real de entrega)."
 )
 
@@ -57,11 +61,11 @@ def pedir_dato(mensaje, validador, *args):
         try:
             return validador(input(mensaje), *args)
         except ValueError as error:
-            print(f"Error: {error}")
+            print(f"Error: {mensaje_error(error)}")
 
 
 def pausar():
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
 def mostrar_envio(envio):
@@ -75,9 +79,9 @@ def mostrar_envio(envio):
     print(f"Destino: {envio[4]} ({pais_destino})")
     print(f"Estado: {envio[5]}")
     print(f"Prioridad: {envio[6]}")
-    print(f"Fecha de creación: {envio[7]}")
+    print(f"Fecha de creación: {formato.fecha_hora(envio[7])}")
     if len(envio) > 8 and envio[8] is not None:
-        print(f"Fecha real de entrega: {envio[8]}")
+        print(f"Fecha real de entrega: {formato.fecha_hora(envio[8])}")
 
 
 def seleccionar_cliente():
@@ -85,7 +89,7 @@ def seleccionar_cliente():
 
     if not clientes:
         print("\nNo hay clientes registrados.")
-        print("Primero debe registrar un cliente.")
+        print("Primero debés registrar un cliente.")
         return None
 
     print("\n--- CLIENTES DISPONIBLES ---")
@@ -99,7 +103,7 @@ def seleccionar_cliente():
 
     while True:
         id_cliente = pedir_dato(
-            "\nIngrese el ID del cliente: ",
+            "\nIngresá el ID del cliente: ",
             validar_entero_positivo,
             "El ID del cliente"
         )
@@ -112,6 +116,7 @@ def seleccionar_cliente():
         print("No existe un cliente con ese ID.")
 
 
+@requiere_permiso(1)
 def registrar_envio():
     print("\n--- REGISTRAR ENVÍO ---")
 
@@ -123,26 +128,26 @@ def registrar_envio():
 
         origen = pedir_dato(
             "Origen: ",
-            texto_obligatorio,
-            "El origen"
+            validar_largo,
+            "El origen", 150
         )
 
         pais_origen = pedir_dato(
             "País de origen: ",
-            texto_obligatorio,
-            "El país de origen"
+            validar_largo,
+            "El país de origen", 80
         )
 
         destino = pedir_dato(
             "Destino: ",
-            texto_obligatorio,
-            "El destino"
+            validar_largo,
+            "El destino", 150
         )
 
         pais_destino = pedir_dato(
             "País de destino: ",
-            texto_obligatorio,
-            "El país de destino"
+            validar_largo,
+            "El país de destino", 80
         )
 
         estado = pedir_dato(
@@ -183,12 +188,13 @@ def registrar_envio():
             mostrar_envio(envio_guardado)
 
     except Exception as error:
-        print(f"\nError al registrar el envío: {error}")
+        print(f"\nError al registrar el envío: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def listar_envios_service():
     print("\n--- LISTAR ENVÍOS ---")
 
@@ -205,18 +211,19 @@ def listar_envios_service():
             mostrar_envio(envio)
 
     except Exception as error:
-        print(f"\nError al listar envíos: {error}")
+        print(f"\nError al listar envíos: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def buscar_envio_service():
     print("\n--- BUSCAR ENVÍO ---")
 
     try:
         id_envio = pedir_dato(
-            "Ingrese el ID del envío: ",
+            "Ingresá el ID del envío: ",
             validar_entero_positivo,
             "El ID del envío"
         )
@@ -230,18 +237,19 @@ def buscar_envio_service():
         mostrar_envio(envio)
 
     except Exception as error:
-        print(f"\nError al buscar el envío: {error}")
+        print(f"\nError al buscar el envío: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def modificar_envio_service():
     print("\n--- MODIFICAR ENVÍO ---")
 
     try:
         id_envio = pedir_dato(
-            "Ingrese el ID del envío a modificar: ",
+            "Ingresá el ID del envío a modificar: ",
             validar_entero_positivo,
             "El ID del envío"
         )
@@ -255,7 +263,7 @@ def modificar_envio_service():
         print("\nDatos actuales del envío:")
         mostrar_envio(envio_actual)
 
-        print("\nSeleccione qué dato desea modificar:")
+        print("\nSeleccioná qué dato querés modificar:")
         print("1. Cliente")
         print("2. Origen")
         print("3. Destino")
@@ -278,10 +286,10 @@ def modificar_envio_service():
         # (los envíos anteriores a la migración 014 no los tienen).
         if opcion == "6":
             pais_origen = pedir_dato(
-                "País de origen: ", texto_obligatorio, "El país de origen"
+                "País de origen: ", validar_largo, "El país de origen", 80
             )
             pais_destino = pedir_dato(
-                "País de destino: ", texto_obligatorio, "El país de destino"
+                "País de destino: ", validar_largo, "El país de destino", 80
             )
             if actualizar_paises_envio(id_envio, pais_origen, pais_destino):
                 print("\nPaíses actualizados.")
@@ -316,15 +324,15 @@ def modificar_envio_service():
         elif opcion == "2":
             origen = pedir_dato(
                 "Nuevo origen: ",
-                texto_obligatorio,
-                "El origen"
+                validar_largo,
+                "El origen", 150
             )
 
         elif opcion == "3":
             destino = pedir_dato(
                 "Nuevo destino: ",
-                texto_obligatorio,
-                "El destino"
+                validar_largo,
+                "El destino", 150
             )
 
         elif opcion == "4":
@@ -384,18 +392,19 @@ def modificar_envio_service():
             print("\nNo se pudo modificar el envío.")
 
     except Exception as error:
-        print(f"\nError al modificar el envío: {error}")
+        print(f"\nError al modificar el envío: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def eliminar_envio_service():
     print("\n--- ELIMINAR ENVÍO ---")
 
     try:
         id_envio = pedir_dato(
-            "Ingrese el ID del envío a eliminar: ",
+            "Ingresá el ID del envío a eliminar: ",
             validar_entero_positivo,
             "El ID del envío"
         )
@@ -417,7 +426,7 @@ def eliminar_envio_service():
             return
 
         confirmacion = input(
-            "\n¿Está seguro de que desea eliminar este envío? (S/N): "
+            "\n¿Seguro que querés eliminar este envío? (S/N): "
         ).strip().upper()
 
         if confirmacion != "S":
@@ -436,7 +445,7 @@ def eliminar_envio_service():
             print("\nNo se pudo eliminar el envío.")
 
     except Exception as error:
-        print(f"\nError al eliminar el envío: {error}")
+        print(f"\nError al eliminar el envío: {mensaje_error(error)}")
         print(
             "Si el envío tiene tramos, incidentes o contenedores "
             "asociados, el sistema puede impedir su eliminación."

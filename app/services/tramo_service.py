@@ -22,6 +22,9 @@ from app.utils.validaciones_logistica import (
 )
 
 from app.services.sincronizacion_service import sincronizar_envio_neo4j
+from app.utils import formato
+from app.utils.errores import mensaje_error
+from app.services.autenticacion import requiere_permiso
 
 
 def pedir(mensaje, funcion, *args):
@@ -29,11 +32,11 @@ def pedir(mensaje, funcion, *args):
         try:
             return funcion(input(mensaje), *args)
         except ValueError as error:
-            print(f"Error: {error}")
+            print(f"Error: {mensaje_error(error)}")
 
 
 def pausar():
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
 def pedir_ubicacion(mensaje, valor_sugerido=None):
@@ -51,7 +54,7 @@ def pedir_ubicacion(mensaje, valor_sugerido=None):
         try:
             return validar_texto(valor, mensaje, 150)
         except ValueError as error:
-            print(f"Error: {error}")
+            print(f"Error: {mensaje_error(error)}")
 
 
 def elegir_operador_tramo(vehiculo, medio):
@@ -70,7 +73,7 @@ def elegir_operador_tramo(vehiculo, medio):
     if id_del_vehiculo is not None:
         print(
             "\nEl operador del vehículo está inactivo o no tiene la "
-            f"modalidad {medio}. Elija otro."
+            f"modalidad {medio}. Elegí otro."
         )
 
     if not operadores:
@@ -84,9 +87,10 @@ def elegir_operador_tramo(vehiculo, medio):
         valor = input("ID del operador que realiza el tramo: ").strip()
         if valor.isdigit() and int(valor) in por_id:
             return int(valor), por_id[int(valor)]
-        print("Error: elija uno de los operadores listados.")
+        print("Error: elegí uno de los operadores listados.")
 
 
+@requiere_permiso(1)
 def registrar_tramo():
     print("\n--- REGISTRAR TRAMO ---")
 
@@ -154,7 +158,7 @@ def registrar_tramo():
         if not disponibles:
             print(
                 "\nNo hay vehículos disponibles. "
-                "Primero registre uno."
+                "Primero registrá uno."
             )
             return
 
@@ -199,7 +203,7 @@ def registrar_tramo():
 
         if operador is None:
             print(
-                f"\nNo se puede registrar el tramo sin operador. Registre "
+                f"\nNo se puede registrar el tramo sin operador. Registrá "
                 f"un operador logístico activo con modalidad {medio}."
             )
             return
@@ -266,7 +270,7 @@ def registrar_tramo():
                 break
 
             except ValueError as error:
-                print(f"Error: {error}")
+                print(f"Error: {mensaje_error(error)}")
 
         tramo = Tramo(
             id_envio,
@@ -286,8 +290,8 @@ def registrar_tramo():
         print(f"Medio: {medio}")
         print(f"Origen: {origen}")
         print(f"Destino: {destino}")
-        print(f"Salida: {fecha_salida.date()}")
-        print(f"Llegada estimada: {fecha_llegada.date()}")
+        print(f"Salida: {formato.fecha_hora(fecha_salida)}")
+        print(f"Llegada estimada: {formato.fecha_hora(fecha_llegada)}")
 
         confirmacion = input(
             "\n¿Confirmar registro? (S/N): "
@@ -312,12 +316,13 @@ def registrar_tramo():
             )
 
     except Exception as error:
-        print(f"\nError al registrar el tramo: {error}")
+        print(f"\nError al registrar el tramo: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def consultar_tramos_service():
     print("\n--- CONSULTAR TRAMOS DE UN ENVÍO ---")
 
@@ -353,15 +358,15 @@ def consultar_tramos_service():
             print(f"Medio: {tramo[4]}")
             print(f"Origen: {tramo[5]}")
             print(f"Destino: {tramo[6]}")
-            print(f"Salida: {tramo[7]}")
-            print(f"Llegada estimada: {tramo[8]}")
+            print(f"Salida: {formato.fecha_hora(tramo[7])}")
+            print(f"Llegada estimada: {formato.fecha_hora(tramo[8])}")
             print(
                 f"Operador: {tramo[10]} (ID {tramo[9]})"
                 if tramo[9] is not None else "Operador: sin asignar"
             )
 
     except Exception as error:
-        print(f"Error al consultar tramos: {error}")
+        print(f"Error al consultar tramos: {mensaje_error(error)}")
 
     finally:
         pausar()

@@ -65,13 +65,14 @@ def validar_precios(base, precios):
         except Exception:
             raise ValueError(f"{nombre}: importe inválido.") from None
         if not numero.is_finite() or numero != numero.quantize(Decimal("0.01")):
-            raise ValueError(f"{nombre}: use un importe con hasta 2 decimales.")
+            raise ValueError(f"{nombre}: usá un importe con hasta 2 decimales.")
         if numero < 0 or (minimo_exclusivo and numero == 0):
             raise ValueError(
                 f"{nombre}: debe ser mayor a cero."
                 if minimo_exclusivo else f"{nombre}: no puede ser negativo."
             )
-        return numero
+        from app.utils.validaciones_datos import controlar_maximo
+        return controlar_maximo(numero, nombre)
 
     base = _importe(base, "Cargo base", False)
     resultado = {}
@@ -87,7 +88,7 @@ def definir_tarifa_estandar(base, precios, usuario_id, referencia):
     base, precios = validar_precios(base, precios)
     referencia = str(referencia or "").strip()
     if not referencia:
-        raise ValueError("Indique una referencia documentada del cambio de precios.")
+        raise ValueError("Indicá una referencia documentada del cambio de precios.")
     if not usuario_id:
         raise ValueError("No hay un usuario autenticado.")
 

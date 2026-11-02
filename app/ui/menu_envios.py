@@ -38,7 +38,7 @@ def mostrar_menu_envios():
         print("11. Desasociar contenedor")
         print("0. Volver al menú principal")
 
-        opcion = input("\nSeleccione una opción: ").strip()
+        opcion = input("\nSeleccioná una opción: ").strip()
 
         if opcion == "1":
             registrar_envio()

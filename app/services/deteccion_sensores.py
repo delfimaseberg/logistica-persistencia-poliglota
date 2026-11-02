@@ -10,6 +10,7 @@ from datetime import timedelta, timezone
 from math import isfinite
 
 from app.repositories.regla_alerta_repository import ORDEN_SEVERIDAD, VARIABLES
+from app.utils import formato
 
 
 # Lo que un sensor puede medir de verdad; fuera de esto, el sensor falla.
@@ -65,7 +66,7 @@ def descripcion_sin_transmision(tipo_sensor, codigo_contenedor, ultima=None, hor
         ultima = ultima.replace(tzinfo=timezone.utc)
     from zoneinfo import ZoneInfo
     local = ultima.astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
-    return f"{sensor} no transmite desde {local:%d/%m/%Y %H:%M}. Umbral: {horas:g} horas."
+    return f"{sensor} no transmite desde {local:%d/%m/%Y %H:%M}. Umbral: {formato.compacto(horas)} horas."
 
 
 def _numero(valor):
@@ -117,7 +118,8 @@ def evaluar_umbrales(lectura, vigentes):
                 continue
             umbral, severidad = max(cumplidas, key=lambda r: ORDEN_SEVERIDAD.get(r[1], -1))
             tipo = f"{VARIABLES[variable][0]} {'baja' if limite == 'MIN' else 'alta'}"
-            resultados.append((tipo, severidad, f"{tipo}: valor {valor:.2f}, límite {umbral:.2f}"))
+            resultados.append((tipo, severidad, f"{tipo}: valor {formato.compacto(valor)}, "
+                                                f"límite {formato.compacto(umbral)}"))
     return resultados
 
 
@@ -179,7 +181,8 @@ def fallas_de_sensor(lecturas, vigentes):
     ultima = lecturas[0]
     imposibles = valores_imposibles(ultima)
     if imposibles:
-        detalle = ", ".join(f"{NOMBRES[c]} = {v:g}" for c, v in imposibles)
+        detalle = "; ".join(f"{NOMBRES[c]} = {formato.compacto(v, 5) if isfinite(v) else 'no numérico'}"
+                            for c, v in imposibles)
         fallas.append((FALLA_VALOR, "Alta",
                        f"El sensor informó valores imposibles: {detalle}.", ultima.id_lectura))
 
@@ -188,7 +191,7 @@ def fallas_de_sensor(lecturas, vigentes):
         cantidad = int(regla[0])
         primera = lecturas[cantidad - 1]
         # Solo las variables que mide el sensor (las demás vienen vacías).
-        medidas = [f"{nombre} {valor:g}" for nombre, valor in
+        medidas = [f"{nombre} {formato.compacto(valor)}" for nombre, valor in
                    (("temperatura", _numero(ultima.temperatura)), ("humedad", _numero(ultima.humedad)))
                    if valor is not None]
         fallas.append((FALLA_CONGELADA, regla[1],
@@ -201,9 +204,9 @@ def fallas_de_sensor(lecturas, vigentes):
         for anterior, posterior, diferencia in saltos_bruscos(lecturas, regla[0]):
             minutos = int((_fecha(posterior) - _fecha(anterior)).total_seconds() // 60)
             fallas.append((FALLA_SALTO, regla[1],
-                           f"La temperatura pasó de {anterior.temperatura:g} a "
-                           f"{posterior.temperatura:g} °C en {minutos} min "
-                           f"(salto de {diferencia:g} °C; máximo {regla[0]:g} °C).",
+                           f"La temperatura pasó de {formato.compacto(anterior.temperatura)} a "
+                           f"{formato.compacto(posterior.temperatura)} °C en {minutos} min "
+                           f"(salto de {formato.compacto(diferencia)} °C; máximo {formato.compacto(regla[0])} °C).",
                            posterior.id_lectura))
     return fallas
 

@@ -148,7 +148,7 @@ def test_revision_sensores_acumula_error_individual():
 
     assert resultado["errores"] == [{
         "sensor_id": 9,
-        "error": "Cassandra no disponible",
+        "error": "Ocurrió un error inesperado. El detalle quedó registrado para revisión.",
     }]
     registrar.assert_not_called()
 

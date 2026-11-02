@@ -32,7 +32,7 @@ def mostrar_menu_incidentes():
         print("7. Reglas de alerta (umbrales)")
         print("0. Volver al menú principal")
 
-        opcion = input("\nSeleccione una opción: ").strip()
+        opcion = input("\nSeleccioná una opción: ").strip()
 
         if opcion == "1":
             registrar_incidente_service()

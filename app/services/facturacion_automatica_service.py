@@ -16,6 +16,7 @@ from app.repositories.facturacion_repository import (
     registrar_auditoria_facturacion,
 )
 from app.services.cotizacion_envio import CotizacionImposible
+from app.utils.errores import mensaje_error
 from app.utils.logger import obtener_logger
 
 
@@ -80,16 +81,16 @@ def procesar_facturacion_automatica(fecha_corte=None):
         except FacturaExistente as error:
             # Otro proceso lo facturó entre la consulta y la emisión.
             resumen["omitidos"].append({
-                "id_envio": id_envio, "cliente": cliente, "motivo": str(error),
+                "id_envio": id_envio, "cliente": cliente, "motivo": mensaje_error(error),
             })
         except CotizacionImposible as error:
-            motivo = str(error)
+            motivo = mensaje_error(error)
             resumen["omitidos"].append({
                 "id_envio": id_envio, "cliente": cliente, "motivo": motivo,
             })
             _auditar(id_envio, "BLOQUEADA", motivo)
         except ValueError as error:
-            motivo = str(error)
+            motivo = mensaje_error(error)
             resumen["omitidos"].append({
                 "id_envio": id_envio, "cliente": cliente, "motivo": motivo,
             })
@@ -97,9 +98,9 @@ def procesar_facturacion_automatica(fecha_corte=None):
         except Exception as error:
             logger.exception("Error al facturar el envío %s", id_envio)
             resumen["errores"].append({
-                "id_envio": id_envio, "cliente": cliente, "error": str(error),
+                "id_envio": id_envio, "cliente": cliente, "error": mensaje_error(error),
             })
-            _auditar(id_envio, "ERROR", f"ERROR: {error}")
+            _auditar(id_envio, "ERROR", f"ERROR: {mensaje_error(error)}")
 
     logger.info(
         "Facturación automática terminada: facturados=%s omitidos=%s errores=%s",

@@ -17,6 +17,9 @@ from app.utils.validaciones_logistica import (
 )
 
 from app.services.sincronizacion_service import sincronizar_envio_neo4j
+from app.utils.errores import mensaje_error
+from app.utils import formato
+from app.services.autenticacion import requiere_permiso
 
 
 def pedir_id(mensaje, nombre):
@@ -26,13 +29,14 @@ def pedir_id(mensaje, nombre):
                 input(mensaje), nombre
             )
         except ValueError as error:
-            print(f"Error: {error}")
+            print(f"Error: {mensaje_error(error)}")
 
 
 def pausar():
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
+@requiere_permiso(1)
 def asociar_contenedor_service():
     print("\n--- ASOCIAR CONTENEDOR A ENVÍO ---")
 
@@ -71,7 +75,7 @@ def asociar_contenedor_service():
                 f"ID: {contenedor[0]} | "
                 f"Código: {contenedor[1]} | "
                 f"Tipo: {contenedor[2]} | "
-                f"Capacidad: {contenedor[3]} t"
+                f"Capacidad: {formato.compacto(contenedor[3])} t"
             )
 
         id_contenedor = pedir_id(
@@ -120,12 +124,13 @@ def asociar_contenedor_service():
             )
 
     except Exception as error:
-        print(f"\nError al asociar contenedor: {error}")
+        print(f"\nError al asociar contenedor: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def consultar_contenedores_envio_service():
     print("\n--- CONTENEDORES DE UN ENVÍO ---")
 
@@ -155,16 +160,17 @@ def consultar_contenedores_envio_service():
             print(f"ID: {contenedor[0]}")
             print(f"Código: {contenedor[1]}")
             print(f"Tipo: {contenedor[2]}")
-            print(f"Capacidad: {contenedor[3]} toneladas")
+            print(f"Capacidad: {formato.compacto(contenedor[3])} toneladas")
             print(f"Estado: {contenedor[4]}")
 
     except Exception as error:
-        print(f"\nError al consultar contenedores: {error}")
+        print(f"\nError al consultar contenedores: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def desasociar_contenedor_service():
     print("\n--- DESASOCIAR CONTENEDOR ---")
 
@@ -222,7 +228,7 @@ def desasociar_contenedor_service():
             print("No se pudo desasociar.")
 
     except Exception as error:
-        print(f"\nError al desasociar contenedor: {error}")
+        print(f"\nError al desasociar contenedor: {mensaje_error(error)}")
 
     finally:
         pausar()

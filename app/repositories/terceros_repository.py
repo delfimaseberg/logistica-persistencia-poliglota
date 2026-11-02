@@ -7,6 +7,7 @@ porque las facturas, pagos, tramos y usuarios pueden referenciarlas.
 from psycopg import errors
 
 from app.database.postgres_connection import get_postgres_connection
+from app.utils.validaciones_datos import validar_contacto
 
 
 COLUMNAS_COMUNES = (
@@ -47,8 +48,21 @@ def _config(tipo):
         raise ValueError("Tipo de tercero inválido.") from None
 
 
+def _validar(datos):
+    """CUIT con dígito verificador, email, teléfono y largos de las columnas."""
+    return validar_contacto(datos)
+
+
+def _repetido(error, c, otro=False):
+    restriccion = getattr(getattr(error, "diag", None), "constraint_name", "") or ""
+    articulo = "otro" if otro else "un"
+    dato = "email" if "email" in restriccion else "CUIT"
+    return ValueError(f"Ya existe {articulo} {c['nombre']} con ese {dato}.")
+
+
 def _crear(tipo, datos):
     c = _config(tipo)
+    datos = _validar(datos)
     try:
         with get_postgres_connection() as conexion:
             with conexion.cursor() as cursor:
@@ -65,8 +79,8 @@ def _crear(tipo, datos):
                     datos["pais"], datos[c["extra"]],
                 ))
                 return cursor.fetchone()[0]
-    except errors.UniqueViolation:
-        raise ValueError(f"Ya existe un {c['nombre']} con ese CUIT.") from None
+    except errors.UniqueViolation as error:
+        raise _repetido(error, c) from None
 
 
 def _listar(tipo, incluir_inactivos=True):
@@ -109,6 +123,7 @@ def _buscar_por_cuit(tipo, cuit):
 
 def _modificar(tipo, id_tercero, datos):
     c = _config(tipo)
+    datos = _validar(datos)
     try:
         with get_postgres_connection() as conexion:
             with conexion.cursor() as cursor:
@@ -124,8 +139,8 @@ def _modificar(tipo, id_tercero, datos):
                     datos["pais"], datos[c["extra"]], id_tercero,
                 ))
                 return cursor.rowcount == 1
-    except errors.UniqueViolation:
-        raise ValueError(f"Ya existe otro {c['nombre']} con ese CUIT.") from None
+    except errors.UniqueViolation as error:
+        raise _repetido(error, c, otro=True) from None
 
 
 def _dar_de_baja(tipo, id_tercero):

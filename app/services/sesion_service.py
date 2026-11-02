@@ -6,9 +6,16 @@ from app.repositories.sesion_repository import (
     buscar_usuario_por_email,
     iniciar_sesion_db,
     listar_sesiones_activas,
+    listar_usuarios_bloqueados,
+    expirar_sesiones_inactivas,
     cerrar_sesion_db,
-    cerrar_sesion_ajena_db
+    cerrar_sesion_ajena_db,
+    registrar_intento_fallido,
+    registrar_ingreso_correcto
 )
+from app.utils.logger import obtener_logger
+from app.utils.politica_contrasena import INTENTOS_MAXIMOS, MINUTOS_BLOQUEO, MINUTOS_INACTIVIDAD
+from app.services.autenticacion import requiere_permiso
 
 
 ZONA_ARGENTINA = ZoneInfo("America/Argentina/Buenos_Aires")
@@ -21,6 +28,10 @@ from app.services.autenticacion import (
 )
 
 from app.utils.seguridad import verificar_contrasena
+from app.utils.errores import mensaje_error
+
+
+logger = obtener_logger("sesiones")
 
 
 def iniciar_sesion_service():
@@ -39,6 +50,8 @@ def iniciar_sesion_service():
         usuario = buscar_usuario_por_email(email)
 
         if usuario is None:
+            # No se registra lo tipeado: a veces es la contraseña.
+            logger.warning("Inicio de sesión fallido: email no registrado")
             print("\nEmail o contraseña incorrectos.")
             return False
 
@@ -50,16 +63,36 @@ def iniciar_sesion_service():
             hash_guardado,
             estado,
             descripcion_rol,
-            nivel_permisos
+            nivel_permisos,
+            bloqueado,
+            minutos_restantes,
+            debe_cambiar
         ) = usuario
 
+        if bloqueado:
+            logger.warning("Inicio de sesión rechazado: usuario %s bloqueado", id_usuario)
+            print("\nDemasiados intentos fallidos. Probá de nuevo en "
+                  f"{minutos_restantes} minuto{'s' if minutos_restantes != 1 else ''}.")
+            return False
+
+        if not verificar_contrasena(contrasena, hash_guardado):
+            intentos, bloqueado_ahora = registrar_intento_fallido(id_usuario)
+            logger.warning("Inicio de sesión fallido: usuario %s (intento %s de %s)",
+                           id_usuario, intentos, INTENTOS_MAXIMOS)
+            if bloqueado_ahora:
+                logger.warning("Usuario %s bloqueado por %s minutos", id_usuario, MINUTOS_BLOQUEO)
+                print(f"\nDemasiados intentos fallidos. El usuario quedó bloqueado por "
+                      f"{MINUTOS_BLOQUEO} minutos.")
+            else:
+                print("\nEmail o contraseña incorrectos.")
+            return False
+
+        # Solo quien conoce la contraseña sabe que el usuario existe y está inactivo.
         if estado != "ACTIVO":
             print("\nEl usuario está inactivo.")
             return False
 
-        if not verificar_contrasena(contrasena, hash_guardado):
-            print("\nEmail o contraseña incorrectos.")
-            return False
+        registrar_ingreso_correcto(id_usuario)
 
         id_sesion = iniciar_sesion_db(id_usuario)
 
@@ -68,6 +101,15 @@ def iniciar_sesion_service():
             return False
 
         establecer_sesion(id_sesion, id_usuario)
+        logger.info("Inicio de sesión: usuario %s", id_usuario)
+
+        if debe_cambiar:
+            from app.services.contrasena_service import cambio_obligatorio
+            if not cambio_obligatorio(id_usuario, id_sesion, email_usuario, nombre, apellido):
+                cerrar_sesion_db(id_sesion, id_usuario)
+                limpiar_sesion()
+                print("\nSin una contraseña nueva no se puede continuar. Sesión cerrada.")
+                return False
 
         print("\nSesión iniciada correctamente.")
         print(f"Bienvenido/a, {nombre} {apellido}.")
@@ -77,7 +119,7 @@ def iniciar_sesion_service():
         return True
 
     except Exception as error:
-        print(f"\nError al iniciar sesión: {error}")
+        print(f"\nError al iniciar sesión: {mensaje_error(error)}")
         return False
 
 
@@ -106,20 +148,30 @@ def cerrar_sesion_service():
         return False
 
     except Exception as error:
-        print(f"\nError al cerrar sesión: {error}")
+        print(f"\nError al cerrar sesión: {mensaje_error(error)}")
         return False
 
 
+@requiere_permiso(5)
 def consultar_sesiones_activas_service():
     if not verificar_permiso(5):
-        input("\nPresione Enter para continuar...")
+        input("\nPresioná Enter para continuar...")
         return
 
     print("\n--- SESIONES ACTIVAS ---")
 
     try:
+        vencidas = expirar_sesiones_inactivas()
+        if vencidas:
+            logger.info("Sesiones cerradas por inactividad: %s", vencidas)
         sesiones = listar_sesiones_activas()
         propia = obtener_sesion_actual()
+
+        mostrar_usuarios_bloqueados()
+
+        if vencidas:
+            print(f"\nSe cerraron {vencidas} sesión(es) por inactividad "
+                  f"(más de {MINUTOS_INACTIVIDAD} minutos sin uso).")
 
         if not sesiones:
             print("\nNo hay sesiones activas.")
@@ -129,20 +181,33 @@ def consultar_sesiones_activas_service():
         ahora = datetime.now(timezone.utc)
 
         for numero, sesion in enumerate(sesiones, 1):
-            marca = " (su sesión)" if propia and sesion[0] == propia["id_sesion"] else ""
+            marca = " (tu sesión)" if propia and sesion[0] == propia["id_sesion"] else ""
             print("----------------------------")
             print(f"{numero}. {sesion[2]} {sesion[3]} | {sesion[4]}{marca}")
             print(f"   Pertenece a: {sesion[6]}")
             print(f"   Inicio: {formatear_fecha(sesion[5])} | "
                   f"duración: {formatear_duracion(ahora - sesion[5])}")
+            if len(sesion) > 7 and sesion[7] is not None:
+                print(f"   Última actividad: {formatear_fecha(sesion[7])}")
 
         cerrar_sesion_de_otro(sesiones, propia)
 
     except Exception as error:
-        print(f"\nError al consultar sesiones: {error}")
+        print(f"\nError al consultar sesiones: {mensaje_error(error)}")
 
     finally:
-        input("\nPresione Enter para continuar...")
+        input("\nPresioná Enter para continuar...")
+
+
+def mostrar_usuarios_bloqueados():
+    bloqueados = listar_usuarios_bloqueados()
+    if not bloqueados:
+        print("\nNo hay usuarios bloqueados.")
+        return
+    print(f"\nUsuarios bloqueados por intentos fallidos: {len(bloqueados)}")
+    for b in bloqueados:
+        print(f"  {b[1]} {b[2]} | {b[3]} | bloqueado hasta {formatear_fecha(b[4])}")
+    print("  (Gestión de usuarios > 'Desbloquear usuario' quita el bloqueo.)")
 
 
 def formatear_fecha(fecha):
@@ -169,7 +234,7 @@ def cerrar_sesion_de_otro(sesiones, propia):
 
     sesion = sesiones[int(valor) - 1]
     if propia and sesion[1] == propia["id_usuario"]:
-        print("Para cerrar su propia sesión use la opción 'Cerrar sesión'.")
+        print("Para cerrar tu propia sesión usá la opción 'Cerrar sesión'.")
         return False
 
     confirmar = input(

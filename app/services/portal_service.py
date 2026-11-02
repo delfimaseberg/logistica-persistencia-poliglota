@@ -23,15 +23,17 @@ from app.services.facturacion_service import (
     mostrar_detalle_factura,
     mostrar_factura,
 )
+from app.utils import formato
 from app.utils.validaciones_terceros import hoy_contable
+from app.utils.errores import mensaje_error
 
 
-NO_EXISTE_ENVIO = "No existe un envío con ese número entre sus envíos."
-NO_EXISTE_FACTURA = "No existe una factura con ese número entre sus facturas."
+NO_EXISTE_ENVIO = "No existe un envío con ese número entre tus envíos."
+NO_EXISTE_FACTURA = "No existe una factura con ese número entre tus facturas."
 
 
 def pausar():
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
 def pedir_numero(mensaje):
@@ -39,14 +41,14 @@ def pedir_numero(mensaje):
         valor = input(mensaje).strip()
         if valor.isdigit() and int(valor) > 0:
             return int(valor)
-        print("Ingrese un número entero positivo.")
+        print("Ingresá un número entero positivo.")
 
 
 def parte_actual(*tipos):
     """Id de la parte de la sesión; error si la sesión no es de esos tipos."""
     tipo, id_parte = parte_de(obtener_sesion_actual())
     if tipo not in tipos:
-        raise PermissionError("Esta opción no corresponde a su usuario.")
+        raise PermissionError("Esta opción no corresponde a tu usuario.")
     return tipo, id_parte
 
 
@@ -82,7 +84,7 @@ def mis_envios_service():
             print(f"Envío {e[0]} | {e[3]} -> {e[4]} | {e[5]} | prioridad {e[6]} | "
                   f"creado {e[7]:%d/%m/%Y} | {entrega}")
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -93,7 +95,7 @@ def _con_envio_propio(funcion_trazabilidad):
         _, id_cliente = parte_actual("CLIENTE")
         envio = envio_propio(pedir_numero("Número de envío: "), id_cliente)
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
         pausar()
         return
     if envio is None:
@@ -130,7 +132,7 @@ def mis_facturas_service():
         for factura in facturas:
             mostrar_factura(factura)
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -145,7 +147,7 @@ def detalle_mi_factura_service():
             return
         mostrar_detalle_factura(detalle)
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -156,7 +158,7 @@ def mi_cuenta_corriente_service():
         _, id_cliente = parte_actual("CLIENTE")
         mostrar_cuenta_cliente(id_cliente)
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -167,14 +169,14 @@ def mis_tramos_service():
         _, id_operador = parte_actual("OPERADOR")
         tramos = listar_tramos_operador(id_operador)
         if not tramos:
-            print("No tiene tramos asignados.")
+            print("No tenés tramos asignados.")
             return
         for t in tramos:
             print(f"Tramo {t[0]} | Envío {t[1]} ({t[7]}) | {t[2]} | {t[3]} -> {t[4]} | "
                   f"salida {t[5]:%d/%m/%Y} | "
                   f"{'facturado' if t[8] else 'sin facturar'}")
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -206,10 +208,10 @@ def mi_cuenta_tercero_service():
         movimientos = cuentas.listar_movimientos_tercero(tipo, id_parte)
         if movimientos:
             print("\nMovimientos:")
-            for fecha, tipo_mov, importe, _, detalle in movimientos:
-                print(f"  {fecha:%d/%m/%Y} | {tipo_mov:<16} | {importe:>14,.2f} | "
-                      f"{detalle or ''}")
+            for fecha, tipo_mov, importe, referencia, detalle in movimientos:
+                print(f"  {fecha:%d/%m/%Y} | {dinero(importe):>15} | "
+                      f"{formato.descripcion_movimiento(tipo_mov, referencia, detalle)}")
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()

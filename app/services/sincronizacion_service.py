@@ -12,6 +12,7 @@ from app.repositories.trazabilidad_repository import (
     obtener_datos_proyeccion,
     listar_ids_envios
 )
+from app.utils.errores import mensaje_error
 from app.utils.logger import obtener_logger
 
 
@@ -63,7 +64,7 @@ def sincronizar_envio_neo4j(id_envio):
         if guardado:
             print("\nAdvertencia: la red de rutas no está disponible; la actualización quedó pendiente.")
         else:
-            print("\nADVERTENCIA: no se pudo actualizar la red de rutas ni guardar el pendiente. Revisar logs/app.log.")
+            print("\nADVERTENCIA: no se pudo actualizar la red de rutas ni guardar el pendiente. El detalle quedó registrado para revisión.")
         return False
 
     try:
@@ -96,12 +97,29 @@ def reparar_pendientes():
             logger.info("Pendiente del envío %s reparado", id_envio)
         except Exception as error:
             registrar_pendiente_sync(id_envio, error)
-            fallidos.append((id_envio, str(error)))
+            fallidos.append((id_envio, mensaje_error(error)))
             logger.error(
                 "Reintento fallido del envío %s: %s", id_envio, error
             )
 
     return resueltos, fallidos
+
+
+def resincronizar_envio(id_envio):
+    """Igual que resincronizar_todos, para un solo envío.
+
+    Devuelve None si quedó sincronizado o el motivo del error (texto para
+    mostrar); en ese caso queda como pendiente para reintentar.
+    """
+    try:
+        reconciliar_envio(id_envio)
+        resolver_pendientes_envio(id_envio)
+    except Exception as error:
+        _marcar_pendiente(id_envio, error)
+        logger.error("Resincronización fallida del envío %s: %s", id_envio, error)
+        return mensaje_error(error)
+    logger.info("Envío %s resincronizado con Neo4j", id_envio)
+    return None
 
 
 def resincronizar_todos():
@@ -118,7 +136,7 @@ def resincronizar_todos():
             resolver_pendientes_envio(id_envio)
             correctos += 1
         except Exception as error:
-            errores.append((id_envio, str(error)))
+            errores.append((id_envio, mensaje_error(error)))
             _marcar_pendiente(id_envio, error)
             logger.error(
                 "Resincronización fallida del envío %s: %s",
@@ -136,7 +154,7 @@ def resincronizar_todos():
                     "Operadores legados eliminados de Neo4j: %s", eliminados
                 )
         except Exception as error:
-            errores.append(("operadores_legados", str(error)))
+            errores.append(("operadores_legados", mensaje_error(error)))
             logger.error("No se pudieron limpiar operadores legados: %s", error)
 
     return correctos, errores

@@ -41,7 +41,7 @@ def mostrar_menu_monitoreo():
         print("0. Volver al menú principal")
 
         opcion = input(
-            "\nSeleccione una opción: "
+            "\nSeleccioná una opción: "
         ).strip()
 
         if opcion == "1":

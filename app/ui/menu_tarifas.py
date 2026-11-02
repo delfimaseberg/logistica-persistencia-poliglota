@@ -6,6 +6,8 @@ from decimal import Decimal, InvalidOperation
 from app.repositories import tarifas_repository as repo
 from app.services import tarifas_service as service
 from app.services.autenticacion import obtener_sesion_actual, verificar_permiso
+from app.utils import formato
+from app.utils.errores import mensaje_error
 
 
 CRITERIOS = {
@@ -61,14 +63,18 @@ def _listar_reglas():
     if not filas:
         print("No hay reglas tarifarias registradas.")
         return
-    print("\nID | Código | Versión | Moneda | Vigencia | Estado")
+    print("\nN.º | Regla | Versión | Moneda | Vigencia | Estado")
     for r in filas:
-        print(f"{r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]} a {r[5] or 'sin fin'} | {r[6]}")
+        nombre = "Tarifa estándar" if r[1] == "TARIFA_ESTANDAR" else r[1]
+        print(f"{r[0]} | {nombre} | {r[2]} | {r[3]} | desde {formato.fecha(r[4])}"
+              f"{' hasta ' + formato.fecha(r[5]) if r[5] else ', sin fecha de fin'} | {str(r[6]).capitalize()}")
         detalle = repo.obtener_regla(r[0])
         for componente in detalle["componentes"]:
-            print("   - {} selector={} ámbito={} base={} importe={}".format(
-                componente["criterio"], componente["selector"] or "—",
-                componente["ambito"], componente["base_calculo"], componente["importe"],
+            print("   - {} {} | {} | importe {}".format(
+                str(componente["criterio"]).replace("_", " ").capitalize(),
+                componente["selector"] or "",
+                str(componente["base_calculo"]).replace("_", " ").lower(),
+                formato.dinero(componente["importe"]),
             ))
 
 
@@ -90,10 +96,20 @@ def _registrar_carga():
         return
     for e in envios:
         print(f"Envío {e[0]} | {e[2]} → {e[3]} | {e[4]}")
-    id_envio = _entero("ID del envío: ")
+    ids = {e[0] for e in envios}
+    while True:
+        id_envio = _entero("N.º de envío: ")
+        if id_envio in ids:
+            break
+        print("Elegí uno de los envíos de la lista.")
     for i, t in enumerate(tipos, 1):
-        print(f"{i}. {t[0]} — {t[1]}")
-    tipo = tipos[_entero("Número de categoría: ") - 1]
+        print(f"{i}. {t[1]}")
+    while True:
+        numero = _entero("Número de categoría: ")
+        if numero <= len(tipos):
+            break
+        print(f"Elegí un número entre 1 y {len(tipos)}.")
+    tipo = tipos[numero - 1]
     peso = _importe("Peso real de esta partida en kg: ")
     if peso <= 0:
         raise ValueError("El peso real debe ser mayor a cero.")
@@ -171,51 +187,6 @@ def _aprobar_regla():
     print("Regla aprobada. La versión anterior del mismo código queda reemplazada.")
 
 
-def _calcular():
-    _listar_reglas()
-    id_envio = _entero("ID del envío: ")
-    id_regla = _entero("ID de la regla aprobada: ")
-    resultado = service.calcular_tarifa_envio(id_envio, id_regla, _usuario_id())
-    print(f"\nTarifa borrador {resultado['id_tarifa']} — envío {id_envio}")
-    print(f"Regla {resultado['regla']['codigo']} v{resultado['regla']['version']}")
-    print(f"Subtotal comercial: {resultado['importe_base']} {resultado['regla']['moneda']}")
-    for item in resultado["detalle"]:
-        print(f"- {item['criterio']} {item['referencia']}: {item['cantidad']} × "
-              f"{item['importe_unitario']} = {item['importe']}")
-    print(resultado["motivo"])
-
-
-def _mostrar_detalle():
-    tarifa = service.obtener_detalle_tarifa(_entero("ID de tarifa: "))
-    print(f"\nTarifa {tarifa['id_tarifa']} | Envío {tarifa['id_envio']} | "
-          f"Versión {tarifa['version']} | Estado {tarifa['estado']}")
-    print(f"Subtotal: {tarifa['importe_base']} | Impuestos: {tarifa['importe_impuestos']} | "
-          f"Total: {tarifa['importe_total']} | Moneda: {tarifa['moneda']}")
-    print("Snapshot:", tarifa["detalle_calculo"])
-
-
-def _aprobar_tarifa():
-    id_tarifa = _entero("ID de tarifa borrador: ")
-    detalle_tarifa = service.obtener_detalle_tarifa(id_tarifa)
-    print(f"Envío {detalle_tarifa['id_envio']} | subtotal comercial: "
-          f"{detalle_tarifa['importe_base']} | estado: {detalle_tarifa['estado']}")
-    perfiles = repo.listar_configuraciones_fiscales()
-    if not perfiles:
-        print("No hay configuración fiscal activa. El cálculo queda como borrador no facturable.")
-        return
-    for i, p in enumerate(perfiles, 1):
-        print(f"{i}. {p[1]} v{p[2]} | {p[3]} | vigencia {p[5]} a {p[6] or 'sin fin'}")
-    perfil = perfiles[_entero("Número de configuración fiscal: ") - 1]
-    print("Ingresá los importes aprobados por la fuente fiscal/comercial; el programa no calcula impuestos ni total.")
-    impuestos = _importe("Importe de impuestos aprobado: ")
-    total = _importe("Importe total aprobado: ")
-    referencia = input("Referencia documentada de aprobación de esta tarifa: ").strip()
-    service.aprobar_tarifa_envio(
-        id_tarifa, perfil[0], impuestos, total, referencia, _usuario_id()
-    )
-    print("Tarifa aprobada y auditada. No se emitió una factura.")
-
-
 def mostrar_menu_tarifas():
     if not verificar_permiso(3):
         return
@@ -253,4 +224,4 @@ def mostrar_menu_tarifas():
             else:
                 accion()
         except Exception as error:
-            print(f"No se completó la operación: {error}")
+            print(f"No se completó la operación: {mensaje_error(error)}")

@@ -11,6 +11,9 @@ from app.repositories.predicciones_repository import (
     reporte_demoras_estimadas,
 )
 from app.utils.logger import obtener_logger
+from app.utils import formato
+from app.utils.errores import mensaje_error
+from app.services.autenticacion import requiere_permiso
 
 
 logger = obtener_logger("predicciones")
@@ -166,7 +169,7 @@ def texto_probabilidad(prediccion):
         return "sin dato (evaluación anterior)"
     if prediccion.get("nivel_riesgo") == "INFORMACIÓN INSUFICIENTE":
         return "no se puede estimar (faltan fechas estimadas de llegada)"
-    texto = f"{probabilidad:.1f} %".replace(".", ",")
+    texto = formato.porcentaje(probabilidad)
     if not prediccion.get("datos_suficientes", True):
         return f"al menos {texto} (faltan fechas estimadas de llegada)"
     return texto
@@ -394,7 +397,7 @@ def calcular_riesgo(datos, ahora=None):
                 else "sin historial suficiente de la ruta: se usa la tasa general"
             )
             motivos.append(
-                f"Ruta {historial['ruta']}: {historial['tasa']:.0%} de atraso histórico "
+                f"Ruta {historial['ruta']}: {formato.porcentaje(historial['tasa'] * 100, 0)} de atraso histórico "
                 f"({texto_fuente})"
             )
 
@@ -557,6 +560,7 @@ def seleccionar_envio():
         print("Opción inválida.")
 
 
+@requiere_permiso(1)
 def evaluar_envio_service():
     print("\n--- EVALUAR RIESGO DE ENVÍO ---")
 
@@ -592,12 +596,13 @@ def evaluar_envio_service():
         logger.exception(
             "Error al evaluar un envío"
         )
-        print(f"\nError al evaluar el envío: {error}")
+        print(f"\nError al evaluar el envío: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def historial_predicciones_service():
     print("\n--- HISTORIAL DE PREDICCIONES ---")
 
@@ -624,12 +629,13 @@ def historial_predicciones_service():
         logger.exception(
             "Error al consultar historial de predicciones"
         )
-        print(f"\nError al consultar historial: {error}")
+        print(f"\nError al consultar historial: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def historico_incidentes_service():
     print("\n--- ANÁLISIS HISTÓRICO DE INCIDENTES ---")
 
@@ -650,19 +656,20 @@ def historico_incidentes_service():
             print(f"Incidentes abiertos: {abiertos}")
             print(
                 "Promedio de incidentes por envío: "
-                f"{promedio:.2f}"
+                f"{formato.numero(promedio, 2)}"
             )
 
     except Exception as error:
         logger.exception(
             "Error al generar análisis de incidentes"
         )
-        print(f"\nError al generar análisis: {error}")
+        print(f"\nError al generar análisis: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def demoras_estimadas_service():
     print("\n--- ENVÍOS CON LLEGADA ESTIMADA VENCIDA ---")
 
@@ -693,7 +700,7 @@ def demoras_estimadas_service():
         logger.exception(
             "Error al consultar llegadas estimadas vencidas"
         )
-        print(f"\nError al consultar demoras: {error}")
+        print(f"\nError al consultar demoras: {mensaje_error(error)}")
 
     finally:
         pausar()
@@ -767,7 +774,7 @@ def actualizar_predicciones_activas():
             resumen["resultados"].append({
                 "envio_id": id_envio,
                 "guardada": False,
-                "error": str(error)
+                "error": mensaje_error(error)
             })
 
             logger.exception(
@@ -778,6 +785,7 @@ def actualizar_predicciones_activas():
     return resumen
 
 
+@requiere_permiso(3)
 def actualizar_predicciones_service():
     print("\n--- ACTUALIZAR PREDICCIONES DE RIESGO ---")
 
@@ -813,8 +821,8 @@ def actualizar_predicciones_service():
             if resultado["guardada"]:
                 print(
                     f"Envío {id_envio}: "
-                    f"{resultado['nivel_riesgo']} "
-                    f"({resultado['probabilidad']})"
+                    f"{resultado['nivel_riesgo']} | "
+                    f"probabilidad de demora: {resultado['probabilidad']}"
                 )
             else:
                 print(
@@ -840,7 +848,7 @@ def actualizar_predicciones_service():
             "Error general al actualizar predicciones"
         )
         print(
-            f"\nError al actualizar predicciones: {error}"
+            f"\nError al actualizar predicciones: {mensaje_error(error)}"
         )
 
     finally:

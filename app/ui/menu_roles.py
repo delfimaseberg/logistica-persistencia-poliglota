@@ -27,7 +27,7 @@ def mostrar_menu_roles():
         print("5. Eliminar rol")
         print("0. Volver a gestión de usuarios")
 
-        opcion = input("\nSeleccione una opción: ").strip()
+        opcion = input("\nSeleccioná una opción: ").strip()
 
         if opcion == "1":
             registrar_rol()
@@ -48,4 +48,4 @@ def mostrar_menu_roles():
             break
 
         else:
-            print("\nOpción inválida. Intente nuevamente.")
+            print("\nOpción inválida. Intentá nuevamente.")

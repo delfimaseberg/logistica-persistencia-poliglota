@@ -1,7 +1,18 @@
 from app.database.postgres_connection import get_postgres_connection
+from app.utils.politica_contrasena import (
+    INTENTOS_MAXIMOS,
+    MINUTOS_BLOQUEO,
+    MINUTOS_INACTIVIDAD,
+)
 
 
 def buscar_usuario_por_email(email):
+    """Datos para iniciar sesión, o None.
+
+    (id, nombre, apellido, email, hash, estado, rol, nivel,
+     bloqueado, minutos_de_bloqueo_restantes, debe_cambiar_contrasena)
+    El bloqueo se calcula con la hora de la base (bloqueado_hasta > now()).
+    """
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute(
@@ -14,7 +25,11 @@ def buscar_usuario_por_email(email):
                     u.contrasena_encriptada,
                     u.estado,
                     r.descripcion,
-                    r.nivel_permisos
+                    r.nivel_permisos,
+                    COALESCE(u.bloqueado_hasta > now(), FALSE) AS bloqueado,
+                    GREATEST(1, CEIL(EXTRACT(EPOCH FROM (u.bloqueado_hasta - now())) / 60))::int
+                        AS minutos_restantes,
+                    u.debe_cambiar_contrasena
                 FROM usuario u
                 JOIN rol r
                     ON u.id_rol = r.id_rol
@@ -24,6 +39,49 @@ def buscar_usuario_por_email(email):
             )
 
             return cursor.fetchone()
+
+
+def registrar_intento_fallido(id_usuario):
+    """Suma un intento fallido; al llegar al máximo bloquea al usuario.
+
+    Si el bloqueo anterior ya venció, la cuenta empieza de nuevo.
+    Devuelve (intentos, bloqueado_ahora).
+    """
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE usuario
+                SET intentos_fallidos = CASE
+                        WHEN bloqueado_hasta IS NOT NULL AND bloqueado_hasta <= now()
+                            THEN 1 ELSE intentos_fallidos + 1 END,
+                    bloqueado_hasta = CASE
+                        WHEN (CASE WHEN bloqueado_hasta IS NOT NULL AND bloqueado_hasta <= now()
+                                   THEN 1 ELSE intentos_fallidos + 1 END) >= %s
+                            THEN now() + make_interval(mins => %s)
+                        ELSE NULL END
+                WHERE id_usuario = %s
+                RETURNING intentos_fallidos, bloqueado_hasta IS NOT NULL;
+                """,
+                (INTENTOS_MAXIMOS, MINUTOS_BLOQUEO, id_usuario)
+            )
+            fila = cursor.fetchone()
+            return (fila[0], bool(fila[1])) if fila else (0, False)
+
+
+def registrar_ingreso_correcto(id_usuario):
+    """Vuelve a cero los intentos fallidos y quita el bloqueo vencido."""
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE usuario
+                SET intentos_fallidos = 0, bloqueado_hasta = NULL
+                WHERE id_usuario = %s
+                  AND (intentos_fallidos <> 0 OR bloqueado_hasta IS NOT NULL);
+                """,
+                (id_usuario,)
+            )
 
 
 def iniciar_sesion_db(id_usuario):
@@ -54,6 +112,30 @@ def iniciar_sesion_db(id_usuario):
             return resultado[0]
 
 
+def expirar_sesiones_inactivas():
+    """Cierra (EXPIRADA) las sesiones sin actividad en los últimos minutos.
+
+    La fecha de fin es la de la última actividad más el plazo de inactividad.
+    Devuelve la cantidad de sesiones cerradas.
+    """
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE sesion
+                SET estado = 'EXPIRADA',
+                    fecha_fin = GREATEST(
+                        fecha_inicio,
+                        LEAST(now(), ultima_actividad + make_interval(mins => %s)))
+                WHERE estado = 'ACTIVA'
+                  AND fecha_fin IS NULL
+                  AND ultima_actividad < now() - make_interval(mins => %s);
+                """,
+                (MINUTOS_INACTIVIDAD, MINUTOS_INACTIVIDAD)
+            )
+            return cursor.rowcount
+
+
 def listar_sesiones_activas():
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
@@ -74,7 +156,8 @@ def listar_sesiones_activas():
                         WHEN u.id_operador IS NOT NULL
                             THEN 'Operador: ' || o.razon_social
                         ELSE 'Interno'
-                    END AS parte
+                    END AS parte,
+                    s.ultima_actividad
                 FROM sesion s
                 JOIN usuario u
                     ON s.id_usuario = u.id_usuario
@@ -87,6 +170,21 @@ def listar_sesiones_activas():
                 """
             )
 
+            return cursor.fetchall()
+
+
+def listar_usuarios_bloqueados():
+    """(id, nombre, apellido, email, bloqueado_hasta) de los bloqueos vigentes."""
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id_usuario, nombre, apellido, email, bloqueado_hasta
+                FROM usuario
+                WHERE bloqueado_hasta > now()
+                ORDER BY bloqueado_hasta;
+                """
+            )
             return cursor.fetchall()
 
 
@@ -134,6 +232,22 @@ def cerrar_sesion_ajena_db(id_sesion, id_administrador):
             return cursor.rowcount > 0
 
 
+def cerrar_sesiones_de_usuario(id_usuario, cerrada_por, excepto_sesion=None):
+    """Cierra las sesiones activas de un usuario (cambio o reseteo de contraseña)."""
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE sesion
+                SET estado = 'CERRADA', fecha_fin = CURRENT_TIMESTAMP, cerrada_por = %s
+                WHERE id_usuario = %s AND estado = 'ACTIVA' AND fecha_fin IS NULL
+                  AND (%s::bigint IS NULL OR id_sesion <> %s::bigint);
+                """,
+                (cerrada_por, id_usuario, excepto_sesion, excepto_sesion)
+            )
+            return cursor.rowcount
+
+
 def cerrada_por_otro(id_sesion):
     """True si la sesión la cerró un usuario distinto de su dueño."""
     with get_postgres_connection() as conexion:
@@ -144,3 +258,21 @@ def cerrada_por_otro(id_sesion):
             )
             fila = cursor.fetchone()
             return bool(fila and fila[0] is not None and fila[0] != fila[1])
+
+
+def motivo_cierre(id_sesion):
+    """'INACTIVIDAD', 'ADMINISTRADOR' o None (la cerró el propio usuario)."""
+    with get_postgres_connection() as conexion:
+        with conexion.cursor() as cursor:
+            cursor.execute(
+                "SELECT estado, cerrada_por, id_usuario FROM sesion WHERE id_sesion = %s",
+                (id_sesion,)
+            )
+            fila = cursor.fetchone()
+    if not fila:
+        return None
+    if fila[0] == "EXPIRADA":
+        return "INACTIVIDAD"
+    if fila[1] is not None and fila[1] != fila[2]:
+        return "ADMINISTRADOR"
+    return None

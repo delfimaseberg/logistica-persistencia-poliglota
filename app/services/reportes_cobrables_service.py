@@ -16,6 +16,8 @@ from app.repositories.facturacion_repository import (
 from app.services.reportes_service import con_vacio, retrasos_por_envio, situacion, horas
 from app.utils.exportar_reportes import CARPETA_REPORTES, Tabla, exportar
 from app.utils.logger import obtener_logger
+from app.utils import formato
+from app.utils.errores import mensaje_error
 
 
 ZONA = ZoneInfo("America/Argentina/Buenos_Aires")
@@ -110,7 +112,7 @@ def _instantes(desde, hasta):
 
 # ------------------------------------------------------------ generadores
 
-@con_vacio("No hay incidentes ni alertas de sus envíos")
+@con_vacio("No hay incidentes ni alertas de tus envíos")
 def generar_incidentes(id_cliente, params):
     from app.repositories.alerta_repository import listar_alertas_contenedores
     desde, hasta = _rango(params)
@@ -163,7 +165,7 @@ def generar_puntualidad(id_cliente, params, ahora=None):
                  if resumen else [])
 
 
-@con_vacio("No hay tramos con operador asignado para sus contenedores")
+@con_vacio("No hay tramos con operador asignado para tus contenedores")
 def generar_operadores(id_cliente, params):
     from app.repositories.grafo_repository import operadores_de_contenedores_cliente
     desde, hasta = _rango(params)
@@ -172,7 +174,7 @@ def generar_operadores(id_cliente, params):
     return Tabla("Operadores que llevaron mis contenedores",
                  ["Contenedor", "Envío", "Tramo", "Medio", "Origen", "Destino", "Salida", "Operador"],
                  [(f["contenedor"], f["id_envio"], f["id_tramo"], f["medio"], f["origen"],
-                   f["destino"], (f["salida"] or "")[:16].replace("T", " "),
+                   f["destino"], formato.fecha_hora(f["salida"]),
                    f["operador"] or "Sin asignar") for f in filas],
                  "Neo4j (grafo cliente-envío-contenedor-tramo-operador) + PostgreSQL (período)")
 
@@ -206,15 +208,15 @@ def generar_condiciones_carga(id_cliente, params):
         filas.append((codigo, tipo, id_envio, len(lecturas),
                       min(temps) if temps else None, max(temps) if temps else None,
                       min(hums) if hums else None, max(hums) if hums else None, fuera,
-                      f"{gps[0].gps_latitud:.4f}, {gps[0].gps_longitud:.4f}" if gps else None,
-                      f"{gps[-1].gps_latitud:.4f}, {gps[-1].gps_longitud:.4f}" if gps else None))
+                      f"{formato.numero(gps[0].gps_latitud, 4)} ; {formato.numero(gps[0].gps_longitud, 4)}" if gps else None,
+                      f"{formato.numero(gps[-1].gps_latitud, 4)} ; {formato.numero(gps[-1].gps_longitud, 4)}" if gps else None))
     return Tabla("Condiciones de la carga en viaje",
                  ["Contenedor", "Tipo", "Envío", "Lecturas", "Temp. mín.", "Temp. máx.",
                   "Hum. mín.", "Hum. máx.", "Lecturas fuera de rango",
                   "Primera posición GPS", "Última posición GPS"],
                  filas, "Cassandra (lecturas_por_contenedor) + PostgreSQL (contenedores del cliente)",
-                 [f"Fuera de rango: temperatura fuera de {temp_min:g} a {temp_max:g} °C "
-                  f"o humedad mayor a {hum_max:g} %."])
+                 [f"Fuera de rango: temperatura fuera de {formato.compacto(temp_min)} a "
+                  f"{formato.compacto(temp_max)} °C o humedad mayor a {formato.compacto(hum_max)} %."])
 
 
 @con_vacio("No hay envíos en curso")
@@ -285,7 +287,7 @@ def facturar_pendientes():
         except FacturaExistente:
             continue
         except Exception as error:
-            errores.append((reporte["id_reporte"], str(error)))
+            errores.append((reporte["id_reporte"], mensaje_error(error)))
     return facturados, errores
 
 

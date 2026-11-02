@@ -15,10 +15,13 @@ from app.utils.exportar_reportes import (
     mensaje_vacio,
     texto,
 )
+from app.utils import formato
+from app.utils.errores import mensaje_error
+from app.services.autenticacion import requiere_permiso
 
 
 def pausar():
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
 def pedir_fecha(mensaje, por_defecto):
@@ -33,13 +36,13 @@ def pedir_fecha(mensaje, por_defecto):
 
 
 def pedir_periodo():
-    hasta = cobrables.hoy()
-    desde = pedir_fecha("Desde", hasta - timedelta(days=183))
-    hasta = pedir_fecha("Hasta", hasta)
-    if desde > hasta:
-        print("'Desde' es posterior a 'hasta'; se invierten.")
-        desde, hasta = hasta, desde
-    return desde, hasta
+    hoy = cobrables.hoy()
+    while True:
+        desde = pedir_fecha("Desde", hoy - timedelta(days=183))
+        hasta = pedir_fecha("Hasta", hoy)
+        if desde <= hasta:
+            return desde, hasta
+        print("La fecha 'desde' no puede ser posterior a 'hasta'. Ingresá el período de nuevo.")
 
 
 def elegir_cliente(obligatorio=False):
@@ -53,7 +56,7 @@ def elegir_cliente(obligatorio=False):
             return None
         if valor.isdigit() and int(valor) in {c[0] for c in clientes}:
             return int(valor)
-        print("Elija un cliente de la lista.")
+        print("Elegí un cliente de la lista.")
 
 
 def mostrar_y_ofrecer_csv(tabla, vacio=None):
@@ -80,7 +83,7 @@ def _ejecutar(constructor, con_periodo=True, con_cliente=True):
         mostrar_y_ofrecer_csv(tabla, mensaje_vacio(tabla, cliente=cliente is not None,
                                                    periodo=con_periodo))
     except Exception as error:
-        print(f"\nError al generar el reporte: {error}")
+        print(f"\nError al generar el reporte: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -118,7 +121,14 @@ REPORTES_PREDICTIVOS = {
 }
 
 
+@requiere_permiso(1)
 def submenu(titulo, opciones):
+    """Submenú de reportes internos."""
+    _menu(titulo, opciones)
+
+
+def _menu(titulo, opciones):
+    """Muestra un submenú; cada opción verifica sus propios permisos."""
     while True:
         print(f"\n--- {titulo} ---")
         for clave, (nombre, _) in opciones.items():
@@ -149,11 +159,12 @@ def mostrar_reporte(reporte):
     print(f"Pedido por {reporte['usuario']} el {texto(reporte['fecha_solicitud'])}")
     for linea in cobrables.describir_parametros(reporte["parametros"]):
         print(f"  {linea}")
-    print(f"Precio: ${reporte['importe_base']:,.2f} + IVA"
-          + (f" | Factura N.º {reporte['id_factura']} por ${reporte['total_factura']:,.2f}"
+    print(f"Precio: {formato.dinero(reporte['importe_base'])} + IVA"
+          + (f" | Factura N.º {reporte['id_factura']} por {formato.dinero(reporte['total_factura'])}"
              if reporte["id_factura"] else ""))
     if reporte["archivo"]:
-        print(f"Archivo: {reporte['archivo']} ({reporte['filas']} filas)")
+        # Solo el nombre del archivo: la ruta en el servidor no le sirve al usuario.
+        print(f"Archivo: {Path(reporte['archivo']).name} ({reporte['filas']} filas)")
     if reporte["error"]:
         print(f"Error: {reporte['error']}")
 
@@ -174,7 +185,7 @@ def pedir_solicitud():
     tipos = repo.listar_tipos_reporte()
     print("\nTipos de reporte (precio + IVA):")
     for numero, t in enumerate(tipos, 1):
-        print(f"  {numero}. {t[1]} - ${t[4]:,.2f}")
+        print(f"  {numero}. {t[1]} - {formato.dinero(t[4])}")
         print(f"     {t[2]}")
     eleccion = input("Tipo (0 = cancelar): ").strip()
     if not eleccion.isdigit() or not 1 <= int(eleccion) <= len(tipos):
@@ -182,7 +193,7 @@ def pedir_solicitud():
     tipo = tipos[int(eleccion) - 1]
     params = {}
     if tipo[0] in cobrables.SIN_PERIODO:
-        print("Muestra la situación de hoy de sus envíos en curso.")
+        print("Muestra la situación de hoy de tus envíos en curso.")
     else:
         desde, hasta = pedir_periodo()
         params = {"desde": desde.isoformat(), "hasta": hasta.isoformat()}
@@ -191,11 +202,15 @@ def pedir_solicitud():
             params[nombre] = pedir_contenedor()
             continue
         params[nombre] = input(f"{descripcion} (Enter = sin filtro): ").strip()
-    formato = input("Formato (CSV/PDF) [Enter = CSV]: ").strip().upper() or "CSV"
-    print(f"\nSe facturará ${tipo[4]:,.2f} + IVA a la cuenta corriente al generarse.")
+    while True:
+        formato_archivo = input("Formato (CSV/PDF) [Enter = CSV]: ").strip().upper() or "CSV"
+        if formato_archivo in cobrables.FORMATOS:
+            break
+        print("Elegí CSV o PDF.")
+    print(f"\nSe facturará {formato.dinero(tipo[4])} + IVA a la cuenta corriente al generarse.")
     if input("¿Confirmar? (S/N): ").strip().upper() != "S":
         return None
-    return tipo[0], formato, params
+    return tipo[0], formato_archivo, params
 
 
 def pedir_contenedor():
@@ -222,6 +237,7 @@ def _resultado(reporte):
         print("\nNo se pudo generar el reporte; no se facturó.")
 
 
+@requiere_permiso(3)
 @solo_internos
 def generar_para_cliente_service():
     print("\n--- GENERAR REPORTE COBRABLE PARA UN CLIENTE ---")
@@ -231,15 +247,16 @@ def generar_para_cliente_service():
         if solicitud is None:
             print("Cancelado.")
             return
-        tipo, formato, params = solicitud
+        tipo, formato_archivo, params = solicitud
         _resultado(cobrables.solicitar_reporte(
-            id_cliente, obtener_sesion_actual()["id_usuario"], tipo, formato, params))
+            id_cliente, obtener_sesion_actual()["id_usuario"], tipo, formato_archivo, params))
     except Exception as error:
-        print(f"\nError: {error}")
+        print(f"\nError: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3, portal=("CLIENTE",), portal_con_dato=True)
 def listar_reportes_service(id_cliente=None):
     print("\n--- REPORTES COBRABLES ---")
     try:
@@ -251,11 +268,12 @@ def listar_reportes_service(id_cliente=None):
             print(f"  {r['id_reporte']} | {texto(r['fecha_solicitud'])} | {r['cliente']} | "
                   f"{nombre_tipo(r['tipo'])} | {r['formato']} | {r['estado']} | {factura}")
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3, portal=("CLIENTE",), portal_con_dato=True)
 def ver_reporte_service(id_cliente=None):
     """Interno: cualquier reporte. Portal: id_cliente fijo (los ajenos 'no existen')."""
     try:
@@ -267,12 +285,12 @@ def ver_reporte_service(id_cliente=None):
                    else cobrables.reporte_del_cliente(int(numero), id_cliente))
         if reporte is None:
             print("No existe un reporte con ese número"
-                  + (" entre sus reportes." if id_cliente is not None else "."))
+                  + (" entre tus reportes." if id_cliente is not None else "."))
             return
         mostrar_reporte(reporte)
         _vista_previa(reporte)
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -284,6 +302,7 @@ REPORTES_COBRABLES = {
 }
 
 
+@requiere_permiso(3)
 @solo_internos
 def facturar_reportes_pendientes_service():
     print("\n--- FACTURAR REPORTES GENERADOS PENDIENTES ---")
@@ -291,22 +310,23 @@ def facturar_reportes_pendientes_service():
         facturados, errores = cobrables.facturar_pendientes()
         print(f"Facturados: {len(facturados)}")
         for f in facturados:
-            print(f"  Reporte {f['id_reporte']} -> factura {f['id_factura']} por ${f['total']:,.2f}")
+            print(f"  Reporte {f['id_reporte']} -> factura {f['id_factura']} por {formato.dinero(f['total'])}")
         for id_reporte, error in errores:
             print(f"  Reporte {id_reporte}: {error}")
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3)
 @solo_internos
 def precios_reportes_service():
     print("\n--- PRECIOS DE REPORTES (ARS, sin IVA) ---")
     try:
         tipos = repo.listar_tipos_reporte(solo_activos=False)
         for numero, t in enumerate(tipos, 1):
-            print(f"  {numero}. {t[1]:<45} ${t[4]:>10,.2f} {'activo' if t[5] else 'inactivo'}")
+            print(f"  {numero}. {t[1]:<45} {formato.dinero(t[4]):>12} {'activo' if t[5] else 'inactivo'}")
         eleccion = input("\nNúmero a modificar (Enter = ninguno): ").strip()
         if not eleccion:
             return
@@ -326,7 +346,7 @@ def precios_reportes_service():
         repo.actualizar_precio_tipo_reporte(codigo, precio, obtener_sesion_actual()["id_usuario"])
         print("Precio actualizado. Rige para los reportes que se pidan desde ahora.")
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -348,11 +368,11 @@ def solicitar_mi_reporte_service():
         if solicitud is None:
             print("Cancelado.")
             return
-        tipo, formato, params = solicitud
+        tipo, formato_archivo, params = solicitud
         _resultado(cobrables.solicitar_reporte(
-            id_cliente, obtener_sesion_actual()["id_usuario"], tipo, formato, params))
+            id_cliente, obtener_sesion_actual()["id_usuario"], tipo, formato_archivo, params))
     except Exception as error:
-        print(f"\nError: {error}")
+        print(f"\nError: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -361,7 +381,7 @@ def listar_mis_reportes_service():
     try:
         id_cliente = _cliente_de_la_sesion()
     except PermissionError as error:
-        print(f"\n{error}")
+        print(f"\n{mensaje_error(error)}")
         pausar()
         return
     listar_reportes_service(id_cliente)
@@ -371,7 +391,7 @@ def ver_mi_reporte_service():
     try:
         id_cliente = _cliente_de_la_sesion()
     except PermissionError as error:
-        print(f"\n{error}")
+        print(f"\n{mensaje_error(error)}")
         pausar()
         return
     ver_reporte_service(id_cliente)
@@ -385,4 +405,5 @@ MIS_REPORTES = {
 
 
 def mis_reportes_menu():
-    submenu("MIS REPORTES", MIS_REPORTES)
+    # Portal del cliente: sus opciones filtran por el cliente de la sesión.
+    _menu("MIS REPORTES", MIS_REPORTES)

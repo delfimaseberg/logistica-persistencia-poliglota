@@ -29,11 +29,18 @@ def validar_opcion_flexible(valor, opciones, nombre):
     )
 
 
+def es_obligatorio(nombre):
+    """'La ubicación' -> 'La ubicación es obligatoria.'"""
+    primera = str(nombre).split(" ", 1)[0].lower()
+    terminacion = {"la": "obligatoria", "las": "obligatorias", "los": "obligatorios"}.get(primera, "obligatorio")
+    return f"{nombre} es {terminacion}."
+
+
 def validar_texto(valor, nombre, maximo=150):
     valor = valor.strip()
 
     if not valor:
-        raise ValueError(f"{nombre} es obligatorio.")
+        raise ValueError(es_obligatorio(nombre))
 
     if len(valor) > maximo:
         raise ValueError(

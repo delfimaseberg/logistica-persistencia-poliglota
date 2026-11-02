@@ -55,7 +55,7 @@ def test_alta_guarda_la_parte(cli, prov, oper, _nombre, _esperado):
     cursor = MagicMock()
     cursor.fetchone.return_value = (10,)
     conexion = crear_conexion_mock(cursor)
-    usuario = Usuario(cli, 2, "A", "B", "a@b.c", "h", "ACTIVO",
+    usuario = Usuario(cli, 2, "Ana", "Bo", "a@b.co", "h", "ACTIVO",
                       id_proveedor=prov, id_operador=oper)
 
     with patch.object(usuario_repository, "get_postgres_connection",
@@ -99,11 +99,13 @@ def test_listado_usa_left_join_para_no_perder_usuarios():
 
 # ------------------------------------------------------- sesión y login
 
+@pytest.mark.sesion_real
 @pytest.mark.parametrize("cli, prov, oper, _nombre, _esperado", PARTES)
 def test_sesion_actual_con_cualquier_parte(cli, prov, oper, _nombre, _esperado):
     cursor = MagicMock()
     cursor.fetchone.return_value = (
         70, 5, "Ana", "Pérez", "ana@x.com", "Usuario", 2, cli, prov, oper,
+        False, False,       # expirada, registrar actividad (migración 016)
     )
     autenticacion.establecer_sesion(70, 5)
     try:
@@ -126,8 +128,9 @@ def test_sesion_actual_con_cualquier_parte(cli, prov, oper, _nombre, _esperado):
 
 
 def test_login_no_depende_del_cliente():
-    usuario = (5, "Ana", "Pérez", "ana@x.com", "hash", "ACTIVO", "Usuario", 2)
+    usuario = (5, "Ana", "Pérez", "ana@x.com", "hash", "ACTIVO", "Usuario", 2, False, 1, False)
     with patch.object(sesion_service, "obtener_sesion_actual", return_value=None), \
+         patch.object(sesion_service, "registrar_ingreso_correcto"), \
          patch.object(sesion_service, "buscar_usuario_por_email", return_value=usuario), \
          patch.object(sesion_service, "verificar_contrasena", return_value=True), \
          patch.object(sesion_service, "iniciar_sesion_db", return_value=70), \

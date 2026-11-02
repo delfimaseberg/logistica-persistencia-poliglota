@@ -38,7 +38,8 @@ def _importe_positivo(valor, mensaje):
     importe = importe.quantize(Decimal("0.01"))
     if importe <= 0:
         raise ValueError(mensaje)
-    return importe
+    from app.utils.validaciones_datos import controlar_maximo
+    return controlar_maximo(importe)
 
 
 def listar_clientes_facturacion():
@@ -260,18 +261,6 @@ def consultar_movimientos_cuenta(id_cliente):
                 WHERE id_cliente = %s
                 ORDER BY fecha_contable, id_movimiento
             """, (id_cliente,))
-            return cursor.fetchall()
-
-
-def reporte_envios_estado():
-    with get_postgres_connection() as conexion:
-        with conexion.cursor() as cursor:
-            cursor.execute("""
-                SELECT estado, COUNT(*)
-                FROM envio
-                GROUP BY estado
-                ORDER BY COUNT(*) DESC, estado
-            """)
             return cursor.fetchall()
 
 

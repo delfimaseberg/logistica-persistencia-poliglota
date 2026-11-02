@@ -9,6 +9,7 @@ from app.services.autenticacion import obtener_sesion_actual, parte_de
 from app.services.sesion_service import cerrar_sesion_service
 from app.ui.menu_mensajeria import mostrar_menu_mensajeria
 from app.services.reportes_pantallas import mis_reportes_menu
+from app.services.contrasena_service import cambiar_mi_contrasena_service
 
 
 OPCIONES_CLIENTE = {
@@ -22,17 +23,20 @@ OPCIONES_CLIENTE = {
     "8": ("Mi cuenta corriente", portal.mi_cuenta_corriente_service),
     "9": ("Mis reportes (ver y solicitar)", mis_reportes_menu),
     "10": ("Mensajería", mostrar_menu_mensajeria),
+    "11": ("Cambiar mi contraseña", cambiar_mi_contrasena_service),
 }
 
 OPCIONES_OPERADOR = {
     "1": ("Mensajería", mostrar_menu_mensajeria),
     "2": ("Mis tramos realizados", portal.mis_tramos_service),
     "3": ("Mis facturas y lo que nos falta pagarles", portal.mi_cuenta_tercero_service),
+    "4": ("Cambiar mi contraseña", cambiar_mi_contrasena_service),
 }
 
 OPCIONES_PROVEEDOR = {
     "1": ("Mensajería", mostrar_menu_mensajeria),
     "2": ("Mis facturas y lo que nos falta pagarles", portal.mi_cuenta_tercero_service),
+    "3": ("Cambiar mi contraseña", cambiar_mi_contrasena_service),
 }
 
 TITULOS = {
@@ -67,7 +71,7 @@ def mostrar_portal(usuario):
         print(f"{cerrar}. Cerrar sesión")
         print("0. Salir")
 
-        opcion = input("\nSeleccione una opción: ").strip()
+        opcion = input("\nSeleccioná una opción: ").strip()
 
         # Sesión cerrada por un administrador: se avisa antes de la opción.
         if obtener_sesion_actual() is None:
@@ -82,6 +86,6 @@ def mostrar_portal(usuario):
             if cerrar_sesion_service():
                 print("\nCerrando el sistema...")
                 return True
-            print("No se pudo cerrar la sesión. Intente nuevamente.")
+            print("No se pudo cerrar la sesión. Intentá nuevamente.")
         else:
             print("\nOpción inválida.")

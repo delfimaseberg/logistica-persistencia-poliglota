@@ -4,10 +4,12 @@ from datetime import date, timedelta
 
 from app.repositories import alerta_climatica_repository as repo
 from app.services.autenticacion import obtener_sesion_actual, solo_internos
+from app.utils.errores import mensaje_error
+from app.services.autenticacion import requiere_permiso
 
 
 def pausar():
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
 def _fecha(texto):
@@ -52,9 +54,9 @@ def registrar_alerta_climatica_service():
                                         obtener_sesion_actual()["id_usuario"], descripcion)
         print("Alerta climática registrada. Se considera en las próximas predicciones.")
     except ValueError as error:
-        print(f"No se registró: {error}")
+        print(f"No se registró: {mensaje_error(error)}")
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -70,7 +72,7 @@ def listar_alertas_climaticas_service():
             if alerta.get("descripcion"):
                 print(f"     {alerta['descripcion']}")
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -90,7 +92,7 @@ def anular_alerta_climatica_service():
             print("Cancelado.")
             return
         alerta = alertas[int(valor) - 1]
-        if input("¿Confirma la anulación? (S/N): ").strip().upper() != "S":
+        if input("¿Confirmás la anulación? (S/N): ").strip().upper() != "S":
             print("Cancelado.")
             return
         if repo.anular_alerta_climatica(alerta["_id"], obtener_sesion_actual()["id_usuario"]):
@@ -98,7 +100,7 @@ def anular_alerta_climatica_service():
         else:
             print("No se pudo anular.")
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -110,6 +112,7 @@ OPCIONES_CLIMA = {
 }
 
 
+@requiere_permiso(3)
 def menu_alertas_climaticas():
     while True:
         print("\n--- ALERTAS CLIMÁTICAS ---")

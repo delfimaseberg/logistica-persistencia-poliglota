@@ -124,16 +124,18 @@ Después de iniciar sesión, el menú depende de a quién pertenece el usuario
   emiten, no cobran ni cierran nada, aunque tengan nivel 5.
 - **Usuarios de un operador logístico o de un proveedor**: portal propio.
 
-Las funciones internas están protegidas también en el código: un usuario de
-cliente, operador o proveedor no puede ejecutarlas aunque llegue a ellas
-(`verificar_permiso` y `@solo_internos` en `app/services/autenticacion.py`).
+Las funciones internas están protegidas también en el código: cada servicio
+verifica el permiso por sí mismo (`@requiere_permiso` en
+`app/services/autenticacion.py`), así que un usuario de cliente, operador o
+proveedor, o uno de nivel menor, no puede ejecutarlas aunque llegue a ellas
+(ver "Seguridad y validaciones").
 
 ### Menú interno
 
 | Opción | Menú | Nivel |
 |---|---|---|
 | 1 | Gestión de clientes | 1 |
-| 2 | Gestión de usuarios (roles; sesiones activas: listar y cerrar las de otros usuarios, nivel 5) | 3 |
+| 2 | Gestión de usuarios (roles; sesiones activas y usuarios bloqueados; restablecer contraseña y desbloquear: nivel 5) | 3 |
 | 3 | Gestión de envíos (vehículos, tramos, contenedores del envío) | 1 |
 | 4 | Gestión de contenedores y sensores | 1 |
 | 5 | Monitoreo IoT (incluye "Simular falla de sensor") | 1 |
@@ -145,7 +147,8 @@ cliente, operador o proveedor no puede ejecutarlas aunque llegue a ellas
 | 11 | Análisis y predicciones (incluye alertas climáticas) | 1 |
 | 12 | Proveedores (ABM y cuenta corriente) | 3 |
 | 13 | Operadores logísticos (ABM, tramos y cuenta corriente) | 3 |
-| 14 | Cerrar sesión | — |
+| 14 | Cambiar mi contraseña | — |
+| 15 | Cerrar sesión | — |
 | 0 | Salir | — |
 
 **Facturación y cobranzas:** cotizar un envío; emitir la factura de un envío
@@ -161,7 +164,7 @@ reglas tarifarias y datos de carga (avanzado).
 |---|---|---|
 | Operativos | Envíos por país de destino (con países de origen), por estado, por cliente; envíos demorados; incidentes abiertos | PostgreSQL; demorados también MongoDB (eventos RETRASO) |
 | Analíticos | Tiempos máximos y mínimos por cliente; promedio de incidentes por país / estado / cliente; tiempos promedio de entrega; costos por tipo de transporte (cobrado vs costo de operadores) | PostgreSQL + MongoDB (tiempo de tránsito) |
-| Rankings y desempeño | Rutas con más incidentes; clientes por volumen (contenedores, m³, kg); desempeño a tiempo vs tarde por ruta, operador y mes | PostgreSQL + Neo4j (operadores) |
+| Rankings y desempeño | Rutas con más incidentes; clientes por volumen (contenedores, toneladas, kg); desempeño a tiempo vs tarde por ruta, operador y mes | PostgreSQL + Neo4j (operadores) |
 | Reportes cobrables | Generar para un cliente, listar, ver | según el tipo |
 | Predictivos | Riesgo de demora de los envíos en curso; rutas que suelen atrasarse; alertas climáticas vigentes y envíos afectados | MongoDB (predicciones, alertas climáticas, eventos RETRASO) + PostgreSQL |
 
@@ -201,7 +204,8 @@ cobrables"; rigen para los reportes que se piden después.
 8. Mi cuenta corriente
 9. Mis reportes (listar, solicitar un reporte cobrable, ver uno)
 10. Mensajería
-11. Cerrar sesión / 0. Salir
+11. Cambiar mi contraseña
+12. Cerrar sesión / 0. Salir
 
 El cliente se toma de la sesión; si se pide un envío o una factura de otro
 cliente, la respuesta es "no existe".
@@ -209,9 +213,9 @@ cliente, la respuesta es "no existe".
 ### Portal del operador logístico y del proveedor
 
 - Operador: 1. Mensajería · 2. Mis tramos realizados · 3. Mis facturas y lo
-  que nos falta pagarles · 4. Cerrar sesión · 0. Salir.
+  que nos falta pagarles · 4. Cambiar mi contraseña · 5. Cerrar sesión · 0. Salir.
 - Proveedor: 1. Mensajería · 2. Mis facturas y lo que nos falta pagarles ·
-  3. Cerrar sesión · 0. Salir.
+  3. Cambiar mi contraseña · 4. Cerrar sesión · 0. Salir.
 
 ### Alertas, fallas de sensor y mensajes
 
@@ -335,233 +339,188 @@ mongosh "mongodb://localhost:27017/logistica_poliglota" --file .\scripts\migrati
 Si `MONGO_URI` apunta a otro servidor, sustituir la URI del comando por la de
 la base prevista; no aplicar la migración a una base de uso cotidiano por error.
 
-### Estado de facturación automática y cierre mensual
+### Facturación, cobros y cuentas corrientes
 
-`revisar_envios_potencialmente_facturables()` conserva una vista preliminar de
-solo lectura basada en el estado PostgreSQL. `procesar_facturacion_automatica()`
-usa evidencia de entrega y validaciones financieras, pero permanece deshabilitado
-y fuera del lanzador mientras no exista el flujo de carga y aprobación de
-tarifas, moneda y configuración fiscal.
+- **Una factura por envío**, cuando el envío está Entregado (la fecha real de
+  entrega la fija el evento ENTREGADO). Se emite a mano (Facturación → 2) o con
+  la facturación automática (Facturación → 3, o `ejecutar_procesos.py --job
+  facturacion`), que es idempotente: no repite envíos ya facturados.
+- **Tarifa estándar** (Facturación → 9): cargo base por envío más un precio por
+  tramo según el medio de transporte; IVA 21 %; moneda ARS. Cada cambio de
+  precios es una versión nueva; las facturas guardan la versión que usaron.
+- **Reportes cobrables**: una factura por reporte, al generarse.
+- **Cuenta corriente** de cada cliente: libro de movimientos (factura +, pago −).
+  El saldo siempre coincide con la apertura más los movimientos.
+- **Apertura** (Facturación → 10) y **cierre mensual** (Facturación → 11, o
+  `ejecutar_procesos.py --job cierre --periodo AAAA-MM`): el cierre guarda un
+  resumen inmutable por cliente y no se puede cerrar un mes que no terminó.
+- **Proveedores y operadores**: facturas recibidas (las de operadores, por tramo
+  de un envío entregado), pagos emitidos, saldo de lo que se les debe y
+  facturas vencidas o por vencer (30 días por defecto).
 
-La migración `scripts/migrations/002_cierres_cuenta_corriente.sql` prepara una
-tabla de cierres con unicidad por cliente y período y una referencia al saldo
-inicial utilizado. No la apliques hasta revisar y autorizar el esquema. La
-`cerrar_cuenta_mensual()` prepara un snapshot solo cuando existe una apertura
-aprobada, moneda explícita, documentos conciliados con el ledger y el saldo
-acumulado coincide. El servicio no modifica el saldo de la cuenta y no está
-integrado al lanzador. Los flujos manuales actuales de factura y pago todavía
-no escriben ledger, por lo que sus documentos bloquean el cierre hasta
-conciliarlos. Ajustes, reversos de pagos y anulaciones sin crédito íntegro quedan
-bloqueados: el esquema actual no registra aprobación de ajustes ni un flujo de
-reverso. Las migraciones `003` y `004` deben estar aplicadas antes de invocar el
-servicio, porque utiliza el ledger, las aperturas y las correcciones. Para
-proteger los snapshots contra cambios directos, preparar y revisar también
-`006_cierres_inmutables.sql` después de crear la tabla; el servicio y la tabla
-única ya evitan reemplazar cierres por reejecución. Ninguna migración fue
-aplicada por la aplicación y su estado en cada instalación debe verificarse por
-separado.
+### Reglas tarifarias (avanzado)
 
-Las migraciones `003_cierres_y_movimientos_financieros.sql`,
-`004_tarifas_facturacion_auditable.sql` y
-`005_facturacion_periodica_auditoria.sql` preparan extensiones aditivas para
-aperturas aprobadas, movimientos, cierres, perfiles fiscales, tarifas por envío,
-facturas enlazadas a eventos y correcciones auditables. No insertan tarifas,
-códigos de moneda ni reglas fiscales. Los archivos del proyecto no permiten
-determinar si las migraciones anteriores se aplicaron en alguna instalación;
-cada entorno debe revisar su historial antes de decidir el orden de aplicación. Estas
-migraciones no están aplicadas por la aplicación.
+Facturación → 14 permite registrar categorías de carga, partidas (peso real y
+fragilidad) y distancias documentadas de tramos, y crear y aprobar reglas
+versionadas. Las facturas usan la tarifa estándar; estas reglas quedan como
+registro auditable de la configuración comercial.
 
-Las validaciones financieras de `app.utils.validaciones_financieras` son puras
-y no acceden a bases de datos. Bloquean tarifas incompletas, moneda no
-configurada, desacuerdos entre evento y estado, facturas originales duplicadas,
-aperturas sin respaldo y diferencias de conciliación sin aprobación. Existe
-una pantalla para administrar reglas y tarifas comerciales; la
-configuración de moneda de cuenta y perfiles fiscales no tiene pantalla en esta
-etapa. Por eso
-`procesar_facturacion_automatica()` permanece deshabilitado hasta validar las
-configuraciones comerciales/fiscales, la consistencia de los datos y las
-migraciones en el entorno correspondiente.
+## Seguridad y validaciones
 
-El proceso compara los eventos `ENTREGADO` de MongoDB con el estado de
-PostgreSQL y bloquea eventos duplicados, sincronizaciones pendientes o estados
-discordantes. Los bloqueos y errores se registran en
-`auditoria_facturacion_periodica` cuando la estructura está disponible; los
-fallos de auditoría también se registran en `logs/app.log`. Las facturas
-manuales históricas no identifican al envío, por lo que la emisión automática
-se bloquea para clientes con facturas sin vínculo hasta que se concilien.
+### Contraseñas
 
-La frecuencia propuesta es facturación diaria y cierre mensual. La facturación
-no está integrada al lanzador; el cierre mensual tampoco. Ninguna
-tarea está configurada en Windows.
+Se aplican al **crear, cambiar o restablecer** una contraseña. Las contraseñas
+ya guardadas no se revalidan: los usuarios existentes siguen entrando con la suya.
 
-### Tarifas comerciales por envío
+| Regla | Valor |
+|---|---|
+| Largo | 8 a 128 caracteres |
+| Obligatorio | al menos una mayúscula, una minúscula, un número y un símbolo (cualquier carácter que no sea letra ni número) |
+| No se admite | espacios; contener el email (la parte antes de la @, o sus partes separadas por punto, guion o +), el nombre o el apellido, sin distinguir mayúsculas ni tildes, aunque tenga símbolos intercalados. Solo cuentan las partes de 3 letras o más |
+| Al cambiarla | tiene que ser distinta de la actual |
 
-El menú "Facturación y cobranzas" (opción "Reglas tarifarias y datos de carga")
-ofrece administración de categorías y partidas de carga,
-carga explícita de distancias por tramo, creación/revisión y aprobación de
-reglas versionadas y cálculo de una tarifa borrador por envío. Las partidas
-guardan peso real en kg y fragilidad; la capacidad del contenedor no se usa como
-peso. Las distancias se ingresan desde una fuente documentada y no se infieren
-de origen/destino.
+- Se escriben siempre ocultas (`getpass`) y se piden **dos veces**. Enter cancela.
+- Se guardan solo como hash PBKDF2-SHA256 con sal propia (600.000 iteraciones).
+- **Cambiar mi contraseña** (menú interno, opción 14, y en cada portal; siempre justo
+  antes de "Cerrar sesión"): pide la contraseña actual. Al cambiarla se cierran las otras sesiones
+  abiertas del usuario. Una contraseña actual incorrecta cuenta como intento fallido.
+- **Restablecer contraseña de un usuario** (Gestión de usuarios → 8, nivel 5):
+  el administrador asigna una contraseña temporal. El usuario la tiene que cambiar
+  en su próximo inicio de sesión: si no la cambia, la sesión se cierra. Además se
+  cierran las sesiones abiertas del usuario y se quita el bloqueo.
+- **Desbloquear usuario** (Gestión de usuarios → 9, nivel 5): limpia los intentos
+  fallidos y el bloqueo **sin cambiar la contraseña**.
+- Ninguna de estas opciones se aplica a la propia cuenta del administrador: para
+  eso está "Cambiar mi contraseña".
+- "Modificar usuario" ya no toca la contraseña.
 
-Los componentes disponibles son base fija, peso, distancia, peso-distancia,
-categoría, fragilidad y transporte. Los componentes configurados en una versión
-se suman; reglas duplicadas o ambiguas, datos faltantes y resultados que
-requerirían redondeo bloquean el cálculo. Los importes los define la empresa.
-El sistema usa `Decimal`, no calcula impuestos ni asigna moneda por defecto, y
-guarda en `tarifa_envio` el snapshot de reglas y entradas como borrador.
+### Bloqueo e inactividad
 
-Una tarifa solo puede aprobarse si la cuenta tiene moneda y existe un perfil
-fiscal activo y aprobado. El usuario autorizado debe ingresar importes
-impositivo y total respaldados por la fuente aprobada; el sistema no los deriva.
-La aprobación queda auditada. Una tarifa previamente aprobada no se modifica ni
-se reemplaza desde este flujo; si el envío ya tiene una aprobada, una nueva
-aprobación queda bloqueada. Calcular o aprobar una tarifa no emite factura ni
-modifica la cuenta corriente. La facturación automática continúa deshabilitada
-y fuera del lanzador.
+| Regla | Valor |
+|---|---|
+| Intentos fallidos seguidos para bloquear | 5 |
+| Duración del bloqueo | 15 minutos (se reinicia la cuenta al entrar bien o al vencer el bloqueo) |
+| Cierre de sesión por inactividad | 30 minutos sin usar el sistema (la sesión queda en estado EXPIRADA) |
 
-Para usar estas pantallas se registran categorías definidas por la empresa,
-partidas reales del envío y distancias documentadas. Luego se crea una regla
-borrador con moneda, vigencia y componentes; un usuario con el permiso
-financiero existente la revisa y aprueba. Se selecciona un envío para calcular y
-revisar el snapshot. Esta etapa no agrega pantallas para configurar moneda de
-cuenta ni perfiles fiscales: hasta que esos datos sean provisionados y
-aprobados por el proceso administrativo correspondiente, la tarifa queda como
-borrador y no puede facturarse.
+- Mientras está bloqueado: "Demasiados intentos fallidos. Probá de nuevo en N minutos."
+- "El usuario está inactivo" se informa solo después de la contraseña correcta,
+  para no revelar qué emails existen.
+- "Sesiones activas y usuarios bloqueados" (Gestión de usuarios → 7) muestra los
+  usuarios bloqueados y hasta cuándo, y cierra las sesiones vencidas por inactividad.
+  "Listar usuarios" y "Buscar usuario" muestran el bloqueo y si el usuario tiene
+  que cambiar la contraseña.
+- Log (`logs/app.log`): solo el id del usuario y lo que pasó (por ejemplo
+  `Inicio de sesión fallido: usuario 5 (intento 3 de 5)`, `Usuario 5 bloqueado por
+  15 minutos`). **Nunca** la contraseña, su hash ni el email tipeado. Si el email
+  no existe, se registra "email no registrado".
 
-Las migraciones aditivas `007_reglas_tarifarias_y_datos_envio.sql` y
-`008_inmutabilidad_tarifas_y_reglas.sql` requieren respectivamente el esquema
-inicial/004 y 007. No existe un ejecutor de migraciones integrado en la
-aplicación. Cada instalación debe verificar el estado de 002–006, aplicar 007
-después de 006 y luego 008. No se insertan precios, categorías, monedas ni datos
-fiscales. No aplicar en bases habituales sin respaldo y verificación del
-destino. 008 exige que aprobaciones y reemplazos registren auditoría dentro de
-la misma transacción; las facturas vinculadas bloquean el reemplazo de una
-tarifa.
+### Validaciones de datos
 
-## Funcionalidades implementadas
+Se aplican al pedir cada dato y otra vez en la capa de datos, antes de escribir
+(sirven para cualquier pantalla o proceso). Los largos son los de las columnas.
 
-### Clientes — PostgreSQL
+| Dato | Regla |
+|---|---|
+| CUIT de clientes | Argentina: 11 dígitos con dígito verificador (algoritmo de AFIP), se guarda como XX-XXXXXXXX-X. Otros países: identificación fiscal de 6 a 13 caracteres (números, puntos, guiones o K) con al menos 5 dígitos |
+| CUIT de proveedores y operadores | siempre CUIT argentino con dígito verificador |
+| Email | formato válido, hasta 150 caracteres, **único** sin distinguir mayúsculas (usuarios, clientes, proveedores y operadores; también con un índice en la base) |
+| Teléfono | opcional; hasta 30 caracteres, al menos 6 dígitos; se admiten +, espacios, guiones y paréntesis |
+| Textos | razón social 150, dirección 255, país 80, nombre y apellido 80, origen y destino 150, descripción de rol 255, descripción de incidente y de partida 1000, mensaje 2000, nombre de grupo 100, categoría de carga 40/150 |
+| Importes (pagos, facturas recibidas, pagos emitidos, precios de transporte y de reportes, componentes de reglas) | mayores a cero, hasta 2 decimales, máximo **$100.000.000,00 por operación** |
+| Saldo inicial de una apertura | puede ser cero; en valor absoluto hasta $100.000.000,00 |
+| Cantidades | capacidad de contenedor hasta 100 t; peso de una partida hasta 100.000 kg; distancia de un tramo hasta 40.000 km |
+| Fechas | desde ≤ hasta (los reportes vuelven a pedir el período); llegada estimada ≥ salida; vencimiento ≥ emisión; fecha de instalación y de emisión no futuras |
 
-- Registrar clientes.
-- Listar y buscar clientes.
-- Modificar clientes.
-- Eliminar clientes.
+### Permisos y consultas
 
-### Usuarios y roles — PostgreSQL
+- Cada servicio que llaman los menús internos verifica el permiso por sí mismo
+  (`@requiere_permiso(nivel)` en `app/services/autenticacion.py`), con el mismo
+  nivel que su menú, además del control del menú. Los pocos servicios compartidos
+  con el portal del cliente solo lo dejan pasar con un dato ya verificado como suyo.
+  Un test recorre los menús y falla si algún servicio queda sin control.
+- Las consultas SQL reciben los valores siempre como parámetros. Lo único que se
+  interpola son nombres de tablas o columnas elegidos de listas fijas del código.
+  Un test lo controla.
 
-- Registrar, consultar, modificar y eliminar usuarios.
-- Registrar, consultar, modificar y eliminar roles.
-- Asignar clientes y roles a usuarios.
-- Gestionar estados de usuarios.
-- Almacenar contraseñas mediante hash.
-- Definir niveles de permisos.
+## Migraciones
 
-### Sesiones — PostgreSQL
+Se aplican en orden, una sola vez y con respaldo previo. Todas son idempotentes.
 
-- Registrar inicios de sesión.
-- Registrar cierres de sesión.
-- Consultar sesiones activas.
+```powershell
+psql -U postgres -d logistica_poliglota -v ON_ERROR_STOP=1 -f scripts\migrations\002_cierres_cuenta_corriente.sql
+# ... 003 a 015 en orden numérico ...
+mongosh "mongodb://localhost:27017/logistica_poliglota" --file scripts\migrations\001_predicciones_unicas_por_dia.js
+python scripts\migrations\015_atender_alertas_entregados.py --aplicar
+```
 
-**Pendiente:** aplicar los permisos a los menús mediante una sesión autenticada.
+| Migración | Contenido |
+|---|---|
+| 001 (MongoDB) | Una predicción por envío y día (índice único) |
+| 002–009 | Cierres, libro de movimientos, tarifas, auditoría, moneda ARS |
+| 010–012 | Proveedores, operadores, cuentas corrientes de terceros, usuarios por parte |
+| 013 | Factura por envío y por reporte, detalle de factura, fecha real de entrega |
+| 014 | Reportes cobrables y países de origen y destino del envío |
+| 015 | Reglas de alerta, reporte predictivo, sensores al entregar, cierre de sesiones ajenas |
+| 016 | Seguridad: bloqueo por intentos, cambio obligatorio de contraseña, inactividad de sesiones, email único sin distinguir mayúsculas, fechas coherentes en tramos y facturas recibidas, CUIT corregido de Distribuidora del Sur |
 
-### Envíos — PostgreSQL
+## Datos de ejemplo y verificación
 
-- Registrar, listar y buscar envíos.
-- Modificar y eliminar envíos.
-- Asociar envíos a clientes.
-- Gestionar estados y prioridades.
-- Validar cambios de origen y destino cuando existen tramos.
+```powershell
+$env:DEMO_PASSWORD = "<contraseña de los usuarios de ejemplo>"
+python scripts\datos_demo\cargar_datos_demo.py --base logistica_poliglota
+python scripts\datos_demo\cargar_datos_demo.py --base logistica_poliglota --dia3
+python scripts\datos_demo\cargar_datos_demo.py --base logistica_poliglota --dia3b
+python scripts\datos_demo\verificar_datos_demo.py
+```
 
-### Vehículos y tramos — PostgreSQL
+`--base` debe coincidir con la base de `.env` (el script no escribe si no
+coincide). La verificación recorre los 40 puntos y muestra cuáles dan
+resultado. El día de la demo, `--refrescar-lecturas` genera lecturas IoT
+recientes, alertas y predicciones.
 
-- Registrar, consultar, modificar y eliminar vehículos.
-- Registrar tramos de transporte.
-- Consultar tramos de un envío.
-- Validar medios de transporte y fechas.
+`scripts\datos_demo\regenerar_hashes_demo.py` pide la contraseña de los usuarios de
+ejemplo (oculta), verifica que coincida con el hash guardado y, con `--aplicar`,
+genera un hash con sal propia para cada uno (sin cambiar la contraseña). Al final
+hace un inicio de sesión real de Delfina, Lucía, Diego, Paula y Sofía.
 
-### Contenedores — PostgreSQL
+## Pruebas
 
-- Registrar, consultar, modificar y eliminar contenedores.
-- Validar códigos internacionales ISO 6346.
-- Asociar contenedores a envíos.
-- Consultar y desasociar contenedores.
+```powershell
+python -m pytest -q --ignore=tests/integration
+```
 
-### Sensores IoT — PostgreSQL
-
-- Registrar sensores.
-- Consultar sensores por ID.
-- Listar sensores.
-- Consultar sensores de un contenedor.
-- Modificar y eliminar sensores.
-- Validar tipo, estado y fecha de instalación.
-
-## Funcionalidades pendientes
-
-### Cassandra
-
-- Registrar lecturas IoT.
-- Consultar historial por sensor.
-- Consultar lecturas por contenedor.
-- Consultar la última lectura.
-- Integrar las lecturas con sensores de PostgreSQL.
-
-### MongoDB
-
-- Registrar eventos logísticos.
-- Gestionar alertas.
-- Implementar mensajería.
-- Almacenar predicciones.
-
-### Neo4j
-
-- Crear nodos y relaciones logísticas.
-- Representar rutas.
-- Consultar trazabilidad de envíos.
-- Sincronizar información con PostgreSQL.
-
-### Otras funcionalidades
-
-- Gestión completa de incidentes.
-- Facturación manual y reportes (parciales); facturación automática y cuentas por pagar pendientes.
-- Análisis y predicciones.
-- Control de acceso por permisos.
-- Pruebas integrales entre bases de datos.
+Las pruebas unitarias no necesitan bases de datos: `tests/conftest.py` bloquea
+cualquier conexión real y hace fallar la prueba que la intente. Sus logs van a
+una carpeta temporal (no a `logs/app.log`). Las pruebas de integración usan un
+entorno Docker aparte (`scripts/run_integration_tests.ps1`, `INTEGRATION_TESTS=1`).
 
 ## Estructura del proyecto
 
 ```text
 Tp_bdd2/
-│
 ├── app/
-│   ├── database/
-│   ├── models/
-│   ├── repositories/
-│   ├── services/
-│   ├── ui/
-│   └── utils/
-│
+│   ├── database/       conexiones a PostgreSQL, MongoDB, Cassandra y Neo4j
+│   ├── models/         entidades del dominio
+│   ├── repositories/   consultas a cada base
+│   ├── services/       reglas de negocio y pantallas
+│   ├── ui/             menús
+│   └── utils/          validaciones, formato argentino, mensajes de error, exportación
 ├── scripts/
-│   ├── postgresql_schema.sql
-│   ├── mongodb_schema.js
-│   ├── cassandra_schema.cql
-│   └── neo4j_schema.cypher
-│
-├── .env.example
-├── .gitignore
-├── docker-compose.yml
-├── main.py
-├── requirements.txt
-├── test_cliente_repository.py
-└── test_conexiones.py
+│   ├── migrations/     001–016
+│   ├── datos_demo/     carga de datos de ejemplo y verificación de los 40 puntos
+│   └── *_schema.*      esquemas iniciales de las cuatro bases
+├── tests/              pruebas unitarias (y de integración en tests/integration)
+├── reportes_generados/ archivos de los reportes (no se versiona)
+├── logs/               app.log (no se versiona)
+├── main.py             aplicación
+├── ejecutar_procesos.py procesos periódicos (sensores, predicciones, facturación, cierre)
+└── test_conexiones.py  prueba manual de conexión a las cuatro bases
 ```
 
 ## Estado actual
 
-El proyecto está en desarrollo.
-
-La gestión transaccional en PostgreSQL se encuentra implementada en sus módulos principales.
-
-Los esquemas y conexiones de MongoDB, Cassandra y Neo4j están preparados, pero sus funcionalidades operativas todavía deben desarrollarse.
-
-El objetivo es integrar los cuatro motores mediante procesos de persistencia políglota.
+Los 40 puntos del análisis de promoción están implementados y dan resultado
+con los datos de ejemplo (`verificar_datos_demo.py`). Cada base cumple su
+papel: PostgreSQL para lo transaccional y financiero, MongoDB para eventos,
+alertas, mensajes y predicciones, Cassandra para las lecturas IoT y Neo4j para
+la red de clientes, envíos, tramos y operadores.

@@ -10,16 +10,18 @@ from app.repositories.usuario_repository import (
 )
 from app.repositories.cliente_repository import listar_clientes
 from app.repositories.rol_repository import listar_roles
-from app.utils.validaciones import (
-    texto_obligatorio,
-    validar_email
-)
+from app.repositories.usuario_repository import email_en_uso
+from app.services.autenticacion import requiere_permiso
+from app.services.contrasena_service import pedir_contrasena_nueva
+from app.utils.validaciones_datos import LARGOS_USUARIO, validar_email, validar_largo
 from app.utils.seguridad import generar_hash_contrasena
 from app.utils.validaciones_terceros import describir_parte
 from app.repositories.terceros_repository import (
     listar_proveedores,
     listar_operadores
 )
+from app.utils import formato
+from app.utils.errores import mensaje_error
 
 
 def pedir_dato(mensaje, validador, *args):
@@ -27,7 +29,24 @@ def pedir_dato(mensaje, validador, *args):
         try:
             return validador(input(mensaje), *args)
         except ValueError as error:
-            print(f"Error: {error}")
+            print(f"Error: {mensaje_error(error)}")
+
+
+def validar_nombre(valor):
+    return validar_largo(valor, "El nombre", LARGOS_USUARIO["nombre"])
+
+
+def validar_apellido(valor):
+    return validar_largo(valor, "El apellido", LARGOS_USUARIO["apellido"])
+
+
+def pedir_email_libre(excluir_id=None):
+    """Email válido que no use otro usuario (sin distinguir mayúsculas)."""
+    while True:
+        email = pedir_dato("Email: ", validar_email)
+        if not email_en_uso(email, excluir_id):
+            return email
+        print("Error: ya existe un usuario con ese email.")
 
 
 def pedir_id(mensaje):
@@ -57,13 +76,13 @@ def seleccionar_cliente():
 
     while True:
         id_cliente = pedir_id(
-            "\nSeleccione el cliente: "
+            "\nSeleccioná el cliente: "
         )
 
         if existe_cliente(id_cliente):
             return id_cliente
 
-        print("Error: seleccione uno de los clientes disponibles.")
+        print("Error: seleccioná uno de los clientes disponibles.")
 
 
 def _seleccionar_de(filas, titulo):
@@ -80,10 +99,10 @@ def _seleccionar_de(filas, titulo):
 
     ids = {fila[0] for fila in activas}
     while True:
-        elegido = pedir_id("\nSeleccione el ID: ")
+        elegido = pedir_id("\nSeleccioná el ID: ")
         if elegido in ids:
             return elegido
-        print("Error: seleccione uno de la lista.")
+        print("Error: seleccioná uno de la lista.")
 
 
 def seleccionar_parte():
@@ -97,7 +116,7 @@ def seleccionar_parte():
         print("2. Un proveedor")
         print("3. Un operador logístico")
         print("4. Ninguno (usuario interno)")
-        opcion = input("\nSeleccione una opción: ").strip()
+        opcion = input("\nSeleccioná una opción: ").strip()
 
         if opcion == "1":
             id_cliente = seleccionar_cliente()
@@ -113,7 +132,7 @@ def seleccionar_parte():
         if opcion == "4":
             return (None, None, None)
 
-        print("Error: seleccione una opción válida.")
+        print("Error: seleccioná una opción válida.")
 
 
 def seleccionar_rol():
@@ -133,13 +152,13 @@ def seleccionar_rol():
 
     while True:
         id_rol = pedir_id(
-            "\nSeleccione el rol: "
+            "\nSeleccioná el rol: "
         )
 
         if existe_rol(id_rol):
             return id_rol
 
-        print("Error: seleccione uno de los roles disponibles.")
+        print("Error: seleccioná uno de los roles disponibles.")
 
 
 def seleccionar_estado():
@@ -149,7 +168,7 @@ def seleccionar_estado():
         print("2. INACTIVO")
 
         opcion = input(
-            "\nSeleccione el estado: "
+            "\nSeleccioná el estado: "
         ).strip()
 
         if opcion == "1":
@@ -158,7 +177,7 @@ def seleccionar_estado():
         if opcion == "2":
             return "INACTIVO"
 
-        print("Error: seleccione una opción válida.")
+        print("Error: seleccioná una opción válida.")
 
 def mostrar_usuario(usuario):
     if usuario is None:
@@ -180,17 +199,32 @@ Nombre: {usuario[3]}
 Apellido: {usuario[4]}
 Email: {usuario[5]}
 Estado: {usuario[6]}
-Fecha de registro: {usuario[7]}
+Fecha de registro: {formato.fecha_hora(usuario[7])}{_estado_acceso(usuario)}
 """)
 
 
+def _estado_acceso(usuario):
+    """Bloqueo e intentos fallidos (columnas 11-13, migración 016)."""
+    if len(usuario) <= 11:
+        return ""
+    lineas = []
+    if usuario[11] is not None:
+        lineas.append(f"Bloqueado hasta: {formato.fecha_hora(usuario[11])} (intentos fallidos)")
+    elif usuario[12]:
+        lineas.append(f"Intentos fallidos seguidos: {usuario[12]}")
+    if len(usuario) > 13 and usuario[13]:
+        lineas.append("Debe cambiar la contraseña en el próximo inicio de sesión")
+    return "".join("\n" + linea for linea in lineas)
+
+
+@requiere_permiso(5)
 def registrar_usuario():
     print("\n--- REGISTRAR USUARIO ---")
 
     parte = seleccionar_parte()
 
     if parte is None:
-        input("\nPresione Enter para continuar...")
+        input("\nPresioná Enter para continuar...")
         return
 
     id_cliente, id_proveedor, id_operador = parte
@@ -198,35 +232,21 @@ def registrar_usuario():
     id_rol = seleccionar_rol()
 
     if id_rol is None:
-        input("\nPresione Enter para continuar...")
+        input("\nPresioná Enter para continuar...")
         return
 
-    nombre = pedir_dato(
-        "Nombre: ",
-        texto_obligatorio,
-        "El nombre"
-    )
+    nombre = pedir_dato("Nombre: ", validar_nombre)
+    apellido = pedir_dato("Apellido: ", validar_apellido)
+    email = pedir_email_libre()
 
-    apellido = pedir_dato(
-        "Apellido: ",
-        texto_obligatorio,
-        "El apellido"
-    )
+    contrasena = pedir_contrasena_nueva(email, nombre, apellido, titulo="Contraseña")
+    if contrasena is None:
+        print("\nAlta cancelada.")
+        input("\nPresioná Enter para continuar...")
+        return
 
-    email = pedir_dato(
-        "Email: ",
-        validar_email
-    )
-
-    contrasena = pedir_dato(
-        "Contraseña: ",
-        texto_obligatorio,
-        "La contraseña"
-    )
-
-    contrasena_hash = generar_hash_contrasena(
-        contrasena
-    )
+    contrasena_hash = generar_hash_contrasena(contrasena)
+    del contrasena
 
     estado = seleccionar_estado()
 
@@ -249,11 +269,12 @@ def registrar_usuario():
         print(f"ID asignado: {id_usuario}")
 
     except Exception as error:
-        print(f"\nError al registrar el usuario: {error}")
+        print(f"\nError al registrar el usuario: {mensaje_error(error)}")
 
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
+@requiere_permiso(3)
 def listar_usuarios_service():
     print("\n--- LISTADO DE USUARIOS ---")
 
@@ -269,11 +290,12 @@ def listar_usuarios_service():
                 mostrar_usuario(usuario)
 
     except Exception as error:
-        print(f"Error al listar usuarios: {error}")
+        print(f"Error al listar usuarios: {mensaje_error(error)}")
 
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
+@requiere_permiso(3)
 def buscar_usuario_service():
     print("\n--- BUSCAR USUARIO ---")
 
@@ -290,12 +312,13 @@ def buscar_usuario_service():
 
     except Exception as error:
         print(
-            f"Error al buscar el usuario: {error}"
+            f"Error al buscar el usuario: {mensaje_error(error)}"
         )
 
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
+@requiere_permiso(5)
 def modificar_usuario_service():
     print("\n--- MODIFICAR USUARIO ---")
 
@@ -310,18 +333,18 @@ def modificar_usuario_service():
 
         if usuario_actual is None:
             print("Usuario no encontrado.")
-            input("\nPresione Enter para continuar...")
+            input("\nPresioná Enter para continuar...")
             return
 
         print("\nUsuario actual:")
         mostrar_usuario(usuario_actual)
 
-        print("\nIngrese los nuevos datos:")
+        print("\nIngresá los nuevos datos:")
 
         parte = seleccionar_parte()
 
         if parte is None:
-            input("\nPresione Enter para continuar...")
+            input("\nPresioná Enter para continuar...")
             return
 
         id_cliente, id_proveedor, id_operador = parte
@@ -329,36 +352,14 @@ def modificar_usuario_service():
         id_rol = seleccionar_rol()
 
         if id_rol is None:
-            input("\nPresione Enter para continuar...")
+            input("\nPresioná Enter para continuar...")
             return
 
-        nombre = pedir_dato(
-            "Nombre: ",
-            texto_obligatorio,
-            "El nombre"
-        )
+        nombre = pedir_dato("Nombre: ", validar_nombre)
+        apellido = pedir_dato("Apellido: ", validar_apellido)
+        email = pedir_email_libre(excluir_id=id_usuario)
 
-        apellido = pedir_dato(
-            "Apellido: ",
-            texto_obligatorio,
-            "El apellido"
-        )
-
-        email = pedir_dato(
-            "Email: ",
-            validar_email
-        )
-
-        contrasena = pedir_dato(
-            "Nueva contraseña: ",
-            texto_obligatorio,
-            "La contraseña"
-        )
-
-        contrasena_hash = generar_hash_contrasena(
-            contrasena
-        )
-
+        # La contraseña no se cambia aquí: ver "Restablecer contraseña".
         estado = seleccionar_estado()
 
         usuario_modificado = Usuario(
@@ -367,7 +368,7 @@ def modificar_usuario_service():
             nombre,
             apellido,
             email,
-            contrasena_hash,
+            None,
             estado,
             id_proveedor=id_proveedor,
             id_operador=id_operador
@@ -389,12 +390,13 @@ def modificar_usuario_service():
 
     except Exception as error:
         print(
-            f"\nError al modificar el usuario: {error}"
+            f"\nError al modificar el usuario: {mensaje_error(error)}"
         )
 
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
+@requiere_permiso(5)
 def eliminar_usuario_service():
     print("\n--- ELIMINAR USUARIO ---")
 
@@ -409,14 +411,14 @@ def eliminar_usuario_service():
 
         if usuario is None:
             print("Usuario no encontrado.")
-            input("\nPresione Enter para continuar...")
+            input("\nPresioná Enter para continuar...")
             return
 
         print("\nUsuario a eliminar:")
         mostrar_usuario(usuario)
 
         confirmacion = input(
-            "¿Está seguro de que desea eliminarlo? (S/N): "
+            "¿Seguro que querés eliminarlo? (S/N): "
         ).strip().upper()
 
         if confirmacion != "S":
@@ -438,7 +440,7 @@ def eliminar_usuario_service():
 
     except Exception as error:
         print(
-            f"\nError al eliminar el usuario: {error}"
+            f"\nError al eliminar el usuario: {mensaje_error(error)}"
         )
 
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")

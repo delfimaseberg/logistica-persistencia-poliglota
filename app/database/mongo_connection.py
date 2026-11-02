@@ -29,12 +29,6 @@ def get_mongo_database():
     return get_mongo_client()[MONGO_DB]
 
 
-def cerrar_conexion_mongo():
-    if get_mongo_client.cache_info().currsize:
-        get_mongo_client().close()
-        get_mongo_client.cache_clear()
-
-
 def probar_conexion_mongo():
     try:
         get_mongo_client().admin.command("ping")

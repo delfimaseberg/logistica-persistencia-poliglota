@@ -373,8 +373,9 @@ def cargar_maestros(c, clave):
         c.ids["proveedor"][k] = terceros_repository.crear_proveedor({
             "razon_social": rs, "cuit": cuit, "email": email, "telefono": None,
             "direccion": None, "pais": pais, "rubro": rubro})
-    hash_clave = generar_hash_contrasena(clave)
     for nombre, apellido, email, parte, k in USUARIOS:
+        # Un hash (con su propia sal) por usuario.
+        hash_clave = generar_hash_contrasena(clave)
         partes = {"id_cliente": None, "id_proveedor": None, "id_operador": None}
         if parte == "CLIENTE":
             partes["id_cliente"] = c.ids["cliente"][k]

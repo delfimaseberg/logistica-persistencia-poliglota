@@ -8,7 +8,6 @@ from app.repositories.facturacion_repository import (
     consultar_cuenta_corriente,
     consultar_movimientos_cuenta,
     reporte_facturacion_clientes,
-    reporte_envios_estado,
     reporte_ingresos_mensuales,
     cotizar_envio,
     emitir_factura_envio,
@@ -24,8 +23,11 @@ from app.services.facturacion_automatica_service import (
     hoy_argentina,
     procesar_facturacion_automatica,
 )
+from app.utils import formato
 from app.utils.logger import obtener_logger
 from app.utils.validaciones_logistica import MEDIOS_TRANSPORTE
+from app.utils.errores import mensaje_error
+from app.services.autenticacion import requiere_permiso
 
 
 logger = obtener_logger("facturacion")
@@ -36,7 +38,7 @@ def pausar():
 
 
 def dinero(valor):
-    return f"${valor:,.2f}"
+    return formato.dinero(valor)
 
 
 def pedir_importe(mensaje, permitir_cero=False):
@@ -80,9 +82,9 @@ def pedir_periodo(mensaje):
             print("Usá el formato AAAA-MM.")
 
 
-def seleccionar_elemento(elementos, titulo, descripcion):
+def seleccionar_elemento(elementos, titulo, descripcion, vacio="datos para elegir"):
     if not elementos:
-        print("\nNo hay registros disponibles.")
+        print(f"\nNo hay {vacio}.")
         return None
 
     print(f"\n--- {titulo} ---")
@@ -103,7 +105,8 @@ def seleccionar_cliente():
     return seleccionar_elemento(
         listar_clientes_facturacion(),
         "SELECCIONAR CLIENTE",
-        lambda c: f"{c[1]} | CUIT: {c[2]}"
+        lambda c: f"{c[1]} | CUIT: {c[2]}",
+        "clientes registrados",
     )
 
 
@@ -123,7 +126,7 @@ def origen_factura(factura):
 def mostrar_factura(factura):
     id_factura, fecha, total, estado, pagado, pendiente = factura[:6]
     print("-" * 45)
-    print(f"Factura N.º {id_factura} | Fecha: {fecha} | {origen_factura(factura)}")
+    print(f"Factura N.º {id_factura} | Fecha: {formato.fecha(fecha)} | {origen_factura(factura)}")
     if len(factura) > 8 and factura[7] is not None:
         print(f"Neto: {dinero(factura[7])} | IVA: {dinero(factura[8])}")
     print(f"Total: {dinero(total)}")
@@ -143,6 +146,7 @@ def mostrar_cotizacion(cotizacion):
 
 # ------------------------------------------------------------- facturas
 
+@requiere_permiso(3)
 def cotizar_envio_service():
     print("\n--- COTIZAR ENVÍO (sin facturar) ---")
     try:
@@ -158,11 +162,12 @@ def cotizar_envio_service():
             print("\nSe podrá facturar cuando el envío esté Entregado "
                   "(con los precios vigentes en ese momento).")
     except Exception as error:
-        print(f"\nNo se pudo cotizar: {error}")
+        print(f"\nNo se pudo cotizar: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3)
 @solo_internos
 def emitir_factura_service():
     print("\n--- EMITIR FACTURA DE UN ENVÍO ENTREGADO ---")
@@ -177,6 +182,7 @@ def emitir_factura_service():
             f"ENVÍOS ENTREGADOS SIN FACTURA DE {cliente[1]}",
             lambda e: (f"Envío {e[0]} | {e[3]} -> {e[4]} | "
                        f"entregado {e[5]:%d/%m/%Y} | {e[6]} tramo(s)"),
+            f"envíos entregados pendientes de facturar para {cliente[1]}",
         )
         if envio is None:
             return
@@ -198,7 +204,7 @@ def emitir_factura_service():
         if factura["total"] != cotizacion["total"]:
             print("Aviso: el precio cambió entre la cotización y la emisión.")
     except Exception as error:
-        print(f"\nError al emitir factura: {error}")
+        print(f"\nError al emitir factura: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -218,6 +224,7 @@ def mostrar_resumen_automatica(resumen):
         print(f"  Envío {e['id_envio']} ({e['cliente']}): {e['error']}")
 
 
+@requiere_permiso(3)
 @solo_internos
 def facturacion_automatica_service():
     print("\n--- FACTURACIÓN AUTOMÁTICA ---")
@@ -232,11 +239,12 @@ def facturacion_automatica_service():
             return
         mostrar_resumen_automatica(procesar_facturacion_automatica(corte))
     except Exception as error:
-        print(f"\nError en la facturación automática: {error}")
+        print(f"\nError en la facturación automática: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3)
 def consultar_facturas_service():
     print("\n--- CONSULTAR FACTURAS ---")
     try:
@@ -254,11 +262,12 @@ def consultar_facturas_service():
             mostrar_factura(factura)
 
     except Exception as error:
-        print(f"Error al consultar facturas: {error}")
+        print(f"Error al consultar facturas: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3)
 def detalle_factura_service():
     print("\n--- DETALLE DE FACTURA ---")
     try:
@@ -268,7 +277,7 @@ def detalle_factura_service():
             return
         mostrar_detalle_factura(detalle)
     except Exception as error:
-        print(f"Error al consultar la factura: {error}")
+        print(f"Error al consultar la factura: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -278,7 +287,7 @@ def mostrar_detalle_factura(detalle):
               else f"Reporte {detalle['id_reporte']}" if detalle["id_reporte"]
               else "Histórica (sin envío)")
     print(f"\nFactura N.º {detalle['id_factura']} | {detalle['cliente']} | "
-          f"Emitida {detalle['fecha_emision']} | {origen} | {detalle['estado']}")
+          f"Emitida {formato.fecha(detalle['fecha_emision'])} | {origen} | {detalle['estado']}")
     if detalle["fecha_entrega"]:
         print(f"Entrega del envío: {detalle['fecha_entrega']:%d/%m/%Y %H:%M}")
     for linea in detalle["lineas"]:
@@ -289,6 +298,7 @@ def mostrar_detalle_factura(detalle):
     print(f"  {'TOTAL':<58} {dinero(detalle['total']):>14}")
 
 
+@requiere_permiso(3)
 def estado_entregados_service():
     print("\n--- ENVÍOS ENTREGADOS: ESTADO DE FACTURACIÓN ---")
     try:
@@ -304,13 +314,14 @@ def estado_entregados_service():
                   f"{factura} | tramos: {tramos}, con operador: {con_operador}, "
                   f"facturados por su operador: {facturados}")
     except Exception as error:
-        print(f"Error al consultar: {error}")
+        print(f"Error al consultar: {mensaje_error(error)}")
     finally:
         pausar()
 
 
 # ---------------------------------------------------------------- pagos
 
+@requiere_permiso(3)
 @solo_internos
 def registrar_pago_service():
     print("\n--- REGISTRAR PAGO ---")
@@ -330,7 +341,8 @@ def registrar_pago_service():
             lambda f: (
                 f"Factura N.º {f[0]} | {origen_factura(f)} | "
                 f"Pendiente: {dinero(f[5])}"
-            )
+            ),
+            "facturas pendientes de pago para este cliente",
         )
         if factura is None:
             return
@@ -360,11 +372,12 @@ def registrar_pago_service():
         print(f"Estado de factura: {estado}")
 
     except Exception as error:
-        print(f"Error al registrar pago: {error}")
+        print(f"Error al registrar pago: {mensaje_error(error)}")
     finally:
         pausar()
 
 
+@requiere_permiso(3)
 def consultar_cuenta_corriente_service():
     print("\n--- CUENTA CORRIENTE ---")
     try:
@@ -375,7 +388,7 @@ def consultar_cuenta_corriente_service():
         mostrar_cuenta_cliente(cliente[0])
 
     except Exception as error:
-        print(f"Error al consultar cuenta corriente: {error}")
+        print(f"Error al consultar cuenta corriente: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -397,12 +410,13 @@ def mostrar_cuenta_cliente(id_cliente):
     if movimientos:
         print("\nMovimientos registrados en la cuenta:")
         for m in movimientos:
-            print(f"  {m[1]:%d/%m/%Y} | {m[2]:<8} | {m[3]:>14,.2f} | "
-                  f"{m[5]} {m[6]} | {m[7] or ''}")
+            print(f"  {m[1]:%d/%m/%Y} | {dinero(m[3]):>15} | "
+                  f"{formato.descripcion_movimiento(m[5], m[6], m[7])}")
 
 
 # -------------------------------------------------------------- reportes
 
+@requiere_permiso(3)
 def reporte_facturacion_service():
     print("\n--- REPORTE DE FACTURACIÓN POR CLIENTE ---")
     try:
@@ -424,31 +438,12 @@ def reporte_facturacion_service():
             print(f"Pendiente: {dinero(facturado - cobrado)}")
 
     except Exception as error:
-        print(f"Error al generar reporte: {error}")
+        print(f"Error al generar reporte: {mensaje_error(error)}")
     finally:
         pausar()
 
 
-def reporte_envios_service():
-    print("\n--- REPORTE DE ENVÍOS POR ESTADO ---")
-    try:
-        registros = reporte_envios_estado()
-        if not registros:
-            print("No hay envíos registrados.")
-            return
-
-        total = sum(cantidad for _, cantidad in registros)
-        for estado, cantidad in registros:
-            porcentaje = cantidad * 100 / total
-            print(f"{estado}: {cantidad} ({porcentaje:.1f}%)")
-        print(f"\nTotal de envíos: {total}")
-
-    except Exception as error:
-        print(f"Error al generar reporte: {error}")
-    finally:
-        pausar()
-
-
+@requiere_permiso(3)
 def reporte_ingresos_service():
     print("\n--- INGRESOS MENSUALES ---")
     try:
@@ -459,18 +454,19 @@ def reporte_ingresos_service():
 
         for mes, cantidad, total in registros:
             print(
-                f"{mes} | Pagos: {cantidad} | "
+                f"{formato.mes(mes)} | Pagos: {cantidad} | "
                 f"Recaudado: {dinero(total)}"
             )
 
     except Exception as error:
-        print(f"Error al consultar ingresos: {error}")
+        print(f"Error al consultar ingresos: {mensaje_error(error)}")
     finally:
         pausar()
 
 
 # --------------------------------------------------------------- precios
 
+@requiere_permiso(3)
 @solo_internos
 def precios_transporte_service():
     print("\n--- PRECIOS DE TRANSPORTE (tarifa estándar, ARS, sin IVA) ---")
@@ -507,13 +503,14 @@ def precios_transporte_service():
         print(f"\nPrecios aprobados (regla {id_regla}). La versión anterior "
               "queda reemplazada y se conserva.")
     except Exception as error:
-        print(f"\nError: {error}")
+        print(f"\nError: {mensaje_error(error)}")
     finally:
         pausar()
 
 
 # ------------------------------------------------- apertura y cierre
 
+@requiere_permiso(3)
 @solo_internos
 def apertura_cuenta_service():
     print("\n--- APERTURA DE CUENTA CORRIENTE ---")
@@ -569,13 +566,13 @@ def apertura_cuenta_service():
         )
         print(f"\nApertura {id_apertura} registrada.")
     except Exception as error:
-        print(f"\nError: {error}")
+        print(f"\nError: {mensaje_error(error)}")
     finally:
         pausar()
 
 
 def mostrar_resumen_cierre(resumen):
-    print(f"\nPeríodo {resumen['periodo']:%Y-%m}")
+    print(f"\nPeríodo {resumen['periodo']:%m/%Y}")
     print(f"Cerrados: {len(resumen['cerrados'])}")
     for c in resumen["cerrados"]:
         print(f"  {c['cliente']}: inicial {dinero(c['saldo_inicial'])} + facturas "
@@ -592,6 +589,7 @@ def mostrar_resumen_cierre(resumen):
         print(f"  {e['cliente']}: {e['error']}")
 
 
+@requiere_permiso(3)
 @solo_internos
 def cierre_mensual_service():
     print("\n--- CIERRE MENSUAL DE CUENTAS CORRIENTES ---")
@@ -603,6 +601,6 @@ def cierre_mensual_service():
             return
         mostrar_resumen_cierre(cierre_cuenta_service.cerrar_mes_todos(periodo))
     except Exception as error:
-        print(f"\nError en el cierre: {error}")
+        print(f"\nError en el cierre: {mensaje_error(error)}")
     finally:
         pausar()

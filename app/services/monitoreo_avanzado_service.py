@@ -16,10 +16,13 @@ from app.repositories.lectura_iot_repository import (
     consultar_ultima_lectura_db,
     consultar_lecturas_sensor_db
 )
+from app.utils.errores import mensaje_error
+from app.utils import formato
+from app.services.autenticacion import requiere_permiso
 
 
 def pausar():
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
 def sensores_activos():
@@ -65,6 +68,24 @@ def generar_valores_simulados(tipo):
     return valores
 
 
+def describir_valores(valores):
+    """'6,25 °C | batería 80,1 %' con formato argentino."""
+    partes = []
+    if valores.get("temperatura") is not None:
+        partes.append(f"{formato.compacto(valores['temperatura'])} °C")
+    if valores.get("humedad") is not None:
+        partes.append(f"humedad {formato.compacto(valores['humedad'])} %")
+    if valores.get("vibracion") is not None:
+        partes.append(f"vibración {formato.compacto(valores['vibracion'])}")
+    if valores.get("gps_latitud") is not None:
+        partes.append(f"latitud {formato.compacto(valores['gps_latitud'], 5)} | "
+                      f"longitud {formato.compacto(valores['gps_longitud'], 5)}")
+    if valores.get("bateria") is not None:
+        partes.append(f"batería {formato.compacto(valores['bateria'], 1)} %")
+    return " | ".join(partes)
+
+
+@requiere_permiso(1)
 def simular_lecturas_service():
     print("\n--- SIMULAR LECTURAS IoT ---")
 
@@ -90,10 +111,10 @@ def simular_lecturas_service():
                 if 1 <= cantidad <= 20:
                     break
 
-                print("Ingrese un número entre 1 y 20.")
+                print("Ingresá un número entre 1 y 20.")
 
             except ValueError:
-                print("Ingrese un número entero válido.")
+                print("Ingresá un número entero válido.")
 
         confirmacion = input(
             "\n¿Registrar estas lecturas? (S/N): "
@@ -122,7 +143,7 @@ def simular_lecturas_service():
                     continue
 
                 try:
-                    id_lectura = registrar_lectura_db(
+                    registrar_lectura_db(
                         id_sensor=id_sensor,
                         id_contenedor=id_contenedor,
                         **valores
@@ -131,13 +152,13 @@ def simular_lecturas_service():
                     total += 1
 
                     print(
-                        f"Sensor {id_sensor} ({tipo}): "
-                        f"lectura {id_lectura}"
+                        f"Sensor {id_sensor} ({tipo}) | "
+                        f"contenedor {sensor[2]}: {describir_valores(valores)}"
                     )
 
                 except Exception as error:
                     errores.append(
-                        f"Sensor {id_sensor}: {error}"
+                        f"Sensor {id_sensor}: {mensaje_error(error)}"
                     )
 
         print("\n--- RESULTADO DE LA SIMULACIÓN ---")
@@ -160,12 +181,13 @@ def simular_lecturas_service():
         )
 
     except Exception as error:
-        print(f"\nError en la simulación: {error}")
+        print(f"\nError en la simulación: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def detectar_sensores_inactivos_service():
     print("\n--- DETECTAR SENSORES SIN LECTURAS RECIENTES ---")
 
@@ -183,12 +205,12 @@ def detectar_sensores_inactivos_service():
                     break
 
                 print(
-                    "Ingrese un valor mayor que 0 "
+                    "Ingresá un valor mayor que 0 "
                     "y menor o igual a 8760."
                 )
 
             except ValueError:
-                print("Ingrese una cantidad de horas válida.")
+                print("Ingresá una cantidad de horas válida.")
 
         sensores = sensores_activos()
         ahora = datetime.now(timezone.utc)
@@ -251,12 +273,13 @@ def detectar_sensores_inactivos_service():
         )
 
     except Exception as error:
-        print(f"\nError al detectar sensores inactivos: {error}")
+        print(f"\nError al detectar sensores inactivos: {mensaje_error(error)}")
 
     finally:
         pausar()
 
 
+@requiere_permiso(1)
 def consultar_posiciones_gps_service():
     print("\n--- CONSULTAR POSICIONES GPS ---")
 
@@ -268,7 +291,7 @@ def consultar_posiciones_gps_service():
                     return valor
             except ValueError:
                 pass
-            print("Ingrese un ID positivo válido.")
+            print("Ingresá un ID positivo válido.")
 
     try:
         modo = input(
@@ -305,7 +328,7 @@ def consultar_posiciones_gps_service():
             else:
                 print(
                     "\nEl contenedor tiene varios sensores GPS asociados. "
-                    "Seleccione explícitamente uno:"
+                    "Seleccioná explícitamente uno:"
                 )
                 for sensor_gps in sensores_gps:
                     print(f"  Sensor GPS ID: {sensor_gps[0]}")
@@ -361,7 +384,7 @@ def consultar_posiciones_gps_service():
             if fecha_mes.strftime("%Y-%m") != mes:
                 raise ValueError
         except ValueError:
-            print("\nMes inválido. Use AAAA-MM.")
+            print("\nMes inválido. Usá AAAA-MM.")
             return
 
         lecturas = consultar_lecturas_sensor_db(
@@ -425,7 +448,7 @@ def consultar_posiciones_gps_service():
             print("Abrí el enlace manualmente.")
 
     except Exception as error:
-        print(f"\nError al consultar posiciones GPS: {error}")
+        print(f"\nError al consultar posiciones GPS: {mensaje_error(error)}")
 
     finally:
         pausar()

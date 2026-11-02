@@ -83,7 +83,7 @@ def test_verificar_sesion_vale_para_cualquier_parte():
 def test_operaciones_de_facturacion_bloqueadas_para_externos(funcion, s, capsys):
     with con_sesion(s), patch("builtins.input", side_effect=AssertionError("no debe pedir datos")):
         assert funcion() is None
-    assert "solo para usuarios internos" in capsys.readouterr().out
+    assert "no disponible para usuarios de clientes" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("nombre", [
@@ -95,7 +95,7 @@ def test_operaciones_de_terceros_bloqueadas_para_externos(nombre, capsys):
     args = ("OPERADOR",) if "factura" in nombre or "pago" in nombre else ()
     with con_sesion(OPERADOR), patch("builtins.input", side_effect=AssertionError):
         assert funcion(*args) is None
-    assert "solo para usuarios internos" in capsys.readouterr().out
+    assert "no disponible para usuarios de clientes" in capsys.readouterr().out
 
 
 # ------------------------------------------------------------- menús
@@ -111,7 +111,8 @@ def test_menu_interno_renumerado_con_facturacion_y_reportes_separados():
     assert textos["9"] == "Facturación y cobranzas"
     assert textos["10"] == "Reportes"
     assert textos["12"] == "Proveedores" and textos["13"] == "Operadores logísticos"
-    assert menu_principal.OPCION_CERRAR_SESION == "14"
+    assert menu_principal.OPCION_CERRAR_SESION == "15"
+    assert menu_principal.OPCION_CAMBIAR_CONTRASENA == "14"
 
 
 def test_reportes_salieron_de_facturacion():
@@ -347,6 +348,16 @@ def test_externos_no_crean_grupos_ni_agregan_miembros(s, capsys):
 def test_menu_de_mensajeria_oculta_administracion_de_grupos_a_externos():
     externos = menu_mensajeria.opciones_para(CLIENTE)
     internos = menu_mensajeria.opciones_para(INTERNO)
-    assert "7" not in externos and "9" not in externos and "8" not in externos
-    assert {"2", "3", "10", "11"} <= set(externos)
+    textos_externos = [texto for texto, _, _ in externos.values()]
+    assert not any("Crear grupo" in t or "Agregar miembro" in t or "administrados" in t
+                   for t in textos_externos)
+    assert {"Enviar mensaje privado", "Enviar mensaje a grupo",
+            "Consultar mensajes de grupo"} <= set(textos_externos)
     assert set(internos) == set(menu_mensajeria.OPCIONES)
+
+
+def test_menu_de_mensajeria_numera_consecutivo_para_externos():
+    externos = menu_mensajeria.opciones_para(CLIENTE)
+    assert list(externos) == [str(i) for i in range(1, len(externos) + 1)]
+    assert externos["7"][0] == "Enviar mensaje a grupo"
+    assert externos["8"][0] == "Consultar mensajes de grupo"

@@ -46,8 +46,14 @@ def textos_mensaje(alerta, codigo):
         lugar.append(f"contenedor {codigo}")
     donde = (" en " + ", ".join(lugar)) if lugar else ""
     severidad = f" {alerta['severidad']}" if alerta.get("severidad") else ""
-    base = (f"Alerta{severidad}{donde}: {alerta.get('tipo') or 'sin tipo'}. "
-            f"{alerta.get('descripcion') or ''}").strip()
+    tipo = alerta.get("tipo") or "sin tipo"
+    descripcion = alerta.get("descripcion") or ""
+    # Si la descripción ya empieza con el tipo ("Temperatura alta: valor 10…"),
+    # no se repite el título.
+    if descripcion.lower().startswith(tipo.lower()):
+        base = f"Alerta{severidad}{donde}: {descripcion}".strip()
+    else:
+        base = f"Alerta{severidad}{donde}: {tipo}. {descripcion}".strip()
     # Nunca "None": cada dato se agrega solo si existe.
     extra_interno = [f"sensor {alerta['sensor_id']}"] if alerta.get("sensor_id") is not None else []
     extra_fecha = [fecha] if fecha else []

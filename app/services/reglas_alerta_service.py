@@ -2,10 +2,13 @@
 
 from app.repositories import regla_alerta_repository as repo
 from app.services.autenticacion import obtener_sesion_actual, solo_internos
+from app.utils import formato
+from app.utils.errores import mensaje_error
+from app.services.autenticacion import requiere_permiso
 
 
 def pausar():
-    input("\nPresione Enter para continuar...")
+    input("\nPresioná Enter para continuar...")
 
 
 def describir(regla):
@@ -14,11 +17,11 @@ def describir(regla):
     if regla["variable"] == "lecturas_congeladas":
         condicion = f"{int(regla['valor'])} lecturas idénticas seguidas"
     elif regla["variable"] == "horas_sin_transmision":
-        condicion = f"más de {regla['valor']:g} h sin transmitir"
+        condicion = f"más de {formato.compacto(regla['valor'])} h sin transmitir"
     elif regla["variable"] == "salto_temperatura":
-        condicion = f"salto de más de {regla['valor']:g} °C en menos de 60 min"
+        condicion = f"salto de más de {formato.compacto(regla['valor'])} °C en menos de 60 min"
     else:
-        condicion = f"{nombre} {signo} {regla['valor']:g} {unidad}".rstrip()
+        condicion = f"{nombre} {signo} {formato.compacto(regla['valor'])} {unidad}".rstrip()
     estado = "activa" if regla["activa"] else "inactiva"
     return f"{condicion} -> {regla['severidad']} ({estado})"
 
@@ -53,7 +56,7 @@ def listar_reglas_service():
         _mostrar(repo.listar_reglas())
         print("\nSi hay varias reglas para la misma variable se informa la más severa que se cumple.")
     except Exception as error:
-        print(f"Error: {error}")
+        print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -85,12 +88,12 @@ def crear_regla_service():
                          obtener_sesion_actual()["id_usuario"])
         print("Regla creada. La detección la usa desde ahora.")
     except ValueError as error:
-        print(f"No se creó la regla: {error}")
+        print(f"No se creó la regla: {mensaje_error(error)}")
     except Exception as error:
         if "uq_regla_alerta_activa" in str(error):
             print("Ya hay una regla activa para esa variable, límite y severidad. Modifíquela.")
         else:
-            print(f"Error: {error}")
+            print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -103,7 +106,7 @@ def modificar_regla_service():
         if regla is None:
             print("Cancelado.")
             return
-        valor = input(f"Nuevo valor [Enter = {regla['valor']:g}]: ").strip() or regla["valor"]
+        valor = input(f"Nuevo valor [Enter = {formato.compacto(regla['valor'])}]: ").strip() or regla["valor"]
         severidad = _pedir_severidad(regla["severidad"])
         if severidad is None:
             print("Severidad inválida.")
@@ -112,12 +115,12 @@ def modificar_regla_service():
                              obtener_sesion_actual()["id_usuario"])
         print("Regla modificada.")
     except ValueError as error:
-        print(f"No se modificó: {error}")
+        print(f"No se modificó: {mensaje_error(error)}")
     except Exception as error:
         if "uq_regla_alerta_activa" in str(error):
             print("Ya hay otra regla activa con esa variable, límite y severidad.")
         else:
-            print(f"Error: {error}")
+            print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -135,7 +138,7 @@ def cambiar_estado_regla_service():
             print("Atención: es la última regla activa de esa variable; "
                   "sin ella no se generan esas alertas.")
         accion = "activar" if activar else "desactivar"
-        if input(f"¿Confirma {accion} la regla? (S/N): ").strip().upper() != "S":
+        if input(f"¿Confirmás {accion} la regla? (S/N): ").strip().upper() != "S":
             print("Cancelado.")
             return
         if repo.cambiar_estado_regla(regla["id_regla"], activar,
@@ -147,7 +150,7 @@ def cambiar_estado_regla_service():
         if "uq_regla_alerta_activa" in str(error):
             print("Ya hay otra regla activa con esa variable, límite y severidad.")
         else:
-            print(f"Error: {error}")
+            print(f"Error: {mensaje_error(error)}")
     finally:
         pausar()
 
@@ -160,6 +163,7 @@ OPCIONES_REGLAS = {
 }
 
 
+@requiere_permiso(3)
 def menu_reglas_alerta():
     while True:
         print("\n--- REGLAS DE ALERTA (UMBRALES) ---")

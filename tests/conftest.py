@@ -8,13 +8,40 @@ aunque el código haya atrapado el error. Las pruebas de integración
 
 import os
 import socket
+import tempfile
 
-import psycopg
-import pytest
+# Antes de importar la aplicación: los logs de los tests van a una carpeta
+# temporal, no a logs/app.log (que es el log real de la aplicación).
+os.environ.setdefault("LOGS_DIR", tempfile.mkdtemp(prefix="logs_tests_"))
+
+import psycopg  # noqa: E402
+import pytest  # noqa: E402
 
 
 class ConexionRealEnTestUnitario(RuntimeError):
     pass
+
+
+# Sesión interna (administrador) que ven los servicios cuando el test no
+# simula otra: desde la migración 016 cada servicio verifica el permiso por sí
+# mismo. Los tests que prueban la sesión real se marcan con @pytest.mark.sesion_real;
+# los que simulan otra parte la parchean ellos mismos (eso tiene prioridad).
+SESION_INTERNA_DE_PRUEBA = {
+    "id_sesion": 1, "id_usuario": 4, "nombre": "Admin", "apellido": "Pruebas",
+    "email": "admin@pruebas.example", "rol": "Administrador", "nivel_permisos": 5,
+    "id_cliente": None, "id_proveedor": None, "id_operador": None,
+}
+
+
+@pytest.fixture(autouse=True)
+def sesion_interna_por_defecto(request, monkeypatch):
+    if "integration" in str(request.node.fspath) or request.node.get_closest_marker("sesion_real"):
+        yield
+        return
+    from app.services import autenticacion
+    monkeypatch.setattr(autenticacion, "obtener_sesion_actual",
+                        lambda: dict(SESION_INTERNA_DE_PRUEBA))
+    yield
 
 
 @pytest.fixture(autouse=True)

@@ -19,7 +19,7 @@ def mostrar_menu_clientes():
         print("5. Eliminar cliente")
         print("0. Volver al menú principal")
 
-        opcion = input("\nSeleccione una opción: ")
+        opcion = input("\nSeleccioná una opción: ")
 
         if opcion == "1":
             registrar_cliente()
@@ -40,4 +40,4 @@ def mostrar_menu_clientes():
             break
 
         else:
-            print("\nOpción inválida. Intente nuevamente.")
+            print("\nOpción inválida. Intentá nuevamente.")
