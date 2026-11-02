@@ -1,4 +1,4 @@
-"""Día 3B: predicción con clima e historial (29), reporte predictivo (34),
+"""Predicción con clima e historial (29), reporte predictivo (34),
 mensajes por alerta (26), fallas de sensor, reglas de alerta (9), sesiones
 (3), sensores al entregar, listar_cargas_envio y textos de pantalla."""
 
@@ -211,7 +211,7 @@ def test_alerta_ya_notificada_o_anterior_no_repite_mensajes():
     with patch.object(alertas_service, "destinatarios_alerta") as destinatarios:
         assert alertas_service.notificar_alerta(alerta(mensajes_emitidos=True)) == 0
         sin_campo = alerta()
-        del sin_campo["mensajes_emitidos"]       # alertas anteriores al día 3B
+        del sin_campo["mensajes_emitidos"]       # alertas anteriores a la emisión de mensajes
         assert alertas_service.notificar_alerta(sin_campo) == 0
     destinatarios.assert_not_called()
 

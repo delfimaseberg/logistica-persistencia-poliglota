@@ -1,4 +1,4 @@
-"""Simular la falla de un sensor (demo del punto 4: un sensor que mide mal)."""
+"""Simular la falla de un sensor (requisito 4: un sensor que mide mal)."""
 
 from datetime import datetime, timedelta, timezone
 

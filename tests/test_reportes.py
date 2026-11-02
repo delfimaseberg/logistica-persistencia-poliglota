@@ -1,4 +1,4 @@
-"""Día 3A: reportes internos, reportes cobrables, exportación y filtros."""
+"""Reportes internos, reportes cobrables, exportación y filtros."""
 
 from contextlib import ExitStack
 from datetime import date, datetime, timedelta, timezone

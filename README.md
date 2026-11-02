@@ -588,8 +588,7 @@ python scripts\datos_demo\verificar_datos_demo.py
 ```
 
 `--base` debe coincidir con la base de `.env` (el script no escribe si no
-coincide). La verificación recorre los 40 puntos y muestra cuáles dan
-resultado. El día de la demo, `--refrescar-lecturas` genera lecturas IoT
+coincide). La verificación recorre cada funcionalidad y muestra cuáles dan resultado con los datos cargados. El día de la demo, `--refrescar-lecturas` genera lecturas IoT
 recientes, alertas y predicciones.
 
 `scripts\datos_demo\regenerar_hashes_demo.py` pide la contraseña de los usuarios de
@@ -621,7 +620,7 @@ Tp_bdd2/
 │   └── utils/          validaciones, formato argentino, mensajes de error, exportación
 ├── scripts/
 │   ├── migrations/     001–016
-│   ├── datos_demo/     carga de datos de ejemplo y verificación de los 40 puntos
+│   ├── datos_demo/     carga de datos de ejemplo y verificación
 │   └── *_schema.*      esquemas iniciales de las cuatro bases
 ├── tests/              pruebas unitarias (y de integración en tests/integration)
 ├── reportes_generados/ archivos de los reportes (no se versiona)
@@ -633,8 +632,7 @@ Tp_bdd2/
 
 ## Estado actual
 
-Los 40 puntos del análisis de promoción están implementados y dan resultado
-con los datos de ejemplo (`verificar_datos_demo.py`). Cada base cumple su
+Todas las funcionalidades pedidas están implementadas y dan resultado con los datos de ejemplo (verificar_datos_demo.py). Cada base cumple su
 papel: PostgreSQL para lo transaccional y financiero, MongoDB para eventos,
 alertas, mensajes y predicciones, Cassandra para las lecturas IoT y Neo4j para
 la red de clientes, envíos, tramos y operadores.
