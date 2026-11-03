@@ -17,6 +17,7 @@ from app.utils.validaciones_logistica import (
     validar_texto,
     validar_fecha,
     validar_rango_fechas,
+    sale_despues_de_llegar,
     validar_entero_positivo_logistica,
     normalizar
 )
@@ -247,7 +248,8 @@ def registrar_tramo():
             fecha_llegada = pedir(
                 "Fecha estimada de llegada (AAAA-MM-DD): ",
                 validar_fecha,
-                "La fecha estimada de llegada"
+                "La fecha estimada de llegada",
+                True                      # vale hasta las 23:59:59 de ese día
             )
 
             try:
@@ -259,7 +261,7 @@ def registrar_tramo():
                 if tramos_existentes:
                     ultima_llegada = ultimo_tramo[8]
 
-                    if fecha_salida < ultima_llegada:
+                    if not sale_despues_de_llegar(fecha_salida, ultima_llegada):
                         print(
                             "Error: el nuevo tramo no puede "
                             "salir antes de la llegada estimada "
@@ -290,8 +292,8 @@ def registrar_tramo():
         print(f"Medio: {medio}")
         print(f"Origen: {origen}")
         print(f"Destino: {destino}")
-        print(f"Salida: {formato.fecha_hora(fecha_salida)}")
-        print(f"Llegada estimada: {formato.fecha_hora(fecha_llegada)}")
+        print(f"Salida: {formato.fecha_tramo(fecha_salida)}")
+        print(f"Llegada estimada: {formato.fecha_tramo(fecha_llegada)}")
 
         confirmacion = input(
             "\n¿Confirmar registro? (S/N): "
@@ -358,8 +360,8 @@ def consultar_tramos_service():
             print(f"Medio: {tramo[4]}")
             print(f"Origen: {tramo[5]}")
             print(f"Destino: {tramo[6]}")
-            print(f"Salida: {formato.fecha_hora(tramo[7])}")
-            print(f"Llegada estimada: {formato.fecha_hora(tramo[8])}")
+            print(f"Salida: {formato.fecha_tramo(tramo[7])}")
+            print(f"Llegada estimada: {formato.fecha_tramo(tramo[8])}")
             print(
                 f"Operador: {tramo[10]} (ID {tramo[9]})"
                 if tramo[9] is not None else "Operador: sin asignar"

@@ -67,6 +67,27 @@ def fecha(valor):
     return valor.strftime("%d/%m/%Y")
 
 
+def fecha_tramo(valor):
+    """Salida o llegada estimada de un tramo.
+
+    Las que se cargaron como día (salida 00:00:00 o llegada 23:59:59, hora
+    argentina) se muestran solo con la fecha; las demás, con la hora.
+    """
+    if hasattr(valor, "to_native"):          # fechas que devuelve Neo4j
+        valor = valor.to_native()
+    if isinstance(valor, str):
+        try:
+            valor = datetime.fromisoformat(valor)
+        except ValueError:
+            return valor
+    if isinstance(valor, datetime):
+        local = _local(valor)
+        if (local.hour, local.minute, local.second) in ((0, 0, 0), (23, 59, 59)):
+            return local.strftime("%d/%m/%Y")
+        return local.strftime("%d/%m/%Y %H:%M")
+    return fecha_hora(valor)
+
+
 def fecha_hora(valor):
     """dd/mm/aaaa hh:mm en hora argentina. Acepta datetime, date o texto ISO."""
     if valor is None or valor == "":

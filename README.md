@@ -105,8 +105,8 @@ $env:PGCLIENTENCODING = "UTF8"
 & $psql -U postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE logistica_poliglota ENCODING 'UTF8'"
 & $psql -U postgres -d logistica_poliglota -v ON_ERROR_STOP=1 -f scripts\postgresql_schema.sql
 
-# Migraciones 003 a 016, en orden (sin la 002; ver abajo)
-foreach ($n in "003","004","005","006","007","008","009","010","011","012","013","014","015","016") {
+# Migraciones 003 a 017, en orden (sin la 002; ver abajo)
+foreach ($n in "003","004","005","006","007","008","009","010","011","012","013","014","015","016","017") {
     $archivo = Get-ChildItem "scripts\migrations\${n}_*.sql"
     & $psql -U postgres -d logistica_poliglota -v ON_ERROR_STOP=1 -f $archivo.FullName
     if ($LASTEXITCODE -ne 0) { throw "Falló la migración $n; no seguir." }
@@ -121,9 +121,10 @@ las migraciones, por eso hay que aplicarlas todas a continuación. En una base n
   base vieja ya tenía la 002).
 - **005** solo verifica que la 004 dejó las definiciones finales; en una base
   nueva no cambia nada, pero se corre igual como control.
-- **009, 015 y 016** tienen además pasos de datos (moneda ARS en registros
-  existentes, países de los envíos de prueba 2 a 4, CUIT de Distribuidora del
-  Sur) que en una base vacía no afectan ninguna fila.
+- **009, 015, 016 y 017** tienen además pasos de datos (moneda ARS en
+  registros existentes, países de los envíos de prueba 2 a 4, CUIT de
+  Distribuidora del Sur, fechas de tramos guardadas a las 00:00 UTC) que en una
+  base vacía no afectan ninguna fila.
 - **`015_atender_alertas_entregados.py` no se aplica:** corrige alertas viejas
   de "sin transmisión" de una base existente; en una base nueva no hay alertas
   viejas y, desde la 015, los sensores pasan a Inactivo al entregar el envío.
@@ -552,15 +553,17 @@ Se aplican al pedir cada dato y otra vez en la capa de datos, antes de escribir
 Se aplican en orden numérico, una sola vez y con respaldo previo. Todas son
 idempotentes (volver a correrlas no cambia nada).
 
-- **Base nueva:** 003 a 016 y la 001 de MongoDB, como en el paso 6 de la
+- **Base nueva:** 003 a 017 y la 001 de MongoDB, como en el paso 6 de la
   instalación (la 002 y `015_atender_alertas_entregados.py` no se aplican).
 - **Base existente:** aplicar solo las que falten, en orden, con el mismo
   comando del paso 6.1 (`$env:PGCLIENTENCODING = "UTF8"` y `-v ON_ERROR_STOP=1`).
   Si la base tenía alertas de "sin transmisión" de antes de la 015, correr
-  además el script de datos de la 015 (primero sin `--aplicar`, que solo cuenta):
+  además el script de datos de la 015 (primero sin `--aplicar`, que solo cuenta).
+  Después de la 017, resincronizar el grafo (Trazabilidad → 6 → 3), porque
+  Neo4j guarda una copia de las fechas de los tramos:
 
 ```powershell
-& $psql -U postgres -d logistica_poliglota -v ON_ERROR_STOP=1 -f scripts\migrations\016_seguridad_usuarios.sql
+& $psql -U postgres -d logistica_poliglota -v ON_ERROR_STOP=1 -f scripts\migrations\017_fechas_tramos_hora_argentina.sql
 python scripts\migrations\015_atender_alertas_entregados.py
 python scripts\migrations\015_atender_alertas_entregados.py --aplicar
 ```
@@ -576,6 +579,7 @@ python scripts\migrations\015_atender_alertas_entregados.py --aplicar
 | 015 | Reglas de alerta, reporte predictivo, sensores al entregar, cierre de sesiones ajenas |
 | 015 (datos, Python) | `015_atender_alertas_entregados.py`: pasa a Atendida las alertas viejas de "sin transmisión" de contenedores ya entregados (solo bases existentes) |
 | 016 | Seguridad: bloqueo por intentos, cambio obligatorio de contraseña, inactividad de sesiones, email único sin distinguir mayúsculas, fechas coherentes en tramos y facturas recibidas, CUIT corregido de Distribuidora del Sur |
+| 017 | Fechas de tramos en hora argentina: los tramos guardados con salida y llegada estimada a las 00:00 UTC pasan a salida 00:00:00 y llegada 23:59:59 del día ingresado (America/Argentina/Buenos_Aires) |
 
 ## Datos de ejemplo y verificación
 
@@ -619,7 +623,7 @@ Tp_bdd2/
 │   ├── ui/             menús
 │   └── utils/          validaciones, formato argentino, mensajes de error, exportación
 ├── scripts/
-│   ├── migrations/     001–016
+│   ├── migrations/     001–017
 │   ├── datos_demo/     carga de datos de ejemplo y verificación
 │   └── *_schema.*      esquemas iniciales de las cuatro bases
 ├── tests/              pruebas unitarias (y de integración en tests/integration)
@@ -629,6 +633,14 @@ Tp_bdd2/
 ├── ejecutar_procesos.py procesos periódicos (sensores, predicciones, facturación, cierre)
 └── test_conexiones.py  prueba manual de conexión a las cuatro bases
 ```
+
+## Limitaciones conocidas
+
+- **Partición mensual de las lecturas IoT en UTC.** En Cassandra, cada lectura
+  se guarda en la partición del mes (`anio_mes`) calculado en UTC. Las lecturas
+  del último día de un mes entre las 21:00 y las 23:59 (hora argentina) quedan
+  en la partición del mes siguiente, así que la consulta de lecturas "por mes"
+  no las muestra en el mes que corresponde en Argentina.
 
 ## Estado actual
 

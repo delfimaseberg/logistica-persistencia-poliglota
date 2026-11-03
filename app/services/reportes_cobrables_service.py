@@ -174,7 +174,7 @@ def generar_operadores(id_cliente, params):
     return Tabla("Operadores que llevaron mis contenedores",
                  ["Contenedor", "Envío", "Tramo", "Medio", "Origen", "Destino", "Salida", "Operador"],
                  [(f["contenedor"], f["id_envio"], f["id_tramo"], f["medio"], f["origen"],
-                   f["destino"], formato.fecha_hora(f["salida"]),
+                   f["destino"], formato.fecha_tramo(f["salida"]),
                    f["operador"] or "Sin asignar") for f in filas],
                  "Neo4j (grafo cliente-envío-contenedor-tramo-operador) + PostgreSQL (período)")
 

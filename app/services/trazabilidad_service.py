@@ -518,8 +518,8 @@ def ruta_completa_service(envio=None):
                 f"operador {fila['operador'] or 'sin datos'}]"
             )
             print(
-                f"   Salida: {formato.fecha_hora(fila['salida'])} | "
-                f"Llegada estimada: {formato.fecha_hora(fila['llegada'])}"
+                f"   Salida: {formato.fecha_tramo(fila['salida'])} | "
+                f"Llegada estimada: {formato.fecha_tramo(fila['llegada'])}"
             )
 
         print(

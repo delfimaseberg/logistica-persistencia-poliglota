@@ -46,9 +46,10 @@ def texto(valor):
     if valor is None:
         return "-"
     if isinstance(valor, datetime):
-        if valor.tzinfo is not None:
-            valor = valor.astimezone(ZONA)
-        return valor.strftime("%d/%m/%Y %H:%M")
+        if valor.tzinfo is None:
+            return valor.strftime("%d/%m/%Y %H:%M")
+        # Fechas de tramos cargadas como día: solo la fecha (formato.fecha_tramo).
+        return formato.fecha_tramo(valor)
     if isinstance(valor, date):
         return valor.strftime("%d/%m/%Y")
     if isinstance(valor, bool):
