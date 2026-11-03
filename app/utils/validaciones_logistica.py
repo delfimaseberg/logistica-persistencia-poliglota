@@ -1,5 +1,9 @@
 import unicodedata
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
+from zoneinfo import ZoneInfo
+
+
+ZONA_ARGENTINA = ZoneInfo("America/Argentina/Buenos_Aires")
 
 
 TIPOS_VEHICULO = ["Terrestre", "Marítimo", "Aéreo"]
@@ -54,20 +58,36 @@ def validar_identificacion(valor):
     return validar_texto(valor, "La identificación", 50).upper()
 
 
-def validar_fecha(valor, nombre):
+def validar_fecha(valor, nombre, fin_del_dia=False):
+    """Día AAAA-MM-DD interpretado en hora argentina.
+
+    Devuelve el inicio del día (00:00:00) o, con fin_del_dia, su último
+    segundo (23:59:59): una llegada estimada vale hasta el final de ese día.
+    """
     valor = valor.strip()
 
     try:
-        fecha = datetime.strptime(valor, "%Y-%m-%d")
+        dia = datetime.strptime(valor, "%Y-%m-%d").date()
     except ValueError:
         raise ValueError(
             f"{nombre} debe ser una fecha real "
             "con formato AAAA-MM-DD."
         )
 
-    # Se usa UTC para almacenar un instante inequívoco.
-    # La aplicación solicita únicamente el día.
-    return fecha.replace(tzinfo=timezone.utc)
+    hora = time(23, 59, 59) if fin_del_dia else time(0, 0, 0)
+    return datetime.combine(dia, hora, ZONA_ARGENTINA)
+
+
+def dia_local(fecha):
+    """Fecha calendario en hora argentina de un instante."""
+    if fecha.tzinfo is None:
+        fecha = fecha.replace(tzinfo=timezone.utc)
+    return fecha.astimezone(ZONA_ARGENTINA).date()
+
+
+def sale_despues_de_llegar(fecha_salida, llegada_anterior):
+    """El tramo nuevo puede salir el mismo día en que llega el anterior."""
+    return dia_local(fecha_salida) >= dia_local(llegada_anterior)
 
 
 def validar_rango_fechas(fecha_salida, fecha_llegada):
