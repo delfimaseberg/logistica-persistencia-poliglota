@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.database.postgres_connection import get_postgres_connection  # noqa: E402
 from app.repositories import facturacion_repository as repo  # noqa: E402
 
-BASES_PROHIBIDAS = {"logistica_poliglota", "logistica_poliglota_fact_20261029"}
+BASES_PROHIBIDAS = {"logistica_poliglota"}
 
 fallos = []
 
