@@ -82,7 +82,16 @@ CLIENTES = {
     "YERBATERA": ("Yerbatera Guaraní S.A.", "80034567-1", "despachos@yerbatera.example",
                   "+595 21 445 566", "Av. Mariscal López 1200, Asunción", "Paraguay"),
 }
-CLIENTES_EXISTENTES = {"DISTRIBUIDORA": 3, "ALIMENTOS": 4}   # Argentina
+# Clientes argentinos de los datos iniciales. En la base original ya existían
+# (ids 3 y 4); en una base nueva se crean. Se buscan por CUIT.
+CLIENTES_ARGENTINOS = {
+    "DISTRIBUIDORA": ("Distribuidora del Sur S.A.", "30-71234567-1",
+                      "administracion@distribuidoradelsur.com.ar", "11-4567-8901",
+                      "Av. Rivadavia 4500, CABA", "Argentina"),
+    "ALIMENTOS": ("Alimentos del Norte S.R.L.", "30-70987654-2",
+                  "contacto@alimentosdelnorte.com.ar", "11-4789-2356",
+                  "Av. Cabildo 3200, CABA", "Argentina"),
+}
 
 OPERADORES = {
     "ANDINOS": ("Transportes Andinos S.A.", "30-71500101-9", "operaciones@andinos.example",
@@ -328,7 +337,7 @@ MENSAJES = [
 class Carga:
     def __init__(self, solo_postgres):
         self.solo_postgres = solo_postgres
-        self.ids = {"cliente": dict(CLIENTES_EXISTENTES), "operador": {}, "proveedor": {},
+        self.ids = {"cliente": {}, "operador": {}, "proveedor": {},
                     "vehiculo": {}, "contenedor": {}, "sensor": {}, "envio": {},
                     "tramo": {}, "usuario": {"ADMIN": ADMIN}, "factura": {}}
         self.resumen = []
@@ -362,6 +371,15 @@ def pedir_contrasena():
 # ----------------------------------------------------------------- fases PG
 
 def cargar_maestros(c, clave):
+    c.argentinos_nuevos = []
+    for k, (rs, cuit, email, tel, dirc, pais) in CLIENTES_ARGENTINOS.items():
+        existente = q("SELECT id_cliente FROM cliente WHERE cuit = %s", (cuit,))
+        if existente:
+            c.ids["cliente"][k] = existente[0][0]
+        else:
+            c.ids["cliente"][k] = cliente_repository.crear_cliente(
+                Cliente(rs, cuit, email, tel, dirc, pais, "ACTIVO"))
+            c.argentinos_nuevos.append(k)
     for k, (rs, cuit, email, tel, dirc, pais) in CLIENTES.items():
         c.ids["cliente"][k] = cliente_repository.crear_cliente(
             Cliente(rs, cuit, email, tel, dirc, pais, "ACTIVO"))
@@ -434,9 +452,12 @@ def registrar_evento(c, id_envio, tipo, fecha, lugar, descripcion, detalle):
 
 def cargar_envios(c):
     for k, e in ENVIOS.items():
+        # Desde la migración 014 un envío nuevo exige país de origen y destino.
         id_envio = envio_repository.crear_envio(
             Envio(c.ids["cliente"][e["cliente"]], e["origen"], e["destino"], "Pendiente",
-                  e["prioridad"]), fecha_creacion=t(e["creado"]))
+                  e["prioridad"], pais_origen=PAIS_DE[e["origen"]],
+                  pais_destino=PAIS_DE[e["destino"]]),
+            fecha_creacion=t(e["creado"]))
         c.ids["envio"][k] = id_envio
         c.ids["tramo"][k] = []
         for medio, ori, dest, sal, lleg, veh, op in e["tramos"]:
@@ -464,12 +485,15 @@ def cargar_envios(c):
 
 
 def cargar_aperturas(c):
-    for k in CLIENTES:
+    # Los clientes argentinos que ya existían tienen su propia apertura; si la
+    # carga los creó (base nueva), se abren igual que los demás.
+    nuevos = list(CLIENTES) + getattr(c, "argentinos_nuevos", [])
+    for k in nuevos:
         cierre_cuenta_service.registrar_apertura(
             c.ids["cliente"][k], Decimal("0"), date(2026, 10, 1),
             "Cliente nuevo: sin documentos anteriores al 01/10/2026.", ADMIN)
-    c.nota("Aperturas: 3 clientes nuevos con saldo 0 al 01/10/2026 (sin documentos "
-           "anteriores; sus facturas tienen movimiento). Los clientes 3 y 4 ya tienen la del 28/10.")
+    c.nota(f"Aperturas: {len(nuevos)} clientes nuevos con saldo 0 al 01/10/2026 (sin "
+           "documentos anteriores; sus facturas tienen movimiento).")
 
 
 def cargar_facturacion(c):
@@ -584,7 +608,7 @@ def cargar_lecturas_recientes(c):
         cont = c.ids["contenedor"][e["contenedor"]]
         lat0, lon0 = COORDS[e["en_transito_en"]]
         for h in range(6, -1, -2):
-            momento = ahora - timedelta(hours=h, minutes=random.randint(0, 20))
+            momento = ahora - timedelta(hours=h, minutes=30 + random.randint(0, 20))
             for tipo_s, id_sensor in c.ids["sensor"][e["contenedor"]].items():
                 if k == "E11" and tipo_s == "Vibración":
                     continue        # sensor activo que no transmite (alerta de estado)
@@ -796,7 +820,7 @@ def cargar_dia3(c):
         lat0, lon0 = COORDS[d["en_transito_en"]]
         ahora = datetime.now(timezone.utc)
         for h in range(6, -1, -2):
-            momento = ahora - timedelta(hours=h, minutes=random.randint(0, 20))
+            momento = ahora - timedelta(hours=h, minutes=30 + random.randint(0, 20))
             for tipo_s, id_sensor in c.ids["sensor"][kc].items():
                 v = {"bateria": 85.0}
                 if tipo_s == "GPS":
@@ -829,21 +853,29 @@ def cargar_dia3(c):
 # reporte predictivo y cierre de una sesión.
 
 # Alertas climáticas: (ubicación, fenómeno, severidad, desde, hasta, descripción)
+# Desde y hasta en días respecto del día de la carga: así las vigentes lo
+# siguen siendo aunque los datos se carguen otro día.
 ALERTAS_CLIMA = [
-    ("Mendoza", "Nevadas en alta montaña", "Alta", "2026-10-30", "2026-11-02",
+    ("Mendoza", "Nevadas en alta montaña", "Alta", -1, 2,
      "Paso Cristo Redentor con cierres intermitentes."),
-    ("Buenos Aires", "Tormenta fuerte", "Media", "2026-10-31", "2026-11-01",
+    ("Buenos Aires", "Tormenta fuerte", "Media", 0, 1,
      "Alerta amarilla por lluvias y ráfagas."),
-    ("Uruguay", "Crecida del río", "Media", "2026-10-31", "2026-11-02",
+    ("Uruguay", "Crecida del río", "Media", 0, 2,
      "Demoras en accesos portuarios."),
-    ("Rosario", "Niebla", "Baja", "2026-10-10", "2026-10-11",
+    ("Rosario", "Niebla", "Baja", -24, -23,
      "Alerta vencida: no debe afectar envíos en curso."),
 ]
+
+
+def dia_relativo(dias):
+    return datetime.now(AR).date() + timedelta(days=dias)
 # Fallas de sensor: (código del contenedor, tipo de sensor, falla)
 FALLAS_SENSOR = [
     ("TDSU1000103", "Humedad", "imposible"),       # envío Buenos Aires -> Miami
     ("TDSU1000119", "Temperatura", "congelada"),   # envío Montevideo -> Rosario
-    ("MSCU1234571", "Temperatura", "salto"),       # envío Buenos Aires -> Madrid
+    # envío Buenos Aires -> Madrid de los datos iniciales; en una base nueva
+    # (sin esos datos) se usa el contenedor del envío demorado de --dia3.
+    (("MSCU1234571", "TDSU1000130"), "Temperatura", "salto"),
 ]
 REPORTE_PREDICTIVO = ("VINEDOS", "VINEDOS", "PREDICTIVO", "CSV")
 SESION_DEMO = "VINEDOS"      # usuario cuya sesión cierra el administrador
@@ -863,20 +895,24 @@ def cargar_dia3b(c):
 
         # 1. Alertas climáticas (fuente del riesgo climático).
         for ubicacion, fenomeno, severidad, desde, hasta, descripcion in ALERTAS_CLIMA:
-            registrar_alerta_climatica(ubicacion, fenomeno, severidad, date.fromisoformat(desde),
-                                       date.fromisoformat(hasta), ADMIN, descripcion)
+            registrar_alerta_climatica(ubicacion, fenomeno, severidad, dia_relativo(desde),
+                                       dia_relativo(hasta), ADMIN, descripcion)
         c.nota(f"MongoDB: {len(ALERTAS_CLIMA)} alertas climáticas (una vencida).")
 
         # 2. Lecturas con fallas de sensor (Cassandra).
         vigentes = reglas_vigentes()
         ahora = datetime.now(timezone.utc) - timedelta(minutes=1)
-        for codigo, tipo_sensor, falla in FALLAS_SENSOR:
-            fila = q("""SELECT s.id_sensor, s.id_contenedor FROM sensor_iot s
-                        JOIN contenedor ct ON ct.id_contenedor = s.id_contenedor
-                        WHERE ct.codigo_internacional = %s AND s.tipo = %s
-                          AND s.estado = 'Activo'""", (codigo, tipo_sensor))
+        for codigos, tipo_sensor, falla in FALLAS_SENSOR:
+            codigos = (codigos,) if isinstance(codigos, str) else codigos
+            for codigo in codigos:          # el primero que exista
+                fila = q("""SELECT s.id_sensor, s.id_contenedor FROM sensor_iot s
+                            JOIN contenedor ct ON ct.id_contenedor = s.id_contenedor
+                            WHERE ct.codigo_internacional = %s AND s.tipo = %s
+                              AND s.estado = 'Activo'""", (codigo, tipo_sensor))
+                if len(fila) == 1:
+                    break
             if len(fila) != 1:
-                raise RuntimeError(f"No se identifica el sensor {tipo_sensor} de {codigo}.")
+                raise RuntimeError(f"No se identifica el sensor {tipo_sensor} de {codigos}.")
             id_sensor, id_cont = fila[0]
             lecturas = lecturas_de_falla(falla, tipo_sensor, ahora,
                                          umbral(vigentes, "lecturas_congeladas", "MAX", 6),
@@ -916,14 +952,14 @@ def cargar_dia3b(c):
 
 def dia3b_cargado():
     from app.database.mongo_connection import get_mongo_database
-    ubicacion, fenomeno, _, desde, *_ = ALERTAS_CLIMA[0]
+    ubicacion, fenomeno, _, _, _, descripcion = ALERTAS_CLIMA[0]
     return get_mongo_database()["alertas_climaticas"].find_one(
-        {"ubicacion": ubicacion, "fenomeno": fenomeno, "fecha_desde": desde}) is not None
+        {"ubicacion": ubicacion, "fenomeno": fenomeno, "descripcion": descripcion}) is not None
 
 
 def reconstruir_ids(c):
     """IDs de una carga ya hecha en PostgreSQL (para reanudar o refrescar)."""
-    for k, datos in CLIENTES.items():
+    for k, datos in {**CLIENTES_ARGENTINOS, **CLIENTES}.items():
         c.ids["cliente"][k] = q("SELECT id_cliente FROM cliente WHERE cuit = %s", (datos[1],))[0][0]
     for k, datos in OPERADORES.items():
         c.ids["operador"][k] = q("SELECT id_operador FROM operador_logistico WHERE cuit = %s",

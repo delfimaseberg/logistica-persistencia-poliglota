@@ -161,14 +161,16 @@ print("Administrador creado (id 4).")
 **6.3 MongoDB: esquema y migración 001**
 
 ```powershell
+$base = "logistica_poliglota"     # el MONGO_DB de .env
 docker cp scripts\mongodb_schema.js tp_mongodb:/tmp/mongodb_schema.js
 docker cp scripts\migrations\001_predicciones_unicas_por_dia.js tp_mongodb:/tmp/001_predicciones_unicas_por_dia.js
-docker exec tp_mongodb mongosh --quiet --file /tmp/mongodb_schema.js
-docker exec tp_mongodb mongosh --quiet --file /tmp/001_predicciones_unicas_por_dia.js
+docker exec tp_mongodb mongosh --quiet --eval "var targetDatabaseName='$base'" --file /tmp/mongodb_schema.js
+docker exec tp_mongodb mongosh --quiet --eval "var targetDatabaseName='$base'" --file /tmp/001_predicciones_unicas_por_dia.js
 ```
 
-La 001 agrega el índice único de una predicción por envío y día, que no está
-en `mongodb_schema.js`.
+Los dos scripts usan la base indicada en `targetDatabaseName` (sin ella,
+`logistica_poliglota`). La 001 agrega el índice único de una predicción por
+envío y día, que no está en `mongodb_schema.js`.
 
 **6.4 Cassandra: esquema**
 
@@ -177,7 +179,11 @@ levantar el contenedor (`docker exec tp_cassandra cqlsh -e "DESCRIBE KEYSPACES"`
 responde cuando ya está lista).
 
 ```powershell
-docker cp scripts\cassandra_schema.cql tp_cassandra:/tmp/cassandra_schema.cql
+$keyspace = "logistica_poliglota"   # el CASSANDRA_KEYSPACE de .env
+# El esquema trae el keyspace logistica_poliglota; se reemplaza por el elegido
+# (sin BOM, que cqlsh no acepta).
+[IO.File]::WriteAllText("$env:TEMP\cassandra_schema.cql", ((Get-Content -Raw -Encoding UTF8 scripts\cassandra_schema.cql) -replace 'logistica_poliglota', $keyspace))
+docker cp "$env:TEMP\cassandra_schema.cql" tp_cassandra:/tmp/cassandra_schema.cql
 docker exec tp_cassandra cqlsh -f /tmp/cassandra_schema.cql
 ```
 
@@ -192,11 +198,16 @@ Remove-Variable neo4j
 
 **6.6 Datos de ejemplo y grafo**
 
-Cargar los datos de ejemplo (ver "Datos de ejemplo y verificación"). Después,
-para dejar el grafo igual a PostgreSQL, iniciar sesión en la aplicación con el
-administrador y elegir **6. Trazabilidad de envíos → 6. Sincronizar / reparar la
-red de rutas → 3. Resincronizar todos los envíos**: tiene que informar
-"Con error: 0". Por último, correr `python scripts\datos_demo\verificar_datos_demo.py`.
+1. Cargar los datos de ejemplo: la carga completa y después `--dia3` y
+   `--dia3b` (ver "Datos de ejemplo y verificación").
+2. Iniciar sesión en la aplicación con el administrador y elegir **6.
+   Trazabilidad de envíos → 6. Sincronizar / reparar la red de rutas → 3.
+   Resincronizar todos los envíos**: tiene que informar "Con error: 0".
+3. Cerrar octubre de 2026 (los datos de ejemplo llegan hasta ese mes):
+   **9. Facturación y cobranzas → 11. Cierre mensual de cuentas corrientes**,
+   período `2026-10`. En una base descartable se puede hacer también con
+   `python scripts\datos_demo\verificar_datos_demo.py --cerrar-octubre`.
+4. Correr `python scripts\datos_demo\verificar_datos_demo.py`.
 
 ### 7. Probar conexiones
 

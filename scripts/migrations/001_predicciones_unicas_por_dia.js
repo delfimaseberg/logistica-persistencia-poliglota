@@ -1,7 +1,11 @@
-// Ejecutar manualmente contra la base logistica_poliglota, con los
-// procesos de predicción detenidos. No elimina registros históricos.
-// Si hay duplicados del mismo envío y día local, aborta antes de escribir.
-db = db.getSiblingDB("logistica_poliglota");
+// Ejecutar manualmente con los procesos de predicción detenidos. No elimina
+// registros históricos. Si hay duplicados del mismo envío y día local, aborta
+// antes de escribir.
+// Base: logistica_poliglota, salvo que se defina targetDatabaseName con
+// --eval antes de cargar este archivo (igual que mongodb_schema.js).
+db = db.getSiblingDB(
+    typeof targetDatabaseName !== "undefined" ? targetDatabaseName : "logistica_poliglota"
+);
 
 const coleccion = db.getCollection("predicciones_riesgo");
 

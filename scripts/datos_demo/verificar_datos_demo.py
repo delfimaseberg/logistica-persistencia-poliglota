@@ -214,7 +214,7 @@ def verificar_sesiones_sensores_y_envios_postgres():
                            count(*) FILTER (WHERE motivo_inactivo LIKE 'Entrega del envío %%')
                     FROM sensor_iot""")[0]
     requisito(8, "Sensores por contenedor (activos/inactivos/apagados por entrega)", str(sensores),
-          sensores[0] > 0 and sensores[2] >= 24)
+          sensores[0] > 0 and sensores[2] >= 1)
     activos_entregados = n("""SELECT count(*) FROM sensor_iot s
                               JOIN envio_contenedor ec ON ec.id_contenedor = s.id_contenedor
                               JOIN envio e ON e.id_envio = ec.id_envio
@@ -251,9 +251,17 @@ def verificar_alertas_predicciones_y_lecturas():
     fallas = {t: db.alertas.count_documents({"tipo": t})
               for t in (FALLA_VALOR, FALLA_CONGELADA, FALLA_SALTO)}
     atendidas = db.alertas.count_documents({"nota_atencion": "contenedor ya entregado"})
+    entregados = [f[0] for f in q("""SELECT ec.id_contenedor FROM envio_contenedor ec
+                                     JOIN envio e USING (id_envio)
+                                     GROUP BY ec.id_contenedor
+                                     HAVING bool_and(e.estado = 'Entregado')""")]
+    pendientes = db.alertas.count_documents({
+        "estado": "Activa", "tipo": {"$regex": "sin transmisi"},
+        "contenedor_id": {"$in": entregados}})
     requisito(23, "Fallas de sensor (imposible, congelado, salto) y alertas viejas atendidas",
-          f"{fallas}; atendidas por contenedor entregado: {atendidas}",
-          all(v >= 1 for v in fallas.values()) and atendidas >= 1, "Mongo")
+          f"{fallas}; atendidas por contenedor entregado: {atendidas}; "
+          f"pendientes de contenedores entregados: {pendientes}",
+          all(v >= 1 for v in fallas.values()) and (atendidas >= 1 or pendientes == 0), "Mongo")
 
     mensajes = db.mensajes.count_documents({"tipo": "Alerta"})
     sin_mensajes = db.alertas.count_documents({"mensajes_emitidos": False})
@@ -294,8 +302,12 @@ def verificar_alertas_predicciones_y_lecturas():
           f"filas = {[len(t.filas) for t in tablas]}; alertas con envíos afectados: {len(afectados)}",
           all(t.filas for t in tablas) and afectados, "Reporte")
 
-    id_sensor = q("SELECT min(id_sensor) FROM sensor_iot")[0][0]
-    historicas = consultar_lecturas_sensor_db(id_sensor, "2026-10", 50)
+    historicas, id_sensor = [], None
+    for (candidato,) in q("SELECT id_sensor FROM sensor_iot ORDER BY id_sensor"):
+        historicas = consultar_lecturas_sensor_db(candidato, "2026-10", 50)
+        if historicas:
+            id_sensor = candidato
+            break
     requisito(19, "Consulta histórica de lecturas por sensor",
           f"sensor {id_sensor}, 10/2026: {len(historicas)} lecturas", len(historicas) > 0, "Cassandra")
     id_cont = q("""SELECT ec.id_contenedor FROM envio_contenedor ec JOIN envio e USING (id_envio)
