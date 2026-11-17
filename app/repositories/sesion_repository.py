@@ -6,7 +6,7 @@ from app.utils.politica_contrasena import (
 )
 
 
-def buscar_usuario_por_email(email):
+def buscar_usuario_por_email(email):  # datos para iniciar sesión; la usa iniciar_sesion_service
     """Datos para iniciar sesión, o None.
 
     (id, nombre, apellido, email, hash, estado, rol, nivel,
@@ -26,14 +26,14 @@ def buscar_usuario_por_email(email):
                     u.estado,
                     r.descripcion,
                     r.nivel_permisos,
-                    COALESCE(u.bloqueado_hasta > now(), FALSE) AS bloqueado,
-                    GREATEST(1, CEIL(EXTRACT(EPOCH FROM (u.bloqueado_hasta - now())) / 60))::int
+                    COALESCE(u.bloqueado_hasta > now(), FALSE) AS bloqueado,  -- bloqueado si el plazo no venció
+                    GREATEST(1, CEIL(EXTRACT(EPOCH FROM (u.bloqueado_hasta - now())) / 60))::int  -- minutos que faltan, redondeado para arriba
                         AS minutos_restantes,
                     u.debe_cambiar_contrasena
                 FROM usuario u
                 JOIN rol r
                     ON u.id_rol = r.id_rol
-                WHERE LOWER(u.email) = LOWER(%s);
+                WHERE LOWER(u.email) = LOWER(%s);  -- sin distinguir mayúsculas
                 """,
                 (email,)
             )
@@ -41,7 +41,7 @@ def buscar_usuario_por_email(email):
             return cursor.fetchone()
 
 
-def registrar_intento_fallido(id_usuario):
+def registrar_intento_fallido(id_usuario):  # suma un intento y bloquea al llegar al máximo; la usan el inicio de sesión y cambiar mi contraseña
     """Suma un intento fallido; al llegar al máximo bloquea al usuario.
 
     Si el bloqueo anterior ya venció, la cuenta empieza de nuevo.
@@ -53,12 +53,12 @@ def registrar_intento_fallido(id_usuario):
                 """
                 UPDATE usuario
                 SET intentos_fallidos = CASE
-                        WHEN bloqueado_hasta IS NOT NULL AND bloqueado_hasta <= now()
+                        WHEN bloqueado_hasta IS NOT NULL AND bloqueado_hasta <= now()  -- si el bloqueo anterior ya venció, vuelve a 1
                             THEN 1 ELSE intentos_fallidos + 1 END,
                     bloqueado_hasta = CASE
                         WHEN (CASE WHEN bloqueado_hasta IS NOT NULL AND bloqueado_hasta <= now()
-                                   THEN 1 ELSE intentos_fallidos + 1 END) >= %s
-                            THEN now() + make_interval(mins => %s)
+                                   THEN 1 ELSE intentos_fallidos + 1 END) >= %s  -- llegó al máximo de intentos...
+                            THEN now() + make_interval(mins => %s)  -- ...bloqueado por los minutos de bloqueo
                         ELSE NULL END
                 WHERE id_usuario = %s
                 RETURNING intentos_fallidos, bloqueado_hasta IS NOT NULL;
@@ -69,7 +69,7 @@ def registrar_intento_fallido(id_usuario):
             return (fila[0], bool(fila[1])) if fila else (0, False)
 
 
-def registrar_ingreso_correcto(id_usuario):
+def registrar_ingreso_correcto(id_usuario):  # vuelve a cero los intentos; la usa iniciar_sesion_service
     """Vuelve a cero los intentos fallidos y quita el bloqueo vencido."""
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
@@ -84,7 +84,7 @@ def registrar_ingreso_correcto(id_usuario):
             )
 
 
-def iniciar_sesion_db(id_usuario):
+def iniciar_sesion_db(id_usuario):  # crea la sesión ACTIVA; la usa iniciar_sesion_service
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute(
@@ -98,7 +98,7 @@ def iniciar_sesion_db(id_usuario):
                     'ACTIVA'
                 FROM usuario
                 WHERE id_usuario = %s
-                  AND estado = 'ACTIVO'
+                  AND estado = 'ACTIVO'  -- solo si el usuario está activo
                 RETURNING id_sesion;
                 """,
                 (id_usuario,)
@@ -112,7 +112,7 @@ def iniciar_sesion_db(id_usuario):
             return resultado[0]
 
 
-def expirar_sesiones_inactivas():
+def expirar_sesiones_inactivas():  # cierra por inactividad; la usa la opción 7 del menú de usuarios
     """Cierra (EXPIRADA) las sesiones sin actividad en los últimos minutos.
 
     La fecha de fin es la de la última actividad más el plazo de inactividad.
@@ -126,17 +126,17 @@ def expirar_sesiones_inactivas():
                 SET estado = 'EXPIRADA',
                     fecha_fin = GREATEST(
                         fecha_inicio,
-                        LEAST(now(), ultima_actividad + make_interval(mins => %s)))
+                        LEAST(now(), ultima_actividad + make_interval(mins => %s)))  -- el fin es la última actividad más el plazo
                 WHERE estado = 'ACTIVA'
                   AND fecha_fin IS NULL
-                  AND ultima_actividad < now() - make_interval(mins => %s);
+                  AND ultima_actividad < now() - make_interval(mins => %s);  -- sin actividad en los últimos 30 minutos
                 """,
                 (MINUTOS_INACTIVIDAD, MINUTOS_INACTIVIDAD)
             )
             return cursor.rowcount
 
 
-def listar_sesiones_activas():
+def listar_sesiones_activas():  # sesiones abiertas con su usuario; la usa la opción 7 del menú de usuarios
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute(
@@ -148,7 +148,7 @@ def listar_sesiones_activas():
                     u.apellido,
                     u.email,
                     s.fecha_inicio,
-                    CASE
+                    CASE  -- a qué parte pertenece el usuario
                         WHEN u.id_cliente IS NOT NULL
                             THEN 'Cliente: ' || c.razon_social
                         WHEN u.id_proveedor IS NOT NULL
@@ -173,7 +173,7 @@ def listar_sesiones_activas():
             return cursor.fetchall()
 
 
-def listar_usuarios_bloqueados():
+def listar_usuarios_bloqueados():  # bloqueos vigentes; la usan sesiones activas y desbloquear usuario
     """(id, nombre, apellido, email, bloqueado_hasta) de los bloqueos vigentes."""
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
@@ -188,7 +188,7 @@ def listar_usuarios_bloqueados():
             return cursor.fetchall()
 
 
-def cerrar_sesion_db(id_sesion, id_usuario):
+def cerrar_sesion_db(id_sesion, id_usuario):  # cierra la propia sesión; la usan cerrar sesión y los cierres forzados
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute(
@@ -207,7 +207,7 @@ def cerrar_sesion_db(id_sesion, id_usuario):
 
             return cursor.rowcount > 0
 
-def cerrar_sesion_ajena_db(id_sesion, id_administrador):
+def cerrar_sesion_ajena_db(id_sesion, id_administrador):  # la usa cerrar_sesion_de_otro
     """Un administrador cierra la sesión activa de OTRO usuario.
 
     Queda registrado quién la cerró (sesion.cerrada_por, migración 015).
@@ -222,7 +222,7 @@ def cerrar_sesion_ajena_db(id_sesion, id_administrador):
                     fecha_fin = CURRENT_TIMESTAMP,
                     cerrada_por = %s
                 WHERE id_sesion = %s
-                  AND id_usuario <> %s
+                  AND id_usuario <> %s  -- no puede ser la del propio administrador
                   AND estado = 'ACTIVA'
                   AND fecha_fin IS NULL;
                 """,
@@ -232,7 +232,7 @@ def cerrar_sesion_ajena_db(id_sesion, id_administrador):
             return cursor.rowcount > 0
 
 
-def cerrar_sesiones_de_usuario(id_usuario, cerrada_por, excepto_sesion=None):
+def cerrar_sesiones_de_usuario(id_usuario, cerrada_por, excepto_sesion=None):  # cierra todas las sesiones de un usuario; la usa guardar_contrasena
     """Cierra las sesiones activas de un usuario (cambio o reseteo de contraseña)."""
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
@@ -241,14 +241,14 @@ def cerrar_sesiones_de_usuario(id_usuario, cerrada_por, excepto_sesion=None):
                 UPDATE sesion
                 SET estado = 'CERRADA', fecha_fin = CURRENT_TIMESTAMP, cerrada_por = %s
                 WHERE id_usuario = %s AND estado = 'ACTIVA' AND fecha_fin IS NULL
-                  AND (%s::bigint IS NULL OR id_sesion <> %s::bigint);
+                  AND (%s::bigint IS NULL OR id_sesion <> %s::bigint);  -- menos la que se quiere conservar
                 """,
                 (cerrada_por, id_usuario, excepto_sesion, excepto_sesion)
             )
             return cursor.rowcount
 
 
-def cerrada_por_otro(id_sesion):
+def cerrada_por_otro(id_sesion):  # si la sesión la cerró otro usuario
     """True si la sesión la cerró un usuario distinto de su dueño."""
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
@@ -260,7 +260,7 @@ def cerrada_por_otro(id_sesion):
             return bool(fila and fila[0] is not None and fila[0] != fila[1])
 
 
-def motivo_cierre(id_sesion):
+def motivo_cierre(id_sesion):  # por qué se cerró la sesión; la usa obtener_sesion_actual para el aviso
     """'INACTIVIDAD', 'ADMINISTRADOR' o None (la cerró el propio usuario)."""
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:

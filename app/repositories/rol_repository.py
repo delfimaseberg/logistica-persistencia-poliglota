@@ -1,7 +1,7 @@
 from app.database.postgres_connection import get_postgres_connection
 
 
-def crear_rol(rol):
+def crear_rol(rol):  # guarda un rol; la usa registrar_rol
     conexion = get_postgres_connection()
 
     try:
@@ -31,7 +31,7 @@ def crear_rol(rol):
         conexion.close()
 
 
-def listar_roles():
+def listar_roles():  # todos los roles; la usan el menú de roles y la elección de rol del usuario
     conexion = get_postgres_connection()
 
     try:
@@ -53,7 +53,7 @@ def listar_roles():
         conexion.close()
 
 
-def buscar_rol_por_id(id_rol):
+def buscar_rol_por_id(id_rol):  # un rol por ID; la usan buscar, modificar y eliminar rol
     conexion = get_postgres_connection()
 
     try:
@@ -76,7 +76,7 @@ def buscar_rol_por_id(id_rol):
         conexion.close()
 
 
-def modificar_rol(id_rol, rol):
+def modificar_rol(id_rol, rol):  # guarda los cambios; la usa modificar_rol_service
     conexion = get_postgres_connection()
 
     try:
@@ -108,7 +108,7 @@ def modificar_rol(id_rol, rol):
         conexion.close()
 
 
-def eliminar_rol(id_rol):
+def eliminar_rol(id_rol):  # borra el rol; la usa eliminar_rol_service
     conexion = get_postgres_connection()
 
     try:
