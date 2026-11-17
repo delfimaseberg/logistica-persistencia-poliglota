@@ -7,10 +7,10 @@ from app.database.mongo_connection import get_mongo_database
 from pymongo import ReturnDocument
 
 
-ZONA_PREDICCIONES = ZoneInfo("America/Argentina/Buenos_Aires")
+ZONA_PREDICCIONES = ZoneInfo("America/Argentina/Buenos_Aires")  # el día de la predicción se cuenta en hora argentina
 
 
-def listar_envios_analisis():
+def listar_envios_analisis():  # todos los envíos con su cliente; la usan la selección de envío y la actualización de predicciones
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute("""
@@ -24,7 +24,7 @@ def listar_envios_analisis():
             return cursor.fetchall()
 
 
-def obtener_datos_riesgo(id_envio):
+def obtener_datos_riesgo(id_envio):  # envío, tramos e incidentes desde PostgreSQL; la usa armar_datos_riesgo
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute("""
@@ -73,7 +73,7 @@ def obtener_datos_riesgo(id_envio):
     }
 
 
-def envios_entregados_por_ruta():
+def envios_entregados_por_ruta():  # entregados con llegada estimada y real; la usa historial_rutas
     """Envíos entregados con su ruta, llegada estimada y entrega real.
 
     Base del historial de rutas que suelen atrasarse.
@@ -82,10 +82,10 @@ def envios_entregados_por_ruta():
         with conexion.cursor() as cursor:
             cursor.execute("""
                 SELECT e.id_envio, e.origen, e.destino,
-                       MAX(t.fecha_estimada_llegada) AS llegada_estimada,
+                       MAX(t.fecha_estimada_llegada) AS llegada_estimada,  -- la llegada estimada del último tramo
                        e.fecha_entrega
                 FROM envio e
-                LEFT JOIN tramo t ON t.id_envio = e.id_envio
+                LEFT JOIN tramo t ON t.id_envio = e.id_envio  -- LEFT: también los entregados sin tramos
                 WHERE e.estado = 'Entregado'
                 GROUP BY e.id_envio
                 ORDER BY e.id_envio
@@ -93,20 +93,20 @@ def envios_entregados_por_ruta():
             return cursor.fetchall()
 
 
-def ultimas_predicciones(ids_envios=None):
+def ultimas_predicciones(ids_envios=None):  # la predicción más nueva de cada envío en MongoDB; la usa el reporte predictivo
     """La predicción más reciente de cada envío (de todos o de esos)."""
     filtro = {}
     if ids_envios is not None:
         filtro["envio_id"] = {"$in": [int(i) for i in ids_envios]}
     resultado = get_mongo_database()["predicciones_riesgo"].aggregate([
         {"$match": filtro},
-        {"$sort": {"fecha_calculo": -1}},
-        {"$group": {"_id": "$envio_id", "doc": {"$first": "$$ROOT"}}},
+        {"$sort": {"fecha_calculo": -1}},  # ordena de la más nueva a la más vieja...
+        {"$group": {"_id": "$envio_id", "doc": {"$first": "$$ROOT"}}},  # ...y se queda con la primera de cada envío
     ])
     return {fila["_id"]: fila["doc"] for fila in resultado}
 
 
-def guardar_prediccion(prediccion):
+def guardar_prediccion(prediccion):  # guarda la predicción en MongoDB; la usan evaluar un envío y actualizar predicciones
     documento = dict(prediccion)
     fecha_calculo = documento.get("fecha_calculo")
 
@@ -116,14 +116,14 @@ def guardar_prediccion(prediccion):
         )
 
     envio_id = int(documento["envio_id"])
-    dia_calculo = fecha_calculo.astimezone(
+    dia_calculo = fecha_calculo.astimezone(  # día en hora argentina
         ZONA_PREDICCIONES
     ).date().isoformat()
     documento["envio_id"] = envio_id
     documento["dia_calculo"] = dia_calculo
 
     coleccion = get_mongo_database()["predicciones_riesgo"]
-    resultado = coleccion.find_one_and_update(
+    resultado = coleccion.find_one_and_update(  # upsert por envío y día: una predicción por día, la nueva pisa a la anterior
         {"envio_id": envio_id, "dia_calculo": dia_calculo},
         {"$set": documento},
         upsert=True,
@@ -132,7 +132,7 @@ def guardar_prediccion(prediccion):
     return str(resultado["_id"])
 
 
-def obtener_historial_predicciones(id_envio, limite=10):
+def obtener_historial_predicciones(id_envio, limite=10):  # últimas predicciones de un envío; la usa la opción 2 del menú de predicciones
     return list(
         get_mongo_database()["predicciones_riesgo"]
         .find({"envio_id": int(id_envio)})
@@ -141,27 +141,27 @@ def obtener_historial_predicciones(id_envio, limite=10):
     )
 
 
-def reporte_historico_incidentes():
+def reporte_historico_incidentes():  # incidentes por cliente; la usa la opción 4 del menú de predicciones
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute("""
                 SELECT c.razon_social,
                        COUNT(DISTINCT e.id_envio) AS envios,
                        COUNT(i.id_incidente) AS incidentes,
-                       COUNT(i.id_incidente) FILTER (
+                       COUNT(i.id_incidente) FILTER (  -- solo cuenta los que siguen abiertos
                            WHERE LOWER(i.estado) NOT IN
                            ('cerrado', 'resuelto')
                        ) AS incidentes_abiertos
                 FROM cliente c
                 JOIN envio e ON e.id_cliente = c.id_cliente
-                LEFT JOIN incidente i ON i.id_envio = e.id_envio
+                LEFT JOIN incidente i ON i.id_envio = e.id_envio  -- LEFT: también clientes sin incidentes
                 GROUP BY c.id_cliente, c.razon_social
                 ORDER BY incidentes DESC, c.razon_social
             """)
             return cursor.fetchall()
 
 
-def reporte_demoras_estimadas():
+def reporte_demoras_estimadas():  # envíos activos con la llegada estimada vencida; la usa la opción 5 del menú de predicciones
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute("""
@@ -173,7 +173,7 @@ def reporte_demoras_estimadas():
                 WHERE LOWER(e.estado) NOT IN
                       ('entregado', 'cancelado')
                 GROUP BY e.id_envio, c.razon_social, e.estado
-                HAVING MAX(t.fecha_estimada_llegada)
+                HAVING MAX(t.fecha_estimada_llegada)  -- la llegada del último tramo ya pasó
                        < CURRENT_TIMESTAMP
                 ORDER BY llegada_estimada
             """)
