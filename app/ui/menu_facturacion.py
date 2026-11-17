@@ -5,7 +5,7 @@ from app.services import reportes_pantallas as pantallas
 
 
 # (texto, función, nivel mínimo). Solo usuarios internos (verificar_permiso).
-OPCIONES = {
+OPCIONES = {  # opciones del menú: texto, función que abre y nivel mínimo (todas nivel 3)
     "1": ("Cotizar un envío (sin facturar)", servicio.cotizar_envio_service, 3),
     "2": ("Emitir factura de un envío entregado", servicio.emitir_factura_service, 3),
     "3": ("Facturación automática (envíos entregados hasta una fecha de corte)",
@@ -27,8 +27,8 @@ OPCIONES = {
 }
 
 
-def mostrar_menu_facturacion():
-    if not verificar_permiso(1):
+def mostrar_menu_facturacion():  # menú Facturación y cobranzas; se abre con la opción 9 del menú interno
+    if not verificar_permiso(1):  # para entrar alcanza nivel 1; cada opción pide el suyo
         return
 
     while True:
@@ -50,10 +50,10 @@ def mostrar_menu_facturacion():
 
         if opcion in OPCIONES:
             _, funcion, nivel = OPCIONES[opcion]
-            if verificar_permiso(nivel):
+            if verificar_permiso(nivel):  # controla el nivel de la opción elegida
                 funcion()
 
-        elif opcion == "14":
+        elif opcion == "14":  # reglas tarifarias avanzadas, aparte del diccionario
             if verificar_permiso(3):
                 from app.ui.menu_tarifas import mostrar_menu_tarifas
                 mostrar_menu_tarifas()

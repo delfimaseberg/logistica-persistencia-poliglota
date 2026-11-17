@@ -45,7 +45,7 @@ MENSAJE_ENTREGA = (  # aviso que se muestra al cambiar el estado
 )
 
 
-def es_entregado(estado):  # True si el estado es Entregado, sin importar mayúsculas; la usan modificar y eliminar envío
+def es_entregado(estado):  # devuelve True si el estado es Entregado, sin importar mayúsculas; la usan modificar y eliminar envío
     return str(estado or "").strip().casefold() == "entregado"
 
 
@@ -128,7 +128,7 @@ def registrar_envio():  # alta de un envío; opción 1 del menú de envíos
 
         origen = pedir_dato(  # ciudad de origen, hasta 150 caracteres (el largo de la columna)
             "Origen: ",
-            validar_largo,
+            validar_largo, # controla q no supere el largo de la columna en la bdd
             "El origen", 150
         )
 
@@ -174,7 +174,7 @@ def registrar_envio():  # alta de un envío; opción 1 del menú de envíos
             pais_destino=pais_destino
         )
 
-        id_envio = crear_envio(envio)  # lo guarda en PostgreSQL y devuelve el ID
+        id_envio = crear_envio(envio)  # lo guarda en PostgreSQL x envio.repository y devuelve el ID
 
         # Sincronizar el nuevo envío con Neo4j.
         sincronizar_envio_neo4j(id_envio)  # si Neo4j falla queda pendiente, pero el envío ya está guardado
@@ -300,7 +300,7 @@ def modificar_envio_service():  # cambia un dato del envío; opción 4 del menú
 
         # Entregado es final: solo se puede cambiar la prioridad (los
         # países se resolvieron antes).
-        if es_entregado(envio_actual[5]) and opcion not in ("5", "6"):  # un envío entregado solo admite cambiar la prioridad
+        if es_entregado(envio_actual[5]) and opcion not in ("5", "6"):  # un envío entregado solo admite cambiar la prioridad o los países
             print(
                 "\nEl envío está Entregado: su cliente, ruta y estado ya no "
                 "se modifican."
@@ -418,7 +418,7 @@ def eliminar_envio_service():  # borra un envío; opción 5 del menú de envíos
         print("\nEnvío seleccionado:")
         mostrar_envio(envio)
 
-        if es_entregado(envio[5]):  # los entregados no se borran porque ya se facturaron
+        if es_entregado(envio[5]):  # los entregados no se borran: son la base de la facturación
             print(
                 "\nUn envío Entregado no se elimina: es la base de su "
                 "facturación y de la de sus operadores."

@@ -21,12 +21,12 @@ from app.utils.errores import mensaje_error
 
 
 ZONA = ZoneInfo("America/Argentina/Buenos_Aires")
-FORMATOS = ("CSV", "PDF")
-MAX_DIAS = 366
+FORMATOS = ("CSV", "PDF")  # formatos de archivo que se pueden pedir
+MAX_DIAS = 366  # período máximo de un reporte: un año
 logger = obtener_logger("reportes_cobrables")
 
 # Parámetros extra opcionales por tipo: nombre -> (descripción, conversión).
-EXTRAS = {
+EXTRAS = {  # filtros opcionales de cada tipo; los pide pedir_solicitud y los controla validar_parametros
     "INCIDENTES": {"severidad": ("Severidad (Baja/Media/Alta)", str),
                    "estado": ("Estado (Abierto/En proceso/Cerrado)", str)},
     "PUNTUALIDAD": {"ruta": ("Ruta (texto, ej. Mendoza)", str)},
@@ -35,19 +35,19 @@ EXTRAS = {
     "PREDICTIVO": {},
 }
 # Tipos que no piden período: muestran la situación al día de la solicitud.
-SIN_PERIODO = {"PREDICTIVO"}
+SIN_PERIODO = {"PREDICTIVO"}  # lo usan validar_parametros y la pantalla del pedido
 
 
-def hoy():
+def hoy():  # fecha de hoy en Argentina; la usan la validación del período y las pantallas de reportes
     return datetime.now(ZONA).date()
 
 
-def validar_parametros(tipo, parametros, hoy_=None):
+def validar_parametros(tipo, parametros, hoy_=None):  # controla y normaliza los filtros de un pedido; la usa solicitar_reporte
     """Normaliza {desde, hasta, extras...}. Fechas ISO; extras vacíos se omiten."""
     if tipo not in EXTRAS:
         raise ValueError("Tipo de reporte inválido.")
     hoy_ = hoy_ or hoy()
-    if tipo in SIN_PERIODO:
+    if tipo in SIN_PERIODO:  # el predictivo solo guarda la fecha del pedido
         return {"fecha_corte": hoy_.isoformat()}
     try:
         desde = date.fromisoformat(str(parametros.get("desde")))
@@ -58,10 +58,10 @@ def validar_parametros(tipo, parametros, hoy_=None):
         raise ValueError("La fecha 'desde' no puede ser posterior a 'hasta'.")
     if hasta > hoy_:
         raise ValueError("La fecha 'hasta' no puede ser futura.")
-    if (hasta - desde).days > MAX_DIAS:
+    if (hasta - desde).days > MAX_DIAS:  # no más de un año
         raise ValueError(f"El período no puede superar {MAX_DIAS} días.")
     normalizados = {"desde": desde.isoformat(), "hasta": hasta.isoformat()}
-    for nombre, (_, convertir) in EXTRAS[tipo].items():
+    for nombre, (_, convertir) in EXTRAS[tipo].items():  # convierte los filtros extra; los vacíos se omiten
         valor = parametros.get(nombre)
         if valor in (None, ""):
             continue
@@ -72,11 +72,11 @@ def validar_parametros(tipo, parametros, hoy_=None):
     return normalizados
 
 
-def _fecha_texto(iso):
+def _fecha_texto(iso):  # AAAA-MM-DD a dd/mm/aaaa; la usa describir_parametros
     return date.fromisoformat(iso).strftime("%d/%m/%Y")
 
 
-def describir_parametros(params):
+def describir_parametros(params):  # los filtros del pedido en palabras; los usan el encabezado del archivo y las pantallas de reportes
     """Parámetros en lenguaje natural: ['Período: 01/05/2026 al 31/10/2026', ...]."""
     params = params or {}
     lineas = []
@@ -84,7 +84,7 @@ def describir_parametros(params):
         lineas.append(f"Período: {_fecha_texto(params['desde'])} al {_fecha_texto(params['hasta'])}")
     if params.get("fecha_corte"):
         lineas.append(f"Situación al: {_fecha_texto(params['fecha_corte'])}")
-    if params.get("id_contenedor"):
+    if params.get("id_contenedor"):  # muestra el código del contenedor en vez del ID
         from app.services.alertas_service import codigo_contenedor
         try:
             codigo = codigo_contenedor(int(params["id_contenedor"]))
@@ -100,11 +100,11 @@ def describir_parametros(params):
     return lineas
 
 
-def _rango(params):
+def _rango(params):  # desde y hasta como fechas; lo usan los generadores
     return date.fromisoformat(params["desde"]), date.fromisoformat(params["hasta"])
 
 
-def _instantes(desde, hasta):
+def _instantes(desde, hasta):  # el período como instantes en hora argentina, para filtrar en MongoDB y Cassandra
     """[desde 00:00, hasta+1 00:00) en hora argentina."""
     return (datetime.combine(desde, time(), ZONA),
             datetime.combine(hasta + timedelta(days=1), time(), ZONA))
@@ -113,15 +113,15 @@ def _instantes(desde, hasta):
 # ------------------------------------------------------------ generadores
 
 @con_vacio("No hay incidentes ni alertas de tus envíos")
-def generar_incidentes(id_cliente, params):
+def generar_incidentes(id_cliente, params):  # reporte cobrable INCIDENTES: incidentes (PostgreSQL) más alertas de sus contenedores (MongoDB)
     from app.repositories.alerta_repository import listar_alertas_contenedores
     desde, hasta = _rango(params)
     filas = [("Incidente", f[0], f[1], None, f[3], f[4], f[5], f[6])
              for f in repo.incidentes_cliente(id_cliente, desde, hasta,
                                               params.get("severidad"), params.get("estado"))]
-    contenedores = {c[0]: c[1] for c in repo.contenedores_cliente(id_cliente, desde, hasta)}
+    contenedores = {c[0]: c[1] for c in repo.contenedores_cliente(id_cliente, desde, hasta)}  # contenedores del cliente en el período, para buscar sus alertas
     inicio, fin = _instantes(desde, hasta)
-    for alerta in listar_alertas_contenedores(list(contenedores), inicio, fin):
+    for alerta in listar_alertas_contenedores(list(contenedores), inicio, fin):  # alertas de MongoDB de esos contenedores
         if params.get("severidad") and str(alerta.get("severidad", "")).lower() != params["severidad"].lower():
             continue
         fecha = alerta.get("fecha")
@@ -130,24 +130,24 @@ def generar_incidentes(id_cliente, params):
         filas.append(("Alerta IoT", fecha, alerta.get("envio_id"),
                       contenedores.get(alerta.get("contenedor_id")), alerta.get("tipo"),
                       alerta.get("severidad"), alerta.get("estado"), alerta.get("descripcion")))
-    filas.sort(key=lambda f: f[1] or datetime.min.replace(tzinfo=timezone.utc))
+    filas.sort(key=lambda f: f[1] or datetime.min.replace(tzinfo=timezone.utc))  # incidentes y alertas juntos, en orden de fecha
     return Tabla("Incidentes y alertas de mis envíos",
                  ["Origen", "Fecha", "Envío", "Contenedor", "Tipo", "Severidad", "Estado", "Descripción"],
                  filas, "PostgreSQL (incidentes) + MongoDB (alertas de sus contenedores)")
 
 
 @con_vacio("No hay envíos")
-def generar_puntualidad(id_cliente, params, ahora=None):
+def generar_puntualidad(id_cliente, params, ahora=None):  # reporte cobrable PUNTUALIDAD: si cada envío llegó a tiempo, tarde o está demorado
     desde, hasta = _rango(params)
     filas = repo.puntualidad_cliente(id_cliente, desde, hasta, params.get("ruta"))
-    retrasos = retrasos_por_envio([f[0] for f in filas])
+    retrasos = retrasos_por_envio([f[0] for f in filas])  # eventos RETRASO de MongoDB
     salida = []
     for (id_envio, origen, destino, p_origen, p_destino, estado, creado,
          estimada, entrega) in filas:
-        resultado = situacion(estado, estimada, entrega, ahora)
+        resultado = situacion(estado, estimada, entrega, ahora)  # misma regla que el reporte interno de desempeño
         diferencia = None
         if resultado in ("A tiempo", "Tarde"):
-            diferencia = horas(entrega - estimada)
+            diferencia = horas(entrega - estimada)  # negativo si llegó antes de lo estimado
         elif resultado == "Demorado":
             diferencia = horas((ahora or datetime.now(ZONA)) - estimada)
         cantidad, motivo = retrasos.get(id_envio, (0, None))
@@ -166,11 +166,11 @@ def generar_puntualidad(id_cliente, params, ahora=None):
 
 
 @con_vacio("No hay tramos con operador asignado para tus contenedores")
-def generar_operadores(id_cliente, params):
+def generar_operadores(id_cliente, params):  # reporte cobrable OPERADORES: quién llevó cada contenedor, desde el grafo de Neo4j
     from app.repositories.grafo_repository import operadores_de_contenedores_cliente
     desde, hasta = _rango(params)
     ids = repo.ids_envios_cliente(id_cliente, desde, hasta)
-    filas = operadores_de_contenedores_cliente(id_cliente, ids, params.get("id_contenedor"))
+    filas = operadores_de_contenedores_cliente(id_cliente, ids, params.get("id_contenedor"))  # recorre el grafo filtrando por el cliente
     return Tabla("Operadores que llevaron mis contenedores",
                  ["Contenedor", "Envío", "Tramo", "Medio", "Origen", "Destino", "Salida", "Operador"],
                  [(f["contenedor"], f["id_envio"], f["id_tramo"], f["medio"], f["origen"],
@@ -179,7 +179,7 @@ def generar_operadores(id_cliente, params):
                  "Neo4j (grafo cliente-envío-contenedor-tramo-operador) + PostgreSQL (período)")
 
 
-def limites_carga():
+def limites_carga():  # rangos permitidos según las reglas de alerta activas; la usa generar_condiciones_carga
     """(temp. mínima, temp. máxima, humedad máxima) de las reglas de alerta activas."""
     from app.repositories.regla_alerta_repository import reglas_vigentes, umbral
     vigentes = reglas_vigentes()
@@ -189,7 +189,7 @@ def limites_carga():
 
 
 @con_vacio("No hay contenedores con lecturas")
-def generar_condiciones_carga(id_cliente, params):
+def generar_condiciones_carga(id_cliente, params):  # reporte cobrable CONDICIONES_CARGA: temperatura, humedad y GPS de las lecturas (Cassandra)
     from app.repositories.lectura_iot_repository import consultar_lecturas_contenedor_periodo
     temp_min, temp_max, hum_max = limites_carga()
     desde, hasta = _rango(params)
@@ -198,12 +198,12 @@ def generar_condiciones_carga(id_cliente, params):
     for id_cont, codigo, tipo, id_envio, creado, terminado in repo.contenedores_cliente(
             id_cliente, desde, hasta, params.get("id_contenedor")):
         # Solo el tramo de tiempo en que el contenedor viajó para ESTE cliente.
-        lecturas = consultar_lecturas_contenedor_periodo(
+        lecturas = consultar_lecturas_contenedor_periodo(  # lecturas de Cassandra en ese lapso
             id_cont, max(inicio, creado), min(fin, terminado))
         temps = [l.temperatura for l in lecturas if l.temperatura is not None]
         hums = [l.humedad for l in lecturas if l.humedad is not None]
         gps = [l for l in lecturas if l.gps_latitud is not None]
-        fuera = sum(1 for t in temps if not temp_min <= t <= temp_max)
+        fuera = sum(1 for t in temps if not temp_min <= t <= temp_max)  # lecturas fuera del rango de temperatura o con humedad de más
         fuera += sum(1 for h in hums if h > hum_max)
         filas.append((codigo, tipo, id_envio, len(lecturas),
                       min(temps) if temps else None, max(temps) if temps else None,
@@ -220,11 +220,11 @@ def generar_condiciones_carga(id_cliente, params):
 
 
 @con_vacio("No hay envíos en curso")
-def generar_predictivo(id_cliente, params):
+def generar_predictivo(id_cliente, params):  # reporte cobrable PREDICTIVO: el reporte interno de riesgo, solo con los envíos del cliente
     """Solo los envíos en curso de ESE cliente, según la última predicción."""
     from app.services.reportes_service import reporte_riesgo_envios
     tabla = reporte_riesgo_envios(id_cliente)
-    columnas = [c for c in tabla.columnas if c != "Cliente"]
+    columnas = [c for c in tabla.columnas if c != "Cliente"]  # saca la columna Cliente: siempre es el mismo
     tabla.filas = [tuple(v for c, v in zip(tabla.columnas, f) if c != "Cliente")
                    for f in tabla.filas]
     tabla.columnas = columnas
@@ -233,7 +233,7 @@ def generar_predictivo(id_cliente, params):
     return tabla
 
 
-GENERADORES = {
+GENERADORES = {  # qué función arma cada tipo de reporte; la usa solicitar_reporte
     "INCIDENTES": generar_incidentes,
     "PUNTUALIDAD": generar_puntualidad,
     "OPERADORES": generar_operadores,
@@ -244,7 +244,7 @@ GENERADORES = {
 
 # ------------------------------------------------------------------ ciclo
 
-def solicitar_reporte(id_cliente, id_usuario, tipo, formato, parametros, hoy_=None):
+def solicitar_reporte(id_cliente, id_usuario, tipo, formato, parametros, hoy_=None):  # pide, genera y factura un reporte; la usan Reportes > Reportes cobrables y "Mis reportes" del portal
     """Solicita, genera y factura. Devuelve el reporte final (dict).
 
     Si la generación falla queda ERROR y no se factura. Si la facturación
@@ -254,46 +254,46 @@ def solicitar_reporte(id_cliente, id_usuario, tipo, formato, parametros, hoy_=No
     if formato not in FORMATOS:
         raise ValueError("Formato inválido (CSV o PDF).")
     params = validar_parametros(tipo, parametros, hoy_)
-    id_reporte = repo.crear_reporte(id_cliente, id_usuario, tipo, formato, params)
+    id_reporte = repo.crear_reporte(id_cliente, id_usuario, tipo, formato, params)  # queda SOLICITADO en PostgreSQL, con el precio vigente
     logger.info("Reporte %s solicitado: cliente=%s tipo=%s", id_reporte, id_cliente, tipo)
 
     try:
-        tabla = GENERADORES[tipo](id_cliente, params)
+        tabla = GENERADORES[tipo](id_cliente, params)  # arma la tabla solo con datos de ese cliente
         reporte = repo.obtener_reporte(id_reporte)
         encabezado = ([f"Reporte N.º {id_reporte} - {reporte['cliente']}"]
                       + describir_parametros(params)
                       + [f"Generado: {datetime.now(ZONA):%d/%m/%Y %H:%M}"])
-        ruta, hash_ = exportar(tabla, formato,
+        ruta, hash_ = exportar(tabla, formato,  # guarda el CSV o PDF en reportes_generados
                                Path(CARPETA_REPORTES) / f"{id_reporte}_{tipo}", encabezado)
-        repo.marcar_generado(id_reporte, str(ruta), len(tabla.filas), hash_)
+        repo.marcar_generado(id_reporte, str(ruta), len(tabla.filas), hash_)  # pasa a GENERADO con el archivo y su hash
     except Exception as error:
         logger.exception("Error al generar el reporte %s", id_reporte)
-        repo.marcar_error(id_reporte, error)
+        repo.marcar_error(id_reporte, error)  # si falló, queda en ERROR y no se factura
         return repo.obtener_reporte(id_reporte)
 
     try:
-        emitir_factura_reporte(id_reporte)
+        emitir_factura_reporte(id_reporte)  # factura y pasa a FACTURADO; si falla, queda GENERADO para reintentar después
     except Exception:
         logger.exception("No se pudo facturar el reporte %s", id_reporte)
     return repo.obtener_reporte(id_reporte)
 
 
-def facturar_pendientes():
+def facturar_pendientes():  # factura los reportes que quedaron GENERADOS; la usa "Facturar reportes generados pendientes" (facturación, opción 12)
     """Factura los reportes que quedaron GENERADOS. Devuelve (facturados, errores)."""
     facturados, errores = [], []
     for reporte in repo.listar_reportes(estado="GENERADO"):
         try:
             facturados.append(emitir_factura_reporte(reporte["id_reporte"]))
         except FacturaExistente:
-            continue
+            continue  # ya tenía factura: no se factura de nuevo ni cuenta como error
         except Exception as error:
             errores.append((reporte["id_reporte"], mensaje_error(error)))
     return facturados, errores
 
 
-def reporte_del_cliente(id_reporte, id_cliente):
+def reporte_del_cliente(id_reporte, id_cliente):  # un reporte solo si es del cliente; la usa "Ver uno de mis reportes" del portal
     """El reporte si es del cliente; si no, None (como si no existiera)."""
     reporte = repo.obtener_reporte(id_reporte)
-    if reporte is None or reporte["id_cliente"] != id_cliente:
+    if reporte is None or reporte["id_cliente"] != id_cliente:  # uno ajeno se trata como si no existiera
         return None
     return reporte

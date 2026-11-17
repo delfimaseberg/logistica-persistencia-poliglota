@@ -24,11 +24,11 @@ ZONA_ARGENTINA = ZoneInfo("America/Argentina/Buenos_Aires")
 logger = obtener_logger("facturacion_automatica")
 
 
-def hoy_argentina():
+def hoy_argentina():  # fecha de hoy en Argentina; corte por defecto de la facturación automática y del cierre
     return datetime.now(ZONA_ARGENTINA).date()
 
 
-def _auditar(id_envio, resultado, motivo, id_factura=None):
+def _auditar(id_envio, resultado, motivo, id_factura=None):  # guarda en PostgreSQL qué pasó con cada envío; si falla, solo queda en el log
     try:
         registrar_auditoria_facturacion(
             id_envio=id_envio,
@@ -42,13 +42,13 @@ def _auditar(id_envio, resultado, motivo, id_factura=None):
         logger.exception("No se pudo auditar la facturación del envío %s", id_envio)
 
 
-def procesar_facturacion_automatica(fecha_corte=None):
+def procesar_facturacion_automatica(fecha_corte=None):  # factura los entregados sin factura hasta la fecha de corte; la usan facturación (opción 3), ejecutar_procesos.py y la carga de ejemplo
     """Factura los envíos Entregados sin factura con entrega <= fecha_corte.
 
     Devuelve un resumen con facturados, omitidos (con motivo) y errores.
     """
     fecha_corte = fecha_corte or hoy_argentina()
-    if not isinstance(fecha_corte, date) or isinstance(fecha_corte, datetime):
+    if not isinstance(fecha_corte, date) or isinstance(fecha_corte, datetime):  # tiene que ser un día, no un instante
         raise ValueError("La fecha de corte debe ser una fecha calendario.")
 
     resumen = {
@@ -59,7 +59,7 @@ def procesar_facturacion_automatica(fecha_corte=None):
         "errores": [],
     }
 
-    candidatos = listar_envios_facturables(fecha_corte=fecha_corte)
+    candidatos = listar_envios_facturables(fecha_corte=fecha_corte)  # entregados sin factura hasta el corte (PostgreSQL)
     resumen["candidatos"] = len(candidatos)
     logger.info(
         "Facturación automática: corte=%s candidatos=%s",
@@ -69,7 +69,7 @@ def procesar_facturacion_automatica(fecha_corte=None):
     for fila in candidatos:
         id_envio, cliente = fila[0], fila[2]
         try:
-            factura = emitir_factura_envio(id_envio, origen="ENVIO_AUTOMATICA")
+            factura = emitir_factura_envio(id_envio, origen="ENVIO_AUTOMATICA")  # cada envío en su propia transacción: si uno falla, sigue con el resto
             resumen["facturados"].append({
                 "id_envio": id_envio,
                 "cliente": cliente,
@@ -88,19 +88,19 @@ def procesar_facturacion_automatica(fecha_corte=None):
             resumen["omitidos"].append({
                 "id_envio": id_envio, "cliente": cliente, "motivo": motivo,
             })
-            _auditar(id_envio, "BLOQUEADA", motivo)
+            _auditar(id_envio, "BLOQUEADA", motivo)  # sin tarifa o sin precio para algún medio
         except ValueError as error:
             motivo = mensaje_error(error)
             resumen["omitidos"].append({
                 "id_envio": id_envio, "cliente": cliente, "motivo": motivo,
             })
-            _auditar(id_envio, "BLOQUEADA", motivo)
+            _auditar(id_envio, "BLOQUEADA", motivo)  # otra validación del envío o del cliente lo impidió
         except Exception as error:
             logger.exception("Error al facturar el envío %s", id_envio)
             resumen["errores"].append({
                 "id_envio": id_envio, "cliente": cliente, "error": mensaje_error(error),
             })
-            _auditar(id_envio, "ERROR", f"ERROR: {mensaje_error(error)}")
+            _auditar(id_envio, "ERROR", f"ERROR: {mensaje_error(error)}")  # error inesperado: queda registrado y se sigue
 
     logger.info(
         "Facturación automática terminada: facturados=%s omitidos=%s errores=%s",

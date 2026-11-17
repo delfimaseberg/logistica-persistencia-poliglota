@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
-from app.repositories.facturacion_repository import (
+from app.repositories.facturacion_repository import (  # consultas y operaciones de facturación en PostgreSQL
     listar_clientes_facturacion,
     listar_facturas_cliente,
     registrar_pago,
@@ -19,7 +19,7 @@ from app.repositories import precios_repository
 from app.repositories import cierre_cuenta_repository
 from app.services import cierre_cuenta_service
 from app.services.autenticacion import obtener_sesion_actual, solo_internos
-from app.services.facturacion_automatica_service import (
+from app.services.facturacion_automatica_service import (  # el mismo proceso que corre ejecutar_procesos.py
     hoy_argentina,
     procesar_facturacion_automatica,
 )
@@ -37,11 +37,11 @@ def pausar():
     input("\nPresioná Enter para continuar...")
 
 
-def dinero(valor):
+def dinero(valor):  # importe en formato argentino; lo usan las pantallas de facturación y el portal
     return formato.dinero(valor)
 
 
-def pedir_importe(mensaje, permitir_cero=False):
+def pedir_importe(mensaje, permitir_cero=False):  # pide un importe hasta que sea válido; la usan registrar pago y precios de transporte
     while True:
         texto = input(mensaje).strip().replace(",", ".")
         try:
@@ -54,7 +54,7 @@ def pedir_importe(mensaje, permitir_cero=False):
               + (" (cero o más)." if permitir_cero else " mayor a cero."))
 
 
-def pedir_entero(mensaje):
+def pedir_entero(mensaje):  # pide un entero positivo; la usan cotizar y ver detalle
     while True:
         texto = input(mensaje).strip()
         if texto.isdigit() and int(texto) > 0:
@@ -62,7 +62,7 @@ def pedir_entero(mensaje):
         print("Ingresá un número entero positivo.")
 
 
-def pedir_fecha(mensaje, por_defecto=None):
+def pedir_fecha(mensaje, por_defecto=None):  # pide una fecha AAAA-MM-DD; la usan la facturación automática y la apertura
     while True:
         texto = input(mensaje).strip()
         if not texto and por_defecto is not None:
@@ -73,7 +73,7 @@ def pedir_fecha(mensaje, por_defecto=None):
             print("Usá el formato AAAA-MM-DD.")
 
 
-def pedir_periodo(mensaje):
+def pedir_periodo(mensaje):  # pide un mes AAAA-MM y devuelve el día 1; la usa el cierre mensual
     while True:
         texto = input(mensaje).strip()
         try:
@@ -82,7 +82,7 @@ def pedir_periodo(mensaje):
             print("Usá el formato AAAA-MM.")
 
 
-def seleccionar_elemento(elementos, titulo, descripcion, vacio="datos para elegir"):
+def seleccionar_elemento(elementos, titulo, descripcion, vacio="datos para elegir"):  # muestra una lista numerada y devuelve el elegido; la usan casi todas las pantallas de acá
     if not elementos:
         print(f"\nNo hay {vacio}.")
         return None
@@ -101,7 +101,7 @@ def seleccionar_elemento(elementos, titulo, descripcion, vacio="datos para elegi
         print("Opción inválida.")
 
 
-def seleccionar_cliente():
+def seleccionar_cliente():  # elige un cliente activo; la usan emitir factura, consultar facturas, pagos, cuenta corriente y apertura
     return seleccionar_elemento(
         listar_clientes_facturacion(),
         "SELECCIONAR CLIENTE",
@@ -110,12 +110,12 @@ def seleccionar_cliente():
     )
 
 
-def _id_usuario_actual():
+def _id_usuario_actual():  # id del usuario conectado; lo usa precios de transporte
     sesion = obtener_sesion_actual()
     return sesion["id_usuario"] if sesion else None
 
 
-def origen_factura(factura):
+def origen_factura(factura):  # "Envío N" o "Histórica"; la usan los listados de facturas
     """Texto del origen para listados (columnas de listar_facturas_cliente)."""
     id_envio = factura[6] if len(factura) > 6 else None
     if id_envio is not None:
@@ -123,11 +123,11 @@ def origen_factura(factura):
     return "Histórica (sin envío)"
 
 
-def mostrar_factura(factura):
+def mostrar_factura(factura):  # imprime una factura con lo pagado y lo pendiente; la usan consultar facturas y el portal
     id_factura, fecha, total, estado, pagado, pendiente = factura[:6]
     print("-" * 45)
     print(f"Factura N.º {id_factura} | Fecha: {formato.fecha(fecha)} | {origen_factura(factura)}")
-    if len(factura) > 8 and factura[7] is not None:
+    if len(factura) > 8 and factura[7] is not None:  # las históricas no tienen neto e IVA por separado
         print(f"Neto: {dinero(factura[7])} | IVA: {dinero(factura[8])}")
     print(f"Total: {dinero(total)}")
     print(f"Pagado: {dinero(pagado)}")
@@ -135,7 +135,7 @@ def mostrar_factura(factura):
     print(f"Estado: {estado}")
 
 
-def mostrar_cotizacion(cotizacion):
+def mostrar_cotizacion(cotizacion):  # imprime líneas, neto, IVA y total; la usan cotizar y emitir factura
     for linea in cotizacion["lineas"]:
         print(f"  {linea['linea']}. {linea['descripcion']:<55} "
               f"{dinero(linea['importe']):>14}")
@@ -147,11 +147,11 @@ def mostrar_cotizacion(cotizacion):
 # ------------------------------------------------------------- facturas
 
 @requiere_permiso(3)
-def cotizar_envio_service():
+def cotizar_envio_service():  # muestra cuánto se facturaría un envío, sin guardar nada; opción 1 de facturación
     print("\n--- COTIZAR ENVÍO (sin facturar) ---")
     try:
         id_envio = pedir_entero("ID del envío: ")
-        cotizacion = cotizar_envio(id_envio)
+        cotizacion = cotizar_envio(id_envio)  # calcula con la tarifa estándar vigente
         print(f"\nEnvío {id_envio} | Cliente: {cotizacion['cliente']} | "
               f"Estado: {cotizacion['estado_envio']} | "
               f"Tarifa estándar v{cotizacion['version_regla']}")
@@ -169,14 +169,14 @@ def cotizar_envio_service():
 
 @requiere_permiso(3)
 @solo_internos
-def emitir_factura_service():
+def emitir_factura_service():  # emite la factura de un envío entregado; opción 2 de facturación
     print("\n--- EMITIR FACTURA DE UN ENVÍO ENTREGADO ---")
     try:
         cliente = seleccionar_cliente()
         if cliente is None:
             return
 
-        envios = listar_envios_facturables(id_cliente=cliente[0])
+        envios = listar_envios_facturables(id_cliente=cliente[0])  # solo entregados del cliente que todavía no tienen factura
         envio = seleccionar_elemento(
             envios,
             f"ENVÍOS ENTREGADOS SIN FACTURA DE {cliente[1]}",
@@ -196,12 +196,12 @@ def emitir_factura_service():
             print("Operación cancelada.")
             return
 
-        factura = emitir_factura_envio(envio[0], origen="ENVIO_MANUAL")
+        factura = emitir_factura_envio(envio[0], origen="ENVIO_MANUAL")  # factura, detalle, saldo y movimiento en una sola transacción
         logger.info("Factura %s emitida para el envío %s",
                     factura["id_factura"], envio[0])
         print(f"\nFactura N.º {factura['id_factura']} emitida. "
               f"Total {dinero(factura['total'])} (incluye IVA).")
-        if factura["total"] != cotizacion["total"]:
+        if factura["total"] != cotizacion["total"]:  # por si cambiaron los precios mientras se confirmaba
             print("Aviso: el precio cambió entre la cotización y la emisión.")
     except Exception as error:
         print(f"\nError al emitir factura: {mensaje_error(error)}")
@@ -209,7 +209,7 @@ def emitir_factura_service():
         pausar()
 
 
-def mostrar_resumen_automatica(resumen):
+def mostrar_resumen_automatica(resumen):  # muestra facturados, omitidos y errores; la usa facturacion_automatica_service
     print(f"\nFecha de corte: {resumen['fecha_corte']:%d/%m/%Y} | "
           f"Envíos candidatos: {resumen['candidatos']}")
     print(f"\nFacturados: {len(resumen['facturados'])}")
@@ -226,7 +226,7 @@ def mostrar_resumen_automatica(resumen):
 
 @requiere_permiso(3)
 @solo_internos
-def facturacion_automatica_service():
+def facturacion_automatica_service():  # factura todos los entregados hasta una fecha de corte; opción 3 de facturación
     print("\n--- FACTURACIÓN AUTOMÁTICA ---")
     print("Factura todos los envíos Entregados sin factura hasta la fecha de corte.")
     try:
@@ -245,7 +245,7 @@ def facturacion_automatica_service():
 
 
 @requiere_permiso(3)
-def consultar_facturas_service():
+def consultar_facturas_service():  # lista las facturas de un cliente; opción 4 de facturación
     print("\n--- CONSULTAR FACTURAS ---")
     try:
         cliente = seleccionar_cliente()
@@ -268,7 +268,7 @@ def consultar_facturas_service():
 
 
 @requiere_permiso(3)
-def detalle_factura_service():
+def detalle_factura_service():  # muestra una factura con sus líneas; opción 5 de facturación
     print("\n--- DETALLE DE FACTURA ---")
     try:
         detalle = obtener_detalle_factura(pedir_entero("N.º de factura: "))
@@ -282,8 +282,8 @@ def detalle_factura_service():
         pausar()
 
 
-def mostrar_detalle_factura(detalle):
-    origen = (f"Envío {detalle['id_envio']}" if detalle["id_envio"]
+def mostrar_detalle_factura(detalle):  # imprime encabezado, líneas, neto, IVA y total; la usan detalle de factura y el portal
+    origen = (f"Envío {detalle['id_envio']}" if detalle["id_envio"]  # de un envío, de un reporte o histórica
               else f"Reporte {detalle['id_reporte']}" if detalle["id_reporte"]
               else "Histórica (sin envío)")
     print(f"\nFactura N.º {detalle['id_factura']} | {detalle['cliente']} | "
@@ -299,7 +299,7 @@ def mostrar_detalle_factura(detalle):
 
 
 @requiere_permiso(3)
-def estado_entregados_service():
+def estado_entregados_service():  # entregados con su factura al cliente y las de sus operadores; opción 8 de facturación
     print("\n--- ENVÍOS ENTREGADOS: ESTADO DE FACTURACIÓN ---")
     try:
         filas = estado_facturacion_entregados()
@@ -323,14 +323,14 @@ def estado_entregados_service():
 
 @requiere_permiso(3)
 @solo_internos
-def registrar_pago_service():
+def registrar_pago_service():  # registra el pago de una factura; opción 6 de facturación
     print("\n--- REGISTRAR PAGO ---")
     try:
         cliente = seleccionar_cliente()
         if cliente is None:
             return
 
-        facturas = [
+        facturas = [  # solo las que tienen saldo pendiente y no están anuladas
             factura for factura in listar_facturas_cliente(cliente[0])
             if factura[5] > 0 and factura[3].lower() != "anulada"
         ]
@@ -350,7 +350,7 @@ def registrar_pago_service():
         print(f"\nSaldo pendiente: {dinero(factura[5])}")
         monto = pedir_importe("Monto del pago: ")
 
-        if monto > factura[5]:
+        if monto > factura[5]:  # no se puede pagar más de lo que se debe
             print("El importe supera el saldo pendiente.")
             return
 
@@ -366,7 +366,7 @@ def registrar_pago_service():
             print("Operación cancelada.")
             return
 
-        id_pago, estado = registrar_pago(factura[0], monto, metodo)
+        id_pago, estado = registrar_pago(factura[0], monto, metodo)  # pago, estado de la factura, saldo y movimiento en una sola transacción
         print(f"\nPago N.º {id_pago} registrado correctamente.")
         print(f"Importe: {dinero(monto)}")
         print(f"Estado de factura: {estado}")
@@ -378,7 +378,7 @@ def registrar_pago_service():
 
 
 @requiere_permiso(3)
-def consultar_cuenta_corriente_service():
+def consultar_cuenta_corriente_service():  # muestra la cuenta corriente de un cliente; opción 7 de facturación
     print("\n--- CUENTA CORRIENTE ---")
     try:
         cliente = seleccionar_cliente()
@@ -393,7 +393,7 @@ def consultar_cuenta_corriente_service():
         pausar()
 
 
-def mostrar_cuenta_cliente(id_cliente):
+def mostrar_cuenta_cliente(id_cliente):  # totales y movimientos de la cuenta; la usan la opción 7 y "Mi cuenta corriente" del portal
     """Totales y movimientos de la cuenta de un cliente (también el portal)."""
     resultado = consultar_cuenta_corriente(id_cliente)
     if resultado is None:
@@ -406,7 +406,7 @@ def mostrar_cuenta_cliente(id_cliente):
     print(f"Total pagado: {dinero(pagado)}")
     print(f"Saldo pendiente: {dinero(facturado - pagado)}")
 
-    movimientos = consultar_movimientos_cuenta(id_cliente)
+    movimientos = consultar_movimientos_cuenta(id_cliente)  # libro de movimientos: facturas en positivo y pagos en negativo
     if movimientos:
         print("\nMovimientos registrados en la cuenta:")
         for m in movimientos:
@@ -417,7 +417,7 @@ def mostrar_cuenta_cliente(id_cliente):
 # -------------------------------------------------------------- reportes
 
 @requiere_permiso(3)
-def reporte_facturacion_service():
+def reporte_facturacion_service():  # facturado, cobrado y pendiente por cliente; opción 6 del menú Reportes
     print("\n--- REPORTE DE FACTURACIÓN POR CLIENTE ---")
     try:
         registros = reporte_facturacion_clientes()
@@ -431,7 +431,7 @@ def reporte_facturacion_service():
             print(f"Cliente: {nombre}")
             print(f"Facturas: {cantidad}")
             print(f"Facturado: {dinero(facturado)}")
-            if len(fila) > 6:
+            if len(fila) > 6:  # separa lo facturado por envíos de las facturas históricas
                 print(f"  por envíos: {dinero(fila[5])} | "
                       f"históricas sin envío: {dinero(fila[6])}")
             print(f"Cobrado: {dinero(cobrado)}")
@@ -444,7 +444,7 @@ def reporte_facturacion_service():
 
 
 @requiere_permiso(3)
-def reporte_ingresos_service():
+def reporte_ingresos_service():  # cobros de los últimos 12 meses, por mes; opción 7 del menú Reportes
     print("\n--- INGRESOS MENSUALES ---")
     try:
         registros = reporte_ingresos_mensuales()
@@ -468,10 +468,10 @@ def reporte_ingresos_service():
 
 @requiere_permiso(3)
 @solo_internos
-def precios_transporte_service():
+def precios_transporte_service():  # muestra y cambia la tarifa estándar; opción 9 de facturación
     print("\n--- PRECIOS DE TRANSPORTE (tarifa estándar, ARS, sin IVA) ---")
     try:
-        actual = precios_repository.obtener_tarifa_estandar()
+        actual = precios_repository.obtener_tarifa_estandar()  # versión aprobada vigente
         if actual is None:
             print("Todavía no hay precios definidos.")
         else:
@@ -496,7 +496,7 @@ def precios_transporte_service():
             print("Operación cancelada.")
             return
 
-        id_regla = precios_repository.definir_tarifa_estandar(
+        id_regla = precios_repository.definir_tarifa_estandar(  # crea y aprueba una versión nueva; la anterior queda reemplazada
             base, precios, _id_usuario_actual(), referencia
         )
         logger.info("Tarifa estándar nueva: regla %s", id_regla)
@@ -512,7 +512,7 @@ def precios_transporte_service():
 
 @requiere_permiso(3)
 @solo_internos
-def apertura_cuenta_service():
+def apertura_cuenta_service():  # registra el saldo inicial de la cuenta de un cliente; opción 10 de facturación
     print("\n--- APERTURA DE CUENTA CORRIENTE ---")
     try:
         aperturas = cierre_cuenta_repository.listar_aperturas()
@@ -523,7 +523,7 @@ def apertura_cuenta_service():
                       f"ref. {a[6]} | aprobó {a[7]}")
 
         sesion = obtener_sesion_actual()
-        if sesion is None or any(
+        if sesion is None or any(  # solo un usuario interno aprueba una apertura
             sesion.get(parte) is not None
             for parte in ("id_cliente", "id_proveedor", "id_operador")
         ):
@@ -537,7 +537,7 @@ def apertura_cuenta_service():
         if cliente is None:
             return
         fecha = pedir_fecha("Fecha de vigencia AAAA-MM-DD: ")
-        _, _, sugerido = cierre_cuenta_repository.calcular_saldo_documentos(
+        _, _, sugerido = cierre_cuenta_repository.calcular_saldo_documentos(  # saldo de facturas y pagos anteriores a esa fecha, como sugerencia
             cliente[0], fecha
         )
         print(f"Saldo según facturas y pagos anteriores a esa fecha: "
@@ -546,7 +546,7 @@ def apertura_cuenta_service():
         saldo = Decimal(texto.replace(",", ".")) if texto else sugerido
         referencia = input("Referencia documentada: ")
 
-        vista = cierre_cuenta_service.previsualizar_apertura(cliente[0], saldo, fecha)
+        vista = cierre_cuenta_service.previsualizar_apertura(cliente[0], saldo, fecha)  # simula el cierre para ver si la cuenta concilia
         if vista["concilia"]:
             s = vista["snapshot"]
             print(f"\nCon esta apertura la cuenta concilia. Cierre de "
@@ -561,7 +561,7 @@ def apertura_cuenta_service():
         if input("¿Registrar y aprobar la apertura? (S/N): ").strip().upper() != "S":
             print("Operación cancelada.")
             return
-        id_apertura = cierre_cuenta_service.registrar_apertura(
+        id_apertura = cierre_cuenta_service.registrar_apertura(  # la guarda aprobada por el usuario conectado
             cliente[0], saldo, fecha, referencia, sesion["id_usuario"]
         )
         print(f"\nApertura {id_apertura} registrada.")
@@ -571,7 +571,7 @@ def apertura_cuenta_service():
         pausar()
 
 
-def mostrar_resumen_cierre(resumen):
+def mostrar_resumen_cierre(resumen):  # muestra cerrados, bloqueados, ya cerrados y errores; la usa cierre_mensual_service
     print(f"\nPeríodo {resumen['periodo']:%m/%Y}")
     print(f"Cerrados: {len(resumen['cerrados'])}")
     for c in resumen["cerrados"]:
@@ -591,7 +591,7 @@ def mostrar_resumen_cierre(resumen):
 
 @requiere_permiso(3)
 @solo_internos
-def cierre_mensual_service():
+def cierre_mensual_service():  # cierra un mes para todos los clientes; opción 11 de facturación
     print("\n--- CIERRE MENSUAL DE CUENTAS CORRIENTES ---")
     try:
         periodo = pedir_periodo("Período a cerrar (AAAA-MM): ")
@@ -599,7 +599,7 @@ def cierre_mensual_service():
         if input("¿Cerrar el período para todos los clientes? (S/N): ").strip().upper() != "S":
             print("Operación cancelada.")
             return
-        mostrar_resumen_cierre(cierre_cuenta_service.cerrar_mes_todos(periodo))
+        mostrar_resumen_cierre(cierre_cuenta_service.cerrar_mes_todos(periodo))  # cada cliente se cierra en su propia transacción
     except Exception as error:
         print(f"\nError en el cierre: {mensaje_error(error)}")
     finally:
