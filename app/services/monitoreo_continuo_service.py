@@ -15,12 +15,12 @@ from app.utils.errores import mensaje_error
 from app.services.autenticacion import requiere_permiso
 
 
-INTERVALO_SEGUNDOS = 10
-HORAS_SIN_LECTURAS = 24
+INTERVALO_SEGUNDOS = 10  # cada cuánto se hace una ronda
+HORAS_SIN_LECTURAS = 24  # más de esto sin lecturas se avisa como atrasado
 ZONA_ARGENTINA = ZoneInfo("America/Argentina/Buenos_Aires")
 
 
-def controlar_sensores(sensores):
+def controlar_sensores(sensores):  # separa sensores sin lecturas y atrasados; la usa monitoreo_continuo_service
     limite = datetime.now(timezone.utc) - timedelta(
         hours=HORAS_SIN_LECTURAS
     )
@@ -33,7 +33,7 @@ def controlar_sensores(sensores):
         id_sensor = sensor[0]
 
         try:
-            lectura = consultar_ultima_lectura_db(id_sensor)
+            lectura = consultar_ultima_lectura_db(id_sensor)  # última lectura en Cassandra
 
             if lectura is None:
                 sin_lecturas.append(id_sensor)
@@ -54,7 +54,7 @@ def controlar_sensores(sensores):
 
 
 @requiere_permiso(1)
-def monitoreo_continuo_service():
+def monitoreo_continuo_service():  # simula lecturas cada 10 segundos hasta Ctrl+C; opción 8 del menú de monitoreo
     print("\n--- MONITOREO IoT CONTINUO ---")
     print(
         f"\nSe generarán lecturas simuladas cada "
@@ -94,7 +94,7 @@ def monitoreo_continuo_service():
             print("=" * 50)
 
             try:
-                sensores = sensores_activos()
+                sensores = sensores_activos()  # se vuelven a leer en cada ronda por si cambiaron
 
             except Exception as error:
                 total_errores += 1
@@ -154,7 +154,7 @@ def monitoreo_continuo_service():
                     id_contenedor = sensor[1]
                     tipo = sensor[3]
 
-                    valores = generar_valores_simulados(tipo)
+                    valores = generar_valores_simulados(tipo)  # mismos valores al azar que la opción 5
 
                     if valores is None:
                         print(
@@ -164,7 +164,7 @@ def monitoreo_continuo_service():
                         continue
 
                     try:
-                        id_lectura = registrar_lectura_db(
+                        id_lectura = registrar_lectura_db(  # se guarda en las tres tablas de Cassandra
                             id_sensor=id_sensor,
                             id_contenedor=id_contenedor,
                             **valores
@@ -198,7 +198,7 @@ def monitoreo_continuo_service():
 
             time.sleep(INTERVALO_SEGUNDOS)
 
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:  # Ctrl+C corta el ciclo y muestra el resumen
         print("\n\nMonitoreo detenido por el usuario.")
 
     finally:

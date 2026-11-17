@@ -22,7 +22,7 @@ from app.utils import formato
 from app.services.autenticacion import requiere_permiso
 
 
-def pedir_id(mensaje, nombre):
+def pedir_id(mensaje, nombre):  # pide un ID entero positivo
     while True:
         try:
             return validar_entero_positivo_logistica(
@@ -37,7 +37,7 @@ def pausar():
 
 
 @requiere_permiso(1)
-def asociar_contenedor_service():
+def asociar_contenedor_service():  # asigna un contenedor libre a un envío; opción 9 del menú de envíos
     print("\n--- ASOCIAR CONTENEDOR A ENVÍO ---")
 
     try:
@@ -52,14 +52,14 @@ def asociar_contenedor_service():
             print("No existe un envío con ese ID.")
             return
 
-        if envio[5] in ("Cancelado", "Entregado"):
+        if envio[5] in ("Cancelado", "Entregado"):  # a un envío cerrado no se le agregan contenedores
             print(
                 "No se pueden asociar contenedores "
                 "a un envío cancelado o entregado."
             )
             return
 
-        disponibles = listar_contenedores_disponibles()
+        disponibles = listar_contenedores_disponibles()  # solo los Disponibles sin otro envío
 
         if not disponibles:
             print(
@@ -110,7 +110,7 @@ def asociar_contenedor_service():
             print("Operación cancelada.")
             return
 
-        if asociar_contenedor_db(id_envio, id_contenedor):
+        if asociar_contenedor_db(id_envio, id_contenedor):  # la asociación se guarda en PostgreSQL
 
             print("\nContenedor asociado correctamente.")
 
@@ -131,7 +131,7 @@ def asociar_contenedor_service():
 
 
 @requiere_permiso(1)
-def consultar_contenedores_envio_service():
+def consultar_contenedores_envio_service():  # lista los contenedores de un envío; opción 10 del menú de envíos
     print("\n--- CONTENEDORES DE UN ENVÍO ---")
 
     try:
@@ -171,7 +171,7 @@ def consultar_contenedores_envio_service():
 
 
 @requiere_permiso(1)
-def desasociar_contenedor_service():
+def desasociar_contenedor_service():  # saca un contenedor de un envío; opción 11 del menú de envíos
     print("\n--- DESASOCIAR CONTENEDOR ---")
 
     try:
@@ -217,7 +217,7 @@ def desasociar_contenedor_service():
             print("Operación cancelada.")
             return
 
-        if desasociar_contenedor_db(id_envio, id_contenedor):
+        if desasociar_contenedor_db(id_envio, id_contenedor):  # borra la asociación en PostgreSQL
 
             print("\nContenedor desasociado correctamente.")
 

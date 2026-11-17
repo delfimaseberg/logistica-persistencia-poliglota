@@ -26,7 +26,7 @@ from app.utils import formato
 from app.services.autenticacion import requiere_permiso
 
 
-def pedir(mensaje, funcion):
+def pedir(mensaje, funcion):  # repite la pregunta hasta que la validación pase; la usan todas las pantallas de acá
     while True:
         try:
             return funcion(input(mensaje))
@@ -38,7 +38,7 @@ def pausar():
     input("\nPresioná Enter para continuar...")
 
 
-def mostrar_contenedor(contenedor):
+def mostrar_contenedor(contenedor):  # imprime los datos de un contenedor; la usan alta, listado, búsqueda y modificación
     print("--------------------------------")
     print(f"ID contenedor: {contenedor[0]}")
     print(f"Código internacional: {contenedor[1]}")
@@ -47,14 +47,14 @@ def mostrar_contenedor(contenedor):
     print(f"Estado: {contenedor[4]}")
 
 
-def pedir_codigo(id_actual=None):
+def pedir_codigo(id_actual=None):  # pide un código válido que no esté repetido; la usan alta y modificación
     while True:
         codigo = pedir(
             "Código internacional (3 letras + U + 6 números + dígito de control, ej. MSCU1234566): ",
             validar_codigo_internacional
         )
 
-        existente = buscar_contenedor_por_codigo(codigo)
+        existente = buscar_contenedor_por_codigo(codigo)  # el código internacional no se puede repetir
 
         if existente is None or existente[0] == id_actual:
             return codigo
@@ -63,7 +63,7 @@ def pedir_codigo(id_actual=None):
 
 
 @requiere_permiso(1)
-def registrar_contenedor():
+def registrar_contenedor():  # da de alta un contenedor; opción 1 del menú de contenedores
     print("\n--- REGISTRAR CONTENEDOR ---")
 
     try:
@@ -91,7 +91,7 @@ def registrar_contenedor():
             estado
         )
 
-        id_contenedor = crear_contenedor(contenedor)
+        id_contenedor = crear_contenedor(contenedor)  # INSERT en PostgreSQL
 
         print("\nContenedor registrado correctamente.")
         print(f"ID generado: {id_contenedor}")
@@ -108,7 +108,7 @@ def registrar_contenedor():
 
 
 @requiere_permiso(1)
-def listar_contenedores_service():
+def listar_contenedores_service():  # lista todos los contenedores; opción 2 del menú de contenedores
     print("\n--- LISTAR CONTENEDORES ---")
 
     try:
@@ -131,7 +131,7 @@ def listar_contenedores_service():
 
 
 @requiere_permiso(1)
-def buscar_contenedor_service():
+def buscar_contenedor_service():  # muestra un contenedor por su ID; opción 3 del menú de contenedores
     print("\n--- BUSCAR CONTENEDOR ---")
 
     try:
@@ -158,7 +158,7 @@ def buscar_contenedor_service():
 
 
 @requiere_permiso(1)
-def modificar_contenedor_service():
+def modificar_contenedor_service():  # cambia un dato del contenedor; opción 4 del menú de contenedores
     print("\n--- MODIFICAR CONTENEDOR ---")
 
     try:
@@ -193,7 +193,7 @@ def modificar_contenedor_service():
             print("Opción inválida.")
             return
 
-        codigo = actual[1]
+        codigo = actual[1]  # arranca con los datos actuales y solo cambia el elegido
         tipo = actual[2]
         capacidad = actual[3]
         estado = actual[4]
@@ -219,7 +219,7 @@ def modificar_contenedor_service():
                 validar_estado_contenedor
             )
 
-            if (
+            if (  # si está asociado a un envío, solo puede quedar Disponible o En uso
                 contar_asociaciones_contenedor(id_contenedor) > 0
                 and nuevo_estado != "Disponible"
                 and nuevo_estado != "En uso"
@@ -239,7 +239,7 @@ def modificar_contenedor_service():
             estado
         )
 
-        if actualizar_contenedor(id_contenedor, contenedor):
+        if actualizar_contenedor(id_contenedor, contenedor):  # UPDATE en PostgreSQL
             print("\nContenedor modificado correctamente.")
             mostrar_contenedor(
                 buscar_contenedor_por_id(id_contenedor)
@@ -255,7 +255,7 @@ def modificar_contenedor_service():
 
 
 @requiere_permiso(1)
-def eliminar_contenedor_service():
+def eliminar_contenedor_service():  # borra un contenedor sin envíos ni sensores; opción 5 del menú de contenedores
     print("\n--- ELIMINAR CONTENEDOR ---")
 
     try:
@@ -272,14 +272,14 @@ def eliminar_contenedor_service():
             print("No existe un contenedor con ese ID.")
             return
 
-        if contar_asociaciones_contenedor(id_contenedor) > 0:
+        if contar_asociaciones_contenedor(id_contenedor) > 0:  # no se borra si está en un envío
             print(
                 "No se puede eliminar porque está asociado "
                 "a un envío."
             )
             return
 
-        if contar_sensores_contenedor(id_contenedor) > 0:
+        if contar_sensores_contenedor(id_contenedor) > 0:  # ni si tiene sensores
             print(
                 "No se puede eliminar porque tiene "
                 "sensores IoT asociados."

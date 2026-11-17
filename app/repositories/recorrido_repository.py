@@ -4,7 +4,7 @@ from app.repositories.lectura_iot_repository import (
 )
 
 
-def consultar_gps_contenedor(id_contenedor, meses, limite_por_mes=2000):
+def consultar_gps_contenedor(id_contenedor, meses, limite_por_mes=2000):  # posiciones GPS de un contenedor en Cassandra; la usa el recorrido GPS de trazabilidad
     """Posiciones GPS de un contenedor desde Cassandra.
 
     Consulta una partición (contenedor, mes) por cada mes pedido y
@@ -21,7 +21,7 @@ def consultar_gps_contenedor(id_contenedor, meses, limite_por_mes=2000):
             SELECT fecha_hora, sensor_id, gps_latitud, gps_longitud
             FROM lecturas_por_contenedor
             WHERE contenedor_id = ?
-              AND anio_mes = ?
+              AND anio_mes = ?  -- una partición por cada mes pedido
             LIMIT ?
         """)
 
@@ -34,7 +34,7 @@ def consultar_gps_contenedor(id_contenedor, meses, limite_por_mes=2000):
             )
 
             for fila in filas:
-                if (
+                if (  # solo las lecturas que tienen posición
                     fila.gps_latitud is None
                     or fila.gps_longitud is None
                 ):
@@ -47,7 +47,7 @@ def consultar_gps_contenedor(id_contenedor, meses, limite_por_mes=2000):
                     "lon": fila.gps_longitud
                 })
 
-        puntos.sort(key=lambda p: p["fecha_hora"])
+        puntos.sort(key=lambda p: p["fecha_hora"])  # todos los meses juntos en orden de fecha
         return puntos
 
     finally:

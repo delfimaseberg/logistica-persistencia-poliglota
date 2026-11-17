@@ -25,17 +25,17 @@ def pausar():
     input("\nPresioná Enter para continuar...")
 
 
-def sensores_activos():
+def sensores_activos():  # sensores en estado Activo; la usan la simulación, la detección y el monitoreo continuo
     return [
         sensor for sensor in listar_sensores()
         if str(sensor[6]).strip().lower() == "activo"
     ]
 
 
-def generar_valores_simulados(tipo):
+def generar_valores_simulados(tipo):  # valores al azar según el tipo de sensor; la usan la simulación y el monitoreo continuo
     tipo = str(tipo).strip().lower()
 
-    valores = {
+    valores = {  # todos vacíos salvo la batería; después se completa según el tipo
         "temperatura": None,
         "humedad": None,
         "vibracion": None,
@@ -62,13 +62,13 @@ def generar_valores_simulados(tipo):
             uniform(-58.55, -58.35), 6
         )
 
-    else:
+    else:  # Apertura u otro tipo: no se simula
         return None
 
     return valores
 
 
-def describir_valores(valores):
+def describir_valores(valores):  # texto corto de una lectura; la usa simular_lecturas_service
     """'6,25 °C | batería 80,1 %' con formato argentino."""
     partes = []
     if valores.get("temperatura") is not None:
@@ -86,7 +86,7 @@ def describir_valores(valores):
 
 
 @requiere_permiso(1)
-def simular_lecturas_service():
+def simular_lecturas_service():  # genera rondas de lecturas ficticias; opción 5 del menú de monitoreo
     print("\n--- SIMULAR LECTURAS IoT ---")
 
     try:
@@ -128,7 +128,7 @@ def simular_lecturas_service():
         omitidos = set()
         errores = []
 
-        for ronda in range(1, cantidad + 1):
+        for ronda in range(1, cantidad + 1):  # en cada ronda, una lectura por sensor activo
             print(f"\nRonda {ronda} de {cantidad}")
 
             for sensor in sensores:
@@ -143,7 +143,7 @@ def simular_lecturas_service():
                     continue
 
                 try:
-                    registrar_lectura_db(
+                    registrar_lectura_db(  # se guarda en Cassandra como una lectura real
                         id_sensor=id_sensor,
                         id_contenedor=id_contenedor,
                         **valores
@@ -188,7 +188,7 @@ def simular_lecturas_service():
 
 
 @requiere_permiso(1)
-def detectar_sensores_inactivos_service():
+def detectar_sensores_inactivos_service():  # sensores activos sin lecturas en las últimas N horas; opción 6 del menú de monitoreo
     print("\n--- DETECTAR SENSORES SIN LECTURAS RECIENTES ---")
 
     try:
@@ -214,7 +214,7 @@ def detectar_sensores_inactivos_service():
 
         sensores = sensores_activos()
         ahora = datetime.now(timezone.utc)
-        limite = ahora - timedelta(hours=horas)
+        limite = ahora - timedelta(hours=horas)  # antes de este instante, la lectura está atrasada
 
         sin_lecturas = []
         atrasados = []
@@ -222,7 +222,7 @@ def detectar_sensores_inactivos_service():
 
         for sensor in sensores:
             id_sensor = sensor[0]
-            lectura = consultar_ultima_lectura_db(id_sensor)
+            lectura = consultar_ultima_lectura_db(id_sensor)  # última lectura en Cassandra
 
             if lectura is None:
                 sin_lecturas.append(sensor)
@@ -280,7 +280,7 @@ def detectar_sensores_inactivos_service():
 
 
 @requiere_permiso(1)
-def consultar_posiciones_gps_service():
+def consultar_posiciones_gps_service():  # posiciones de un sensor GPS en un mes y link a Google Maps; opción 7 del menú de monitoreo
     print("\n--- CONSULTAR POSICIONES GPS ---")
 
     def pedir_id_positivo(mensaje):
@@ -302,7 +302,7 @@ def consultar_posiciones_gps_service():
             print("\nOpción inválida.")
             return
 
-        if modo == "1":
+        if modo == "1":  # por contenedor: busca su sensor GPS
             id_contenedor = pedir_id_positivo("ID del contenedor: ")
             contenedor = buscar_contenedor_por_id(id_contenedor)
 
@@ -387,7 +387,7 @@ def consultar_posiciones_gps_service():
             print("\nMes inválido. Usá AAAA-MM.")
             return
 
-        lecturas = consultar_lecturas_sensor_db(
+        lecturas = consultar_lecturas_sensor_db(  # partición del sensor en ese mes, hasta 100 lecturas
             sensor[0], mes, limite=100
         )
         posiciones = [
@@ -436,7 +436,7 @@ def consultar_posiciones_gps_service():
         coordenadas = (
             f"{posicion.gps_latitud},{posicion.gps_longitud}"
         )
-        url = (
+        url = (  # link de búsqueda de Google Maps con las coordenadas
             "https://www.google.com/maps/search/?"
             + urlencode({"api": "1", "query": coordenadas})
         )
