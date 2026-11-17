@@ -18,11 +18,11 @@ from app.repositories.mensajeria_repository import (
 from app.utils.logger import obtener_logger
 
 
-logger = obtener_logger("alertas")
+logger = obtener_logger("alertas")  # deja registro en logs/app.log
 ZONA = ZoneInfo("America/Argentina/Buenos_Aires")
 
 
-def codigo_contenedor(id_contenedor):
+def codigo_contenedor(id_contenedor):  # código del contenedor en PostgreSQL, para el texto del mensaje
     if id_contenedor is None:
         return None
     with get_postgres_connection() as conexion, conexion.cursor() as cursor:
@@ -32,7 +32,7 @@ def codigo_contenedor(id_contenedor):
         return fila[0] if fila else None
 
 
-def textos_mensaje(alerta, codigo):
+def textos_mensaje(alerta, codigo):  # arma el mensaje para internos y para el cliente; la usa notificar_alerta
     """(texto para internos, texto para el cliente)."""
     fecha = alerta.get("fecha")
     if fecha is not None:
@@ -58,32 +58,32 @@ def textos_mensaje(alerta, codigo):
     extra_interno = [f"sensor {alerta['sensor_id']}"] if alerta.get("sensor_id") is not None else []
     extra_fecha = [fecha] if fecha else []
     interno = base + (f" ({', '.join(extra_interno + extra_fecha)})" if extra_interno + extra_fecha else "")
-    cliente = base + (f" ({fecha})" if fecha else "")
+    cliente = base + (f" ({fecha})" if fecha else "")  # al cliente no se le muestra el número de sensor
     return interno, cliente
 
 
-def notificar_alerta(alerta):
+def notificar_alerta(alerta):  # manda los mensajes de una alerta nueva; la usa emitir_alerta
     """Mensajes de una alerta que todavía no los emitió. Devuelve la cantidad creada."""
     if alerta.get("mensajes_emitidos") is not False:
         return 0       # ya notificada, o anterior a la emisión de mensajes
     interno, cliente = textos_mensaje(alerta, codigo_contenedor(alerta.get("contenedor_id")))
     creados = 0
-    for id_usuario, es_interno in destinatarios_alerta(alerta.get("envio_id")):
-        if registrar_mensaje_alerta(alerta["_id"], id_usuario,
+    for id_usuario, es_interno in destinatarios_alerta(alerta.get("envio_id")):  # internos activos y, si hay envío, los usuarios de su cliente
+        if registrar_mensaje_alerta(alerta["_id"], id_usuario,  # el índice único evita mandar dos veces el mismo mensaje
                                     interno if es_interno else cliente):
             creados += 1
-    marcar_mensajes_emitidos(alerta["_id"], creados)
+    marcar_mensajes_emitidos(alerta["_id"], creados)  # en MongoDB: la alerta ya no se vuelve a notificar
     logger.info("Alerta %s: %s mensaje(s) emitido(s)", alerta["_id"], creados)
     return creados
 
 
-def emitir_alerta(**datos):
+def emitir_alerta(**datos):  # guarda la alerta y manda los mensajes; la usan la detección, la revisión de sensores y la carga de ejemplo
     """Igual que registrar_alerta, más los mensajes. Devuelve la alerta.
 
     Si fallan los mensajes, la alerta queda guardada con mensajes_emitidos
     = False y se reintenta la próxima vez que se detecte.
     """
-    alerta = registrar_alerta(**datos)
+    alerta = registrar_alerta(**datos)  # en MongoDB, sin duplicar si ya existía
     try:
         alerta["mensajes_creados"] = notificar_alerta(alerta)
     except Exception:

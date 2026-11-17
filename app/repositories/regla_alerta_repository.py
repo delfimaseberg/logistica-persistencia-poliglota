@@ -19,14 +19,14 @@ VARIABLES = {
     "salto_temperatura": ("Salto brusco de temperatura", "°C", Decimal("0.01"), Decimal("140"), ("MAX",)),
     "lecturas_congeladas": ("Lecturas idénticas seguidas", "lecturas", Decimal("3"), Decimal("100"), ("MAX",)),
 }
-SEVERIDADES = ("Baja", "Media", "Alta", "Crítica")
-ORDEN_SEVERIDAD = {s: i for i, s in enumerate(SEVERIDADES)}
+SEVERIDADES = ("Baja", "Media", "Alta", "Crítica")  # de menor a mayor
+ORDEN_SEVERIDAD = {s: i for i, s in enumerate(SEVERIDADES)}  # para elegir la más severa
 
 _COLUMNAS = """id_regla, variable, limite, valor, severidad, activa, descripcion,
                actualizada_en"""
 
 
-def _dict(fila):
+def _dict(fila):  # fila de la tabla a diccionario
     return {
         "id_regla": fila[0], "variable": fila[1], "limite": fila[2],
         "valor": fila[3], "severidad": fila[4], "activa": fila[5],
@@ -34,7 +34,7 @@ def _dict(fila):
     }
 
 
-def validar_regla(variable, limite, valor, severidad):
+def validar_regla(variable, limite, valor, severidad):  # controla una regla; la usan crear y modificar
     """Valida y normaliza. Devuelve (variable, limite, Decimal, severidad)."""
     if variable not in VARIABLES:
         raise ValueError("Variable inválida.")
@@ -48,7 +48,7 @@ def validar_regla(variable, limite, valor, severidad):
         valor = Decimal(str(valor).replace(",", "."))
     except Exception:
         raise ValueError("El valor debe ser numérico.") from None
-    if not valor.is_finite() or not minimo <= valor <= maximo:
+    if not valor.is_finite() or not minimo <= valor <= maximo:  # el umbral tiene que estar en el rango posible
         raise ValueError(f"{nombre}: el valor debe estar entre {minimo} y {maximo}.")
     if variable == "lecturas_congeladas" and valor != valor.to_integral_value():
         raise ValueError("La cantidad de lecturas debe ser un número entero.")
@@ -57,17 +57,17 @@ def validar_regla(variable, limite, valor, severidad):
     return variable, limite, valor, severidad
 
 
-def listar_reglas(solo_activas=False):
+def listar_reglas(solo_activas=False):  # reglas de PostgreSQL; la usan el menú de reglas y reglas_vigentes
     with get_postgres_connection() as conexion, conexion.cursor() as cursor:
         cursor.execute(f"""
             SELECT {_COLUMNAS} FROM regla_alerta
-            WHERE (%s = FALSE OR activa)
+            WHERE (%s = FALSE OR activa)  -- si se piden solo activas, filtra; si no, trae todas
             ORDER BY variable, limite, valor, id_regla
         """, (solo_activas,))
         return [_dict(f) for f in cursor.fetchall()]
 
 
-def obtener_regla(id_regla):
+def obtener_regla(id_regla):  # una regla por ID; la usa modificar_regla
     with get_postgres_connection() as conexion, conexion.cursor() as cursor:
         cursor.execute(f"SELECT {_COLUMNAS} FROM regla_alerta WHERE id_regla = %s",
                        (id_regla,))
@@ -75,7 +75,7 @@ def obtener_regla(id_regla):
         return _dict(fila) if fila else None
 
 
-def crear_regla(variable, limite, valor, severidad, descripcion, id_usuario):
+def crear_regla(variable, limite, valor, severidad, descripcion, id_usuario):  # guarda una regla nueva; la usa crear_regla_service
     variable, limite, valor, severidad = validar_regla(variable, limite, valor, severidad)
     with get_postgres_connection() as conexion, conexion.cursor() as cursor:
         cursor.execute("""
@@ -88,11 +88,11 @@ def crear_regla(variable, limite, valor, severidad, descripcion, id_usuario):
         return cursor.fetchone()[0]
 
 
-def modificar_regla(id_regla, valor, severidad, id_usuario):
+def modificar_regla(id_regla, valor, severidad, id_usuario):  # cambia valor y severidad; la usa modificar_regla_service
     regla = obtener_regla(id_regla)
     if regla is None:
         raise ValueError("La regla no existe.")
-    _, _, valor, severidad = validar_regla(regla["variable"], regla["limite"], valor, severidad)
+    _, _, valor, severidad = validar_regla(regla["variable"], regla["limite"], valor, severidad)  # variable y límite no se cambian
     with get_postgres_connection() as conexion, conexion.cursor() as cursor:
         cursor.execute("""
             UPDATE regla_alerta
@@ -103,17 +103,17 @@ def modificar_regla(id_regla, valor, severidad, id_usuario):
         return cursor.rowcount == 1
 
 
-def cambiar_estado_regla(id_regla, activa, id_usuario):
+def cambiar_estado_regla(id_regla, activa, id_usuario):  # activa o desactiva; la usa cambiar_estado_regla_service
     with get_postgres_connection() as conexion, conexion.cursor() as cursor:
         cursor.execute("""
             UPDATE regla_alerta
             SET activa = %s, actualizada_por = %s, actualizada_en = CURRENT_TIMESTAMP
-            WHERE id_regla = %s AND activa <> %s
+            WHERE id_regla = %s AND activa <> %s  -- si ya estaba así, no cambia nada
         """, (activa, id_usuario, id_regla, activa))
         return cursor.rowcount == 1
 
 
-def contar_activas(variable, limite):
+def contar_activas(variable, limite):  # reglas activas de una variable; la usa cambiar_estado_regla_service
     with get_postgres_connection() as conexion, conexion.cursor() as cursor:
         cursor.execute("""SELECT COUNT(*) FROM regla_alerta
                           WHERE variable = %s AND limite = %s AND activa""",
@@ -123,7 +123,7 @@ def contar_activas(variable, limite):
 
 # ------------------------------------------------------------ uso en detección
 
-def reglas_vigentes():
+def reglas_vigentes():  # reglas activas agrupadas; las usan toda la detección y la simulación de fallas
     """{(variable, limite): [(valor float, severidad, descripción)...]} de las activas."""
     vigentes = {}
     for regla in listar_reglas(solo_activas=True):
@@ -132,7 +132,7 @@ def reglas_vigentes():
     return vigentes
 
 
-def umbral(vigentes, variable, limite, por_defecto=None):
+def umbral(vigentes, variable, limite, por_defecto=None):  # el umbral que dispara primero; lo usan la detección y la simulación de fallas
     """El umbral menos exigente de una variable (el primero que dispara).
 
     MAX: el menor valor; MIN: el mayor. Si no hay reglas activas, por_defecto.

@@ -19,10 +19,10 @@ from app.utils.logger import obtener_logger
 logger = obtener_logger("procesos_periodicos")
 ZONA_ARGENTINA = ZoneInfo("America/Argentina/Buenos_Aires")
 
-PROCESOS_DISPONIBLES = {"predicciones", "sensores"}
+PROCESOS_DISPONIBLES = {"predicciones", "sensores"}  # procesos que se pueden pedir a ejecutar_procesos.py
 
 
-def detectar_sensores_inactivos_automatico(horas=24, ahora=None, severidad="Media"):
+def detectar_sensores_inactivos_automatico(horas=24, ahora=None, severidad="Media"):  # alerta por sensores sin transmisión; la usan ejecutar_revision_sensores y la carga de ejemplo
     """
     Detecta sensores activos sin lecturas recientes, registra la alerta y
     emite los mensajes (internos y, si el contenedor tiene un único envío
@@ -40,7 +40,7 @@ def detectar_sensores_inactivos_automatico(horas=24, ahora=None, severidad="Medi
     if ahora.tzinfo is None:
         raise ValueError("La fecha debe incluir zona horaria.")
 
-    limite = ahora - timedelta(hours=horas)
+    limite = ahora - timedelta(hours=horas)  # sin lecturas desde antes de esto: sin transmisión
 
     resumen = {
         "fecha_ejecucion": ahora,
@@ -69,9 +69,9 @@ def detectar_sensores_inactivos_automatico(horas=24, ahora=None, severidad="Medi
         resumen["sensores_activos"] += 1
 
         try:
-            lectura = consultar_ultima_lectura_db(id_sensor)
+            lectura = consultar_ultima_lectura_db(id_sensor)  # última lectura en Cassandra
 
-            if lectura is None:
+            if lectura is None:  # nunca transmitió
                 resumen["sin_lecturas"].append(id_sensor)
                 tipo = "Sensor sin lecturas registradas"
                 descripcion = descripcion_sin_transmision(tipo_sensor, codigo)
@@ -82,7 +82,7 @@ def detectar_sensores_inactivos_automatico(horas=24, ahora=None, severidad="Medi
                 if fecha.tzinfo is None:
                     fecha = fecha.replace(tzinfo=timezone.utc)
 
-                if fecha >= limite:
+                if fecha >= limite:  # está al día: no hay alerta
                     resumen["al_dia"] += 1
                     continue
 
@@ -100,21 +100,21 @@ def detectar_sensores_inactivos_automatico(horas=24, ahora=None, severidad="Medi
             dia_deteccion = ahora.astimezone(
                 ZONA_ARGENTINA
             ).date().isoformat()
-            clave = f"{id_sensor}:{tipo}:{dia_deteccion}"
+            clave = f"{id_sensor}:{tipo}:{dia_deteccion}"  # clave: sensor, tipo y día
 
             from app.services.incidentes_service import (
                 buscar_envios_activos_de_contenedor,
             )
             envios = buscar_envios_activos_de_contenedor(id_contenedor)
 
-            emitir_alerta(
+            emitir_alerta(  # alerta en MongoDB y mensajes; sin incidente
                 sensor_id=id_sensor,
                 contenedor_id=id_contenedor,
                 tipo=tipo,
                 severidad=severidad,
                 descripcion=descripcion,
                 clave_deteccion=clave,
-                envio_id=envios[0] if len(envios) == 1 else None,
+                envio_id=envios[0] if len(envios) == 1 else None,  # con envío solo si el contenedor tiene uno en curso, para avisarle al cliente
             )
 
             resumen["alertas_procesadas"] += 1
@@ -150,7 +150,7 @@ def detectar_sensores_inactivos_automatico(horas=24, ahora=None, severidad="Medi
     return resumen
 
 
-def ejecutar_predicciones_diarias():
+def ejecutar_predicciones_diarias():  # recalcula las predicciones de riesgo; la usan ejecutar_todos_los_procesos y la carga de ejemplo
     """Actualiza las predicciones de riesgo."""
     logger.info("Iniciando predicciones diarias")
 
@@ -167,7 +167,7 @@ def ejecutar_predicciones_diarias():
     return resultado
 
 
-def regla_sin_transmision():
+def regla_sin_transmision():  # horas y severidad de la regla sin transmisión; la usa ejecutar_revision_sensores
     """(horas, severidad) de la regla activa menos exigente; (24, Media) si no hay."""
     reglas = reglas_vigentes().get(("horas_sin_transmision", "MAX"))
     if not reglas:
@@ -176,7 +176,7 @@ def regla_sin_transmision():
     return horas, severidad
 
 
-def ejecutar_revision_sensores(horas=None):
+def ejecutar_revision_sensores(horas=None):  # revisión completa de sensores; la usan ejecutar_todos_los_procesos y la carga de ejemplo
     """Revisión periódica: sensores sin transmisión y lecturas recientes
     (umbrales de la carga y fallas del sensor)."""
     from app.services.incidentes_service import revisar_lecturas_sensores
@@ -188,12 +188,12 @@ def ejecutar_revision_sensores(horas=None):
         horas,
     )
 
-    resultado = detectar_sensores_inactivos_automatico(horas=horas, severidad=severidad)
-    resultado["lecturas"] = revisar_lecturas_sensores()
+    resultado = detectar_sensores_inactivos_automatico(horas=horas, severidad=severidad)  # primero, los que no transmiten
+    resultado["lecturas"] = revisar_lecturas_sensores()  # después, fallas y umbrales en las lecturas
     return resultado
 
 
-def ejecutar_todos_los_procesos(horas_sensores=None, procesos=None):
+def ejecutar_todos_los_procesos(horas_sensores=None, procesos=None):  # corre los procesos pedidos; la usa ejecutar_procesos.py (Programador de tareas)
     """
     Ejecuta los procesos disponibles de forma independiente.
     Si uno falla, intenta ejecutar el siguiente.
@@ -223,7 +223,7 @@ def ejecutar_todos_los_procesos(horas_sensores=None, procesos=None):
         "errores": {},
     }
 
-    for proceso in procesos:
+    for proceso in procesos:  # si uno falla, se anota el error y sigue con el otro
         try:
             if proceso == "predicciones":
                 resultado[proceso] = ejecutar_predicciones_diarias()

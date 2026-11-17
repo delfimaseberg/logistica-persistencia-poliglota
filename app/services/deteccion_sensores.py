@@ -22,20 +22,20 @@ RANGOS_FISICOS = {
     "gps_latitud": (-90.0, 90.0),
     "gps_longitud": (-180.0, 180.0),
 }
-NOMBRES = {
+NOMBRES = {  # nombre de cada campo para los textos
     "temperatura": "Temperatura", "humedad": "Humedad", "vibracion": "Vibración",
     "bateria": "Batería", "gps_latitud": "Latitud", "gps_longitud": "Longitud",
 }
-VARIABLES_CARGA = ("temperatura", "humedad", "vibracion", "bateria")
-VENTANA_SALTO = timedelta(minutes=60)
+VARIABLES_CARGA = ("temperatura", "humedad", "vibracion", "bateria")  # las variables que se comparan con umbrales
+VENTANA_SALTO = timedelta(minutes=60)  # un salto cuenta solo entre lecturas separadas por menos de una hora
 
-FALLA_VALOR = "Falla de sensor: valor imposible"
+FALLA_VALOR = "Falla de sensor: valor imposible"  # tipos de alerta de falla del sensor
 FALLA_CONGELADA = "Falla de sensor: lecturas congeladas"
 FALLA_SALTO = "Falla de sensor: salto brusco"
 
 # Mismos valores que la carga inicial de la migración 015 (para tests y
 # como referencia; la detección usa las reglas activas de la base).
-REGLAS_POR_DEFECTO = {
+REGLAS_POR_DEFECTO = {  # reglas iniciales: variable y límite, con valor, severidad y nombre
     ("temperatura", "MIN"): [(2.0, "Alta", "Temperatura baja")],
     ("temperatura", "MAX"): [(8.0, "Alta", "Temperatura alta")],
     ("humedad", "MAX"): [(80.0, "Media", "Humedad alta")],
@@ -47,14 +47,14 @@ REGLAS_POR_DEFECTO = {
 }
 
 
-def nombre_tipo_sensor(tipo):
+def nombre_tipo_sensor(tipo):  # tipo de sensor para los textos; la usa descripcion_sin_transmision
     """Tipo de sensor para un texto: 'humedad', 'temperatura'; las siglas
     (GPS) quedan en mayúsculas."""
     tipo = " ".join(str(tipo or "").split())
     return tipo if tipo.isupper() else tipo.lower()
 
 
-def descripcion_sin_transmision(tipo_sensor, codigo_contenedor, ultima=None, horas=None):
+def descripcion_sin_transmision(tipo_sensor, codigo_contenedor, ultima=None, horas=None):  # texto de la alerta de sensor sin transmisión; la usa la revisión de sensores
     """Texto de las alertas de sensor sin lecturas o sin transmisión reciente.
 
     ultima: fecha (datetime) de la última lectura; sin ella, "sin lecturas".
@@ -69,7 +69,7 @@ def descripcion_sin_transmision(tipo_sensor, codigo_contenedor, ultima=None, hor
     return f"{sensor} no transmite desde {local:%d/%m/%Y %H:%M}. Umbral: {formato.compacto(horas)} horas."
 
 
-def _numero(valor):
+def _numero(valor):  # pasa a float o None; lo usan las funciones de detección
     """float, None si falta o no es número. NaN e infinito se devuelven tal cual."""
     if valor is None or isinstance(valor, bool):
         return None
@@ -79,26 +79,26 @@ def _numero(valor):
         return None
 
 
-def _fecha(lectura):
+def _fecha(lectura):  # fecha de la lectura con zona horaria
     fecha = getattr(lectura, "fecha_hora", None)
     if fecha is not None and fecha.tzinfo is None:
         fecha = fecha.replace(tzinfo=timezone.utc)
     return fecha
 
 
-def valores_imposibles(lectura):
+def valores_imposibles(lectura):  # campos fuera del rango físico; la usan las fallas y la validación de umbrales
     """[(campo, valor)] con valores no finitos o fuera del rango físico."""
     resultado = []
     for campo, (minimo, maximo) in RANGOS_FISICOS.items():
         valor = _numero(getattr(lectura, campo, None))
         if valor is None:
             continue
-        if not isfinite(valor) or not minimo <= valor <= maximo:
+        if not isfinite(valor) or not minimo <= valor <= maximo:  # valor imposible: no numérico o fuera de rango
             resultado.append((campo, valor))
     return resultado
 
 
-def evaluar_umbrales(lectura, vigentes):
+def evaluar_umbrales(lectura, vigentes):  # compara la lectura con los umbrales activos; la usa detectar_anomalias
     """[(tipo, severidad, descripción)] según las reglas activas.
 
     Por variable y límite se informa solo la regla más severa que se cumple.
@@ -112,18 +112,18 @@ def evaluar_umbrales(lectura, vigentes):
         for limite in ("MIN", "MAX"):
             cumplidas = [
                 (umbral, severidad) for umbral, severidad, _ in vigentes.get((variable, limite), [])
-                if (valor < umbral if limite == "MIN" else valor > umbral)
+                if (valor < umbral if limite == "MIN" else valor > umbral)  # MIN: alerta si baja del umbral; MAX: si lo supera
             ]
             if not cumplidas:
                 continue
-            umbral, severidad = max(cumplidas, key=lambda r: ORDEN_SEVERIDAD.get(r[1], -1))
+            umbral, severidad = max(cumplidas, key=lambda r: ORDEN_SEVERIDAD.get(r[1], -1))  # si se cumplen varias, se informa la más severa
             tipo = f"{VARIABLES[variable][0]} {'baja' if limite == 'MIN' else 'alta'}"
             resultados.append((tipo, severidad, f"{tipo}: valor {formato.compacto(valor)}, "
                                                 f"límite {formato.compacto(umbral)}"))
     return resultados
 
 
-def _regla(vigentes, variable):
+def _regla(vigentes, variable):  # la regla MAX que dispara primero; la usa fallas_de_sensor
     """(valor, severidad) de la regla MAX activa menos exigente, o None."""
     reglas = vigentes.get((variable, "MAX"))
     if not reglas:
@@ -132,7 +132,7 @@ def _regla(vigentes, variable):
     return valor, severidad
 
 
-def lecturas_congeladas(lecturas, cantidad):
+def lecturas_congeladas(lecturas, cantidad):  # si las últimas N lecturas son idénticas; la usa fallas_de_sensor
     """True si las últimas `cantidad` lecturas tienen igual temperatura y humedad.
 
     `lecturas` va de la más nueva a la más vieja.
@@ -142,13 +142,13 @@ def lecturas_congeladas(lecturas, cantidad):
     if cantidad < 2 or len(serie) < cantidad:
         return False
     valores = {(_numero(l.temperatura), _numero(l.humedad)) for l in serie}
-    if len(valores) != 1:
+    if len(valores) != 1:  # un solo par distinto: el sensor quedó trabado
         return False
     temperatura, humedad = next(iter(valores))
     return temperatura is not None or humedad is not None
 
 
-def saltos_bruscos(lecturas, maximo, ventana=VENTANA_SALTO):
+def saltos_bruscos(lecturas, maximo, ventana=VENTANA_SALTO):  # cambios de temperatura demasiado grandes entre lecturas seguidas; la usa fallas_de_sensor
     """[(anterior, posterior, diferencia)] entre lecturas seguidas y cercanas.
 
     Ignora pares con valores imposibles (esos ya son otra falla).
@@ -161,15 +161,15 @@ def saltos_bruscos(lecturas, maximo, ventana=VENTANA_SALTO):
             continue
         if valores_imposibles(anterior) or valores_imposibles(posterior):
             continue
-        if _fecha(posterior) - _fecha(anterior) > ventana:
+        if _fecha(posterior) - _fecha(anterior) > ventana:  # muy separadas en el tiempo: no es un salto
             continue
         diferencia = abs(t2 - t1)
-        if diferencia > maximo:
+        if diferencia > maximo:  # salto brusco: más grados que el máximo de la regla
             saltos.append((anterior, posterior, round(diferencia, 2)))
     return saltos
 
 
-def fallas_de_sensor(lecturas, vigentes):
+def fallas_de_sensor(lecturas, vigentes):  # valor imposible, lecturas congeladas y saltos bruscos; la usa revisar_lecturas_sensores
     """Fallas en las lecturas recientes (de la más nueva a la más vieja).
 
     Devuelve [(tipo, severidad, descripción, id_lectura_de_referencia)].
@@ -179,7 +179,7 @@ def fallas_de_sensor(lecturas, vigentes):
         return []
     fallas = []
     ultima = lecturas[0]
-    imposibles = valores_imposibles(ultima)
+    imposibles = valores_imposibles(ultima)  # el valor imposible se mira en la última lectura
     if imposibles:
         detalle = "; ".join(f"{NOMBRES[c]} = {formato.compacto(v, 5) if isfinite(v) else 'no numérico'}"
                             for c, v in imposibles)
@@ -187,7 +187,7 @@ def fallas_de_sensor(lecturas, vigentes):
                        f"El sensor informó valores imposibles: {detalle}.", ultima.id_lectura))
 
     regla = _regla(vigentes, "lecturas_congeladas")
-    if regla and lecturas_congeladas(lecturas, regla[0]):
+    if regla and lecturas_congeladas(lecturas, regla[0]):  # la alerta queda en la primera lectura congelada
         cantidad = int(regla[0])
         primera = lecturas[cantidad - 1]
         # Solo las variables que mide el sensor (las demás vienen vacías).
@@ -201,7 +201,7 @@ def fallas_de_sensor(lecturas, vigentes):
 
     regla = _regla(vigentes, "salto_temperatura")
     if regla:
-        for anterior, posterior, diferencia in saltos_bruscos(lecturas, regla[0]):
+        for anterior, posterior, diferencia in saltos_bruscos(lecturas, regla[0]):  # una alerta por cada salto
             minutos = int((_fecha(posterior) - _fecha(anterior)).total_seconds() // 60)
             fallas.append((FALLA_SALTO, regla[1],
                            f"La temperatura pasó de {formato.compacto(anterior.temperatura)} a "
@@ -211,6 +211,6 @@ def fallas_de_sensor(lecturas, vigentes):
     return fallas
 
 
-def es_lectura_valida_para_umbrales(lectura):
+def es_lectura_valida_para_umbrales(lectura):  # si la lectura sirve para evaluar la carga; la usa detectar_anomalias
     """Una lectura con valores imposibles no se usa para evaluar la carga."""
     return not valores_imposibles(lectura)

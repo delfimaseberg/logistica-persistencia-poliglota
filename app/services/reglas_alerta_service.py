@@ -11,7 +11,7 @@ def pausar():
     input("\nPresioná Enter para continuar...")
 
 
-def describir(regla):
+def describir(regla):  # una regla en palabras; la usa _mostrar
     nombre, unidad = repo.VARIABLES[regla["variable"]][:2]
     signo = "menor a" if regla["limite"] == "MIN" else "mayor a"
     if regla["variable"] == "lecturas_congeladas":
@@ -26,14 +26,14 @@ def describir(regla):
     return f"{condicion} -> {regla['severidad']} ({estado})"
 
 
-def _mostrar(reglas):
+def _mostrar(reglas):  # lista numerada de reglas; la usan listar y _elegir
     if not reglas:
         print("No hay reglas.")
     for numero, regla in enumerate(reglas, 1):
         print(f"  {numero}. {describir(regla)}")
 
 
-def _elegir(reglas):
+def _elegir(reglas):  # elige una regla de la lista; la usan modificar y activar/desactivar
     _mostrar(reglas)
     valor = input("Número de regla (0 = cancelar): ").strip()
     if valor.isdigit() and 1 <= int(valor) <= len(reglas):
@@ -41,7 +41,7 @@ def _elegir(reglas):
     return None
 
 
-def _pedir_severidad(actual=None):
+def _pedir_severidad(actual=None):  # pide la severidad; la usan crear y modificar
     opciones = {str(i): s for i, s in enumerate(repo.SEVERIDADES, 1)}
     print("Severidad: " + " | ".join(f"{k}. {v}" for k, v in opciones.items()))
     texto = input("Opción" + (f" [Enter = {actual}]" if actual else "") + ": ").strip()
@@ -50,7 +50,7 @@ def _pedir_severidad(actual=None):
     return opciones.get(texto)
 
 
-def listar_reglas_service():
+def listar_reglas_service():  # muestra todas las reglas; opción 1 de reglas de alerta
     print("\n--- REGLAS DE ALERTA ---")
     try:
         _mostrar(repo.listar_reglas())
@@ -62,7 +62,7 @@ def listar_reglas_service():
 
 
 @solo_internos
-def crear_regla_service():
+def crear_regla_service():  # crea un umbral nuevo; opción 2 de reglas de alerta
     print("\n--- NUEVA REGLA DE ALERTA ---")
     try:
         variables = list(repo.VARIABLES)
@@ -74,7 +74,7 @@ def crear_regla_service():
             print("Cancelado.")
             return
         variable = variables[int(elegida) - 1]
-        limites = repo.VARIABLES[variable][4]
+        limites = repo.VARIABLES[variable][4]  # algunas variables solo admiten MAX
         limite = limites[0]
         if len(limites) > 1:
             limite = "MIN" if input("Alerta si el valor es 1. menor | 2. mayor: ").strip() == "1" else "MAX"
@@ -84,13 +84,13 @@ def crear_regla_service():
             print("Severidad inválida.")
             return
         descripcion = input("Descripción (opcional): ").strip()
-        repo.crear_regla(variable, limite, valor, severidad, descripcion,
+        repo.crear_regla(variable, limite, valor, severidad, descripcion,  # valida y guarda en PostgreSQL
                          obtener_sesion_actual()["id_usuario"])
         print("Regla creada. La detección la usa desde ahora.")
     except ValueError as error:
         print(f"No se creó la regla: {mensaje_error(error)}")
     except Exception as error:
-        if "uq_regla_alerta_activa" in str(error):
+        if "uq_regla_alerta_activa" in str(error):  # no puede haber dos activas iguales
             print("Ya hay una regla activa para esa variable, límite y severidad. Modifíquela.")
         else:
             print(f"Error: {mensaje_error(error)}")
@@ -99,7 +99,7 @@ def crear_regla_service():
 
 
 @solo_internos
-def modificar_regla_service():
+def modificar_regla_service():  # cambia valor o severidad; opción 3 de reglas de alerta
     print("\n--- MODIFICAR REGLA DE ALERTA ---")
     try:
         regla = _elegir(repo.listar_reglas())
@@ -126,7 +126,7 @@ def modificar_regla_service():
 
 
 @solo_internos
-def cambiar_estado_regla_service():
+def cambiar_estado_regla_service():  # activa o desactiva una regla; opción 4 de reglas de alerta
     print("\n--- ACTIVAR O DESACTIVAR UNA REGLA ---")
     try:
         regla = _elegir(repo.listar_reglas())
@@ -134,7 +134,7 @@ def cambiar_estado_regla_service():
             print("Cancelado.")
             return
         activar = not regla["activa"]
-        if not activar and repo.contar_activas(regla["variable"], regla["limite"]) == 1:
+        if not activar and repo.contar_activas(regla["variable"], regla["limite"]) == 1:  # avisa si es la última: sin ella no hay alertas de esa variable
             print("Atención: es la última regla activa de esa variable; "
                   "sin ella no se generan esas alertas.")
         accion = "activar" if activar else "desactivar"
@@ -155,7 +155,7 @@ def cambiar_estado_regla_service():
         pausar()
 
 
-OPCIONES_REGLAS = {
+OPCIONES_REGLAS = {  # opciones del menú de reglas
     "1": ("Listar reglas", listar_reglas_service),
     "2": ("Crear regla", crear_regla_service),
     "3": ("Modificar valor o severidad", modificar_regla_service),
@@ -164,7 +164,7 @@ OPCIONES_REGLAS = {
 
 
 @requiere_permiso(3)
-def menu_reglas_alerta():
+def menu_reglas_alerta():  # menú de reglas de alerta; opción 7 del menú de incidentes
     while True:
         print("\n--- REGLAS DE ALERTA (UMBRALES) ---")
         for clave, (texto, _) in OPCIONES_REGLAS.items():

@@ -7,10 +7,10 @@ from app.database.mongo_connection import get_mongo_database
 from app.repositories.evento_repository import ultimo_evento_envio
 
 
-def coleccion_alertas():
+def coleccion_alertas():  # colección alertas de MongoDB; la usan todas las funciones de acá
     coleccion = get_mongo_database()["alertas"]
 
-    coleccion.create_index(
+    coleccion.create_index(  # índice único por clave_deteccion: la misma alerta no se guarda dos veces
         [("clave_deteccion", 1)],
         unique=True,
         partialFilterExpression={
@@ -23,7 +23,7 @@ def coleccion_alertas():
 
 
 
-def registrar_alerta(
+def registrar_alerta(  # guarda una alerta Activa si no existía; la usa emitir_alerta
     sensor_id,
     contenedor_id,
     tipo,
@@ -37,7 +37,7 @@ def registrar_alerta(
     ahora = datetime.now(timezone.utc)
 
     # Evento logístico vigente del envío al momento de la detección.
-    evento = ultimo_evento_envio(envio_id, ahora) if envio_id is not None else None
+    evento = ultimo_evento_envio(envio_id, ahora) if envio_id is not None else None  # último evento del envío en MongoDB
 
     documento = {
         "sensor_id": sensor_id,
@@ -59,7 +59,7 @@ def registrar_alerta(
     }
 
     if clave_deteccion is None and lectura_id is not None:
-        clave_deteccion = f"{sensor_id}:{lectura_id}:{tipo}"
+        clave_deteccion = f"{sensor_id}:{lectura_id}:{tipo}"  # clave: sensor, lectura y tipo
 
     if clave_deteccion is None:
         resultado = coleccion.insert_one(documento)
@@ -69,7 +69,7 @@ def registrar_alerta(
 
     documento["clave_deteccion"] = clave_deteccion
 
-    resultado = coleccion.update_one(
+    resultado = coleccion.update_one(  # upsert con $setOnInsert: si ya existe, no la toca
         {"clave_deteccion": clave_deteccion},
         {"$setOnInsert": documento},
         upsert=True,
@@ -80,14 +80,14 @@ def registrar_alerta(
     return alerta
 
 
-def marcar_mensajes_emitidos(id_alerta, cantidad):
+def marcar_mensajes_emitidos(id_alerta, cantidad):  # anota que ya se mandaron los mensajes; la usa notificar_alerta
     coleccion_alertas().update_one(
         {"_id": ObjectId(str(id_alerta))},
         {"$set": {"mensajes_emitidos": True, "mensajes_cantidad": cantidad}},
     )
 
 
-def atender_alertas_de_contenedores(tipos_regex, ids_contenedores, nota, aplicar=False):
+def atender_alertas_de_contenedores(tipos_regex, ids_contenedores, nota, aplicar=False):  # pasa a Atendida alertas viejas de contenedores; la usa la migración 015
     """Pasa a Atendida las alertas activas de esos tipos y contenedores.
 
     Sin aplicar=True solo cuenta. No borra nada. Devuelve la cantidad.
@@ -108,7 +108,7 @@ def atender_alertas_de_contenedores(tipos_regex, ids_contenedores, nota, aplicar
     return resultado.modified_count
 
 
-def listar_alertas(estado=None, sensor_id=None):
+def listar_alertas(estado=None, sensor_id=None):  # las últimas 100 alertas con filtros opcionales; la usan consultar y atender alertas
     filtros = {}
 
     if estado:
@@ -125,7 +125,7 @@ def listar_alertas(estado=None, sensor_id=None):
     )
 
 
-def actualizar_estado_alerta(id_alerta, estado):
+def actualizar_estado_alerta(id_alerta, estado):  # cambia el estado de una alerta; la usa atender alerta
     resultado = coleccion_alertas().update_one(
         {"_id": ObjectId(id_alerta)},
         {"$set": {"estado": estado}}
@@ -133,7 +133,7 @@ def actualizar_estado_alerta(id_alerta, estado):
     return resultado.matched_count > 0
 
 
-def vincular_incidente_alerta(id_alerta, id_incidente):
+def vincular_incidente_alerta(id_alerta, id_incidente):  # guarda en la alerta el ID del incidente de PostgreSQL; la usa procesar_incidente_de_alerta
     resultado = coleccion_alertas().update_one(
         {"_id": ObjectId(str(id_alerta))},
         {"$set": {"incidente_id": id_incidente}}
@@ -145,7 +145,7 @@ def vincular_incidente_alerta(id_alerta, id_incidente):
         )
 
 
-def listar_alertas_contenedores(ids_contenedores, desde=None, hasta=None):
+def listar_alertas_contenedores(ids_contenedores, desde=None, hasta=None):  # alertas de varios contenedores en un período; la usa el reporte cobrable de incidentes
     """Alertas de un conjunto de contenedores (reportes por cliente).
 
     desde/hasta son datetimes con zona horaria (hasta excluido).
