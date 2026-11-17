@@ -15,10 +15,10 @@ from app.services.cotizacion_envio import CODIGO_TARIFA, MONEDA
 from app.utils.validaciones_logistica import MEDIOS_TRANSPORTE
 
 
-ZONA = ZoneInfo("America/Argentina/Buenos_Aires")
+ZONA = ZoneInfo("America/Argentina/Buenos_Aires")  # la vigencia de la tarifa se fecha en hora argentina
 
 
-def obtener_tarifa_estandar():
+def obtener_tarifa_estandar():  # tarifa estándar aprobada con base y precio por medio; la usa "Precios de transporte" (facturación, opción 9)
     """Versión aprobada vigente con sus precios, o None si no hay."""
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
@@ -26,7 +26,7 @@ def obtener_tarifa_estandar():
                 SELECT id_regla, version, vigente_desde, aprobado_en,
                        referencia_aprobacion
                 FROM regla_tarifaria_version
-                WHERE codigo = %s AND estado = 'APROBADA'
+                WHERE codigo = %s AND estado = 'APROBADA'  -- solo hay una versión aprobada a la vez
             """, (CODIGO_TARIFA,))
             regla = cursor.fetchone()
             if regla is None:
@@ -41,7 +41,7 @@ def obtener_tarifa_estandar():
 
     precios = {}
     base = None
-    for criterio, selector, importe in componentes:
+    for criterio, selector, importe in componentes:  # separa el cargo base de los precios por medio
         if criterio == "BASE":
             base = importe
         elif criterio == "TRANSPORTE":
@@ -57,7 +57,7 @@ def obtener_tarifa_estandar():
     }
 
 
-def validar_precios(base, precios):
+def validar_precios(base, precios):  # controla los importes de la tarifa; la usa definir_tarifa_estandar
     """Base >= 0 y precio > 0 para cada uno de los tres medios, en centavos."""
     def _importe(valor, nombre, minimo_exclusivo):
         try:
@@ -76,14 +76,14 @@ def validar_precios(base, precios):
 
     base = _importe(base, "Cargo base", False)
     resultado = {}
-    for medio in MEDIOS_TRANSPORTE:
+    for medio in MEDIOS_TRANSPORTE:  # tiene que haber precio para cada medio
         if medio not in (precios or {}):
             raise ValueError(f"Falta el precio por tramo {medio}.")
         resultado[medio] = _importe(precios[medio], f"Tramo {medio}", True)
     return base, resultado
 
 
-def definir_tarifa_estandar(base, precios, usuario_id, referencia):
+def definir_tarifa_estandar(base, precios, usuario_id, referencia):  # crea y aprueba una versión nueva de la tarifa; la usa la opción 9 de facturación
     """Crea y aprueba una nueva versión de TARIFA_ESTANDAR. Devuelve id_regla."""
     base, precios = validar_precios(base, precios)
     referencia = str(referencia or "").strip()
@@ -97,11 +97,11 @@ def definir_tarifa_estandar(base, precios, usuario_id, referencia):
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             # Serializa cambios de precio concurrentes del mismo código.
-            cursor.execute(
+            cursor.execute(  # candado: dos cambios de precio a la vez no se pisan
                 "SELECT pg_advisory_xact_lock(hashtext(%s))", (CODIGO_TARIFA,)
             )
             cursor.execute("""
-                SELECT COALESCE(MAX(version), 0) + 1
+                SELECT COALESCE(MAX(version), 0) + 1  -- número de versión siguiente
                 FROM regla_tarifaria_version WHERE codigo = %s
             """, (CODIGO_TARIFA,))
             version = cursor.fetchone()[0]
@@ -115,7 +115,7 @@ def definir_tarifa_estandar(base, precios, usuario_id, referencia):
             """, (CODIGO_TARIFA, version, MONEDA, hoy, usuario_id))
             id_regla = cursor.fetchone()[0]
 
-            componentes = [("BASE", None, "ENVIO", "FIJO", base)] + [
+            componentes = [("BASE", None, "ENVIO", "FIJO", base)] + [  # un cargo base por envío y un precio fijo por tramo para cada medio
                 ("TRANSPORTE", medio, "TRAMO", "FIJO", importe)
                 for medio, importe in precios.items()
             ]
@@ -130,10 +130,10 @@ def definir_tarifa_estandar(base, precios, usuario_id, referencia):
             cursor.execute("""
                 SELECT id_regla FROM regla_tarifaria_version
                 WHERE codigo = %s AND estado = 'APROBADA'
-                FOR UPDATE
+                FOR UPDATE  -- bloquea la versión aprobada anterior
             """, (CODIGO_TARIFA,))
             anterior = cursor.fetchone()
-            if anterior is not None:
+            if anterior is not None:  # la anterior pasa a REEMPLAZADA y se conserva, con auditoría
                 cursor.execute("""
                     INSERT INTO regla_tarifaria_auditoria
                         (id_regla, estado_anterior, estado_nuevo, motivo,
@@ -149,11 +149,11 @@ def definir_tarifa_estandar(base, precios, usuario_id, referencia):
                 INSERT INTO regla_tarifaria_auditoria
                     (id_regla, estado_anterior, estado_nuevo, motivo,
                      usuario_id, id_transaccion)
-                VALUES (%s, 'BORRADOR', 'APROBADA', %s, %s, txid_current())
+                VALUES (%s, 'BORRADOR', 'APROBADA', %s, %s, txid_current())  -- auditoría del paso de BORRADOR a APROBADA
             """, (id_regla, referencia, usuario_id))
             cursor.execute("""
                 UPDATE regla_tarifaria_version
-                SET estado = 'APROBADA', referencia_aprobacion = %s,
+                SET estado = 'APROBADA', referencia_aprobacion = %s,  -- la versión nueva queda APROBADA y es la que se factura
                     aprobado_por = %s, aprobado_en = CURRENT_TIMESTAMP
                 WHERE id_regla = %s
             """, (referencia, usuario_id, id_regla))

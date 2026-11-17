@@ -5,14 +5,14 @@ from psycopg import errors
 from app.database.postgres_connection import get_postgres_connection
 
 
-ZONA_CONTABLE = "America/Argentina/Buenos_Aires"
+ZONA_CONTABLE = "America/Argentina/Buenos_Aires"  # los días contables se cuentan en hora argentina
 
 
-class CierreExistente(Exception):
+class CierreExistente(Exception):  # ya hay cierre de ese mes; el servicio lo convierte en CierreDuplicado
     """Indica que ya existe un snapshot para el cliente y período."""
 
 
-def _leer_datos(cursor, id_cliente, bloquear):
+def _leer_datos(cursor, id_cliente, bloquear):  # trae todo lo que necesita el cierre; la usan leer_datos_cierre y ejecutar_cierre_atomico
     """Cuenta, apertura, documentos, ledger y períodos cerrados del cliente.
 
     Con bloquear=True la cuenta queda tomada FOR UPDATE (cierre real).
@@ -69,7 +69,7 @@ def _leer_datos(cursor, id_cliente, bloquear):
         SELECT p.id_pago, p.id_factura, p.fecha, p.monto,
                f.moneda, f.estado
         FROM pago p
-        JOIN factura f ON f.id_factura = p.id_factura
+        JOIN factura f ON f.id_factura = p.id_factura  -- los pagos del cliente se buscan por sus facturas
         WHERE f.id_cliente = %s
         ORDER BY p.fecha, p.id_pago
     """, (id_cliente,))
@@ -92,7 +92,7 @@ def _leer_datos(cursor, id_cliente, bloquear):
                cc.aprobada_por, cc.aprobada_en,
                cc.registrada_en, f.fecha_emision
         FROM correccion_factura cc
-        JOIN factura f ON f.id_factura = cc.id_factura_original
+        JOIN factura f ON f.id_factura = cc.id_factura_original  -- con la fecha de la factura corregida
         WHERE f.id_cliente = %s
         ORDER BY cc.registrada_en, cc.id_correccion
     """, (id_cliente,))
@@ -156,14 +156,14 @@ def _leer_datos(cursor, id_cliente, bloquear):
     }
 
 
-def leer_datos_cierre(id_cliente):
+def leer_datos_cierre(id_cliente):  # los mismos datos sin bloquear; la usa previsualizar_apertura
     """Mismos datos que usa el cierre, sin bloquear ni escribir."""
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             return _leer_datos(cursor, id_cliente, bloquear=False)
 
 
-def ejecutar_cierre_atomico(id_cliente, periodo, calcular_snapshot):
+def ejecutar_cierre_atomico(id_cliente, periodo, calcular_snapshot):  # lee, calcula y guarda el cierre en una sola transacción; la usa cerrar_cuenta_mensual
     """Lee, calcula e inserta un cierre bajo bloqueo de la cuenta.
 
     ``calcular_snapshot`` es una función pura proporcionada por el servicio.
@@ -176,7 +176,7 @@ def ejecutar_cierre_atomico(id_cliente, periodo, calcular_snapshot):
                 cursor.execute("""
                     SELECT 1 FROM cuenta_corriente
                     WHERE id_cliente = %s
-                    FOR UPDATE
+                    FOR UPDATE  -- bloquea la cuenta: nadie factura ni paga mientras se cierra
                 """, (id_cliente,))
 
                 cursor.execute("""
@@ -186,13 +186,13 @@ def ejecutar_cierre_atomico(id_cliente, periodo, calcular_snapshot):
                     FOR UPDATE
                 """, (id_cliente, periodo))
                 existente = cursor.fetchone()
-                if existente is not None:
+                if existente is not None:  # ese mes ya tiene cierre: no se cierra dos veces
                     raise CierreExistente(
                         f"Ya existe el cierre {existente[0]} para el período."
                     )
 
                 datos = _leer_datos(cursor, id_cliente, bloquear=True)
-                snapshot = calcular_snapshot(datos)
+                snapshot = calcular_snapshot(datos)  # el cálculo lo hace el servicio; si no concilia, no se guarda nada
 
                 cursor.execute("""
                     INSERT INTO cierre_cuenta_corriente (
@@ -201,7 +201,7 @@ def ejecutar_cierre_atomico(id_cliente, periodo, calcular_snapshot):
                         saldo_final, referencia_saldo_inicial, id_apertura
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING id_cierre
+                    RETURNING id_cierre  -- el cierre guardado ya no se modifica
                 """, (
                     id_cliente,
                     periodo,
@@ -218,14 +218,14 @@ def ejecutar_cierre_atomico(id_cliente, periodo, calcular_snapshot):
                 return {"id_cierre": id_cierre, **snapshot}
     except Exception as error:
         # La restricción única sigue siendo la última defensa ante carreras.
-        if getattr(error, "sqlstate", None) == "23505":
+        if getattr(error, "sqlstate", None) == "23505":  # el índice único también impide dos cierres del mismo mes
             raise CierreExistente(
                 "Ya existe un cierre para el cliente y período solicitados."
             ) from error
         raise
 
 
-def listar_clientes_con_cuenta():
+def listar_clientes_con_cuenta():  # clientes a cerrar; la usa cerrar_mes_todos
     """(id_cliente, razón social) de todos los clientes con cuenta corriente."""
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
@@ -238,7 +238,7 @@ def listar_clientes_con_cuenta():
             return cursor.fetchall()
 
 
-def listar_aperturas():
+def listar_aperturas():  # aperturas registradas; las muestra la opción 10 de facturación
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute("""
@@ -254,7 +254,7 @@ def listar_aperturas():
             return cursor.fetchall()
 
 
-def calcular_saldo_documentos(id_cliente, fecha_vigencia):
+def calcular_saldo_documentos(id_cliente, fecha_vigencia):  # saldo sugerido para la apertura; la usan la opción 10 de facturación y previsualizar_apertura
     """Saldo según facturas (no anuladas) y pagos anteriores a la fecha.
 
     Es el saldo sugerido para una apertura que rige desde fecha_vigencia:
@@ -267,22 +267,22 @@ def calcular_saldo_documentos(id_cliente, fecha_vigencia):
                     COALESCE((
                         SELECT SUM(total) FROM factura
                         WHERE id_cliente = %s
-                          AND LOWER(TRIM(estado)) <> 'anulada'
+                          AND LOWER(TRIM(estado)) <> 'anulada'  -- las anuladas no son deuda
                           AND fecha_emision < %s
                     ), 0),
                     COALESCE((
                         SELECT SUM(p.monto) FROM pago p
                         JOIN factura f ON f.id_factura = p.id_factura
                         WHERE f.id_cliente = %s
-                          AND (p.fecha AT TIME ZONE %s)::date < %s
+                          AND (p.fecha AT TIME ZONE %s)::date < %s  -- pagos anteriores a la apertura, en hora argentina
                     ), 0)
             """, (id_cliente, fecha_vigencia, id_cliente, ZONA_CONTABLE,
                   fecha_vigencia))
             facturado, pagado = cursor.fetchone()
-    return facturado, pagado, facturado - pagado
+    return facturado, pagado, facturado - pagado  # saldo sugerido: facturado menos pagado
 
 
-def registrar_apertura(id_cliente, saldo_inicial, fecha_vigencia, referencia,
+def registrar_apertura(id_cliente, saldo_inicial, fecha_vigencia, referencia,  # guarda la apertura del cliente (una sola); la usa registrar_apertura del servicio
                        aprobado_por):
     """Registra la apertura (una por cliente). El aprobador debe ser un
     usuario interno activo (sin cliente, proveedor ni operador)."""
@@ -292,7 +292,7 @@ def registrar_apertura(id_cliente, saldo_inicial, fecha_vigencia, referencia,
                 cursor.execute("""
                     SELECT moneda FROM cuenta_corriente
                     WHERE id_cliente = %s
-                    FOR UPDATE
+                    FOR UPDATE  -- bloquea la cuenta mientras se registra
                 """, (id_cliente,))
                 cuenta = cursor.fetchone()
                 if cuenta is None:
@@ -310,7 +310,7 @@ def registrar_apertura(id_cliente, saldo_inicial, fecha_vigencia, referencia,
                 aprobador = cursor.fetchone()
                 if aprobador is None or aprobador[0] != "ACTIVO":
                     raise ValueError("El aprobador no existe o no está activo.")
-                if any(parte is not None for parte in aprobador[1:4]):
+                if any(parte is not None for parte in aprobador[1:4]):  # solo un usuario interno puede aprobar
                     raise ValueError(
                         "La apertura debe aprobarla un usuario interno "
                         "(sin cliente, proveedor ni operador)."
@@ -320,7 +320,7 @@ def registrar_apertura(id_cliente, saldo_inicial, fecha_vigencia, referencia,
                     SELECT 1 FROM cierre_cuenta_corriente
                     WHERE id_cliente = %s LIMIT 1
                 """, (id_cliente,))
-                if cursor.fetchone() is not None:
+                if cursor.fetchone() is not None:  # si ya hay meses cerrados, la apertura no se puede cambiar
                     raise ValueError(
                         "El cliente ya tiene cierres: la apertura no se puede cambiar."
                     )
@@ -335,5 +335,5 @@ def registrar_apertura(id_cliente, saldo_inicial, fecha_vigencia, referencia,
                 """, (id_cliente, cuenta[0], saldo_inicial, fecha_vigencia,
                       referencia, aprobado_por))
                 return cursor.fetchone()[0]
-    except errors.UniqueViolation:
+    except errors.UniqueViolation:  # el índice único permite una sola apertura por cliente
         raise ValueError("El cliente ya tiene una apertura registrada.") from None

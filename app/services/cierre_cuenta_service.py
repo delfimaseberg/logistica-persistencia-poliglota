@@ -18,15 +18,15 @@ from app.utils.validaciones_datos import IMPORTE_MAXIMO
 logger = obtener_logger("cierre_cuenta")
 
 
-class CierreBloqueado(ValueError):
+class CierreBloqueado(ValueError):  # el mes no se puede cerrar porque algo no concilia
     """El cliente no reúne evidencia suficiente para cerrar el período."""
 
 
-class CierreDuplicado(ValueError):
+class CierreDuplicado(ValueError):  # ese mes ya estaba cerrado para el cliente
     """El snapshot del cliente y período ya existe y es inmutable."""
 
 
-def _dinero(value, nombre):
+def _dinero(value, nombre):  # pasa un importe a Decimal con centavos; lo usa todo el cálculo del cierre
     try:
         result = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError):
@@ -36,13 +36,13 @@ def _dinero(value, nombre):
     return result.quantize(Decimal("0.01"))
 
 
-def _mes(fecha):
+def _mes(fecha):  # lleva una fecha al día 1 de su mes; lo usan el cierre y la previsualización
     if isinstance(fecha, date):
         return fecha.replace(day=1)
     raise CierreBloqueado("El período debe ser una fecha correspondiente al inicio del mes.")
 
 
-def _mes_pago(fecha):
+def _mes_pago(fecha):  # mes contable de un pago, en hora argentina; lo usa calcular_snapshot_cierre
     # PostgreSQL devuelve TIMESTAMPTZ como datetime aware; la fecha contable
     # se determina en el calendario acordado para el proyecto.
     if not hasattr(fecha, "tzinfo") or fecha.tzinfo is None:
@@ -50,13 +50,13 @@ def _mes_pago(fecha):
     return fecha.astimezone(ZoneInfo("America/Argentina/Buenos_Aires")).date().replace(day=1)
 
 
-def _fecha_local(fecha, nombre):
+def _fecha_local(fecha, nombre):  # día en hora argentina de un pago o corrección; lo usa calcular_snapshot_cierre
     if not hasattr(fecha, "tzinfo") or fecha.tzinfo is None:
         raise CierreBloqueado(f"{nombre} carece de fecha con zona horaria verificable.")
     return fecha.astimezone(ZoneInfo("America/Argentina/Buenos_Aires")).date()
 
 
-def calcular_snapshot_cierre(datos, periodo):
+def calcular_snapshot_cierre(datos, periodo):  # controla que todo concilie y calcula los saldos del mes sin guardar; la usan el cierre y la previsualización de apertura
     """Valida conciliación de cuenta/ledger y produce un snapshot sin escribir."""
     periodo = _mes(periodo)
     cuenta = datos.get("cuenta")
@@ -67,7 +67,7 @@ def calcular_snapshot_cierre(datos, periodo):
         raise CierreBloqueado("La moneda de la cuenta no está configurada explícitamente.")
 
     try:
-        apertura = validar_apertura_verificada(datos.get("apertura"), moneda)
+        apertura = validar_apertura_verificada(datos.get("apertura"), moneda)  # sin apertura aprobada no se puede cerrar
     except FinanzasNoConfiguradas as error:
         raise CierreBloqueado(str(error)) from error
     apertura_row = datos["apertura"]
@@ -75,7 +75,7 @@ def calcular_snapshot_cierre(datos, periodo):
     # El primer período puede ser parcial: si la apertura rige a mitad de
     # mes, ese mes se cierra con saldo inicial = saldo de la apertura y solo
     # suma los movimientos desde la fecha de vigencia.
-    if periodo < inicio.replace(day=1):
+    if periodo < inicio.replace(day=1):  # no se cierra nada anterior a la apertura
         raise CierreBloqueado("No se puede cerrar un período anterior a la apertura verificada.")
 
     movimientos = datos.get("movimientos", [])
@@ -84,18 +84,18 @@ def calcular_snapshot_cierre(datos, periodo):
         if move["moneda"] != moneda:
             raise CierreBloqueado("Hay movimientos en una moneda distinta a la cuenta.")
         key = (move["tipo_origen"], str(move["referencia_origen"]), move["tipo_movimiento"])
-        if key in por_origen:
+        if key in por_origen:  # un mismo documento no puede tener dos movimientos
             raise CierreBloqueado("El ledger contiene movimientos duplicados para un documento.")
         por_origen[key] = move
 
     matched_keys = set()
 
-    def require_move(kind, identifier, move_type, expected, source_period, docname):
+    def require_move(kind, identifier, move_type, expected, source_period, docname):  # busca el movimiento de un documento y controla importe y período
         key = (kind, str(identifier), move_type)
         move = por_origen.get(key)
         if move is None:
             raise CierreBloqueado(f"{docname} {identifier} no tiene movimiento conciliado en el ledger.")
-        if _dinero(move["importe_firmado"], "Importe del ledger") != expected:
+        if _dinero(move["importe_firmado"], "Importe del ledger") != expected:  # el movimiento tiene que tener el mismo importe que el documento
             raise CierreBloqueado(f"El importe del ledger no coincide con {docname} {identifier}.")
         posted_period = move["fecha_contable"].replace(day=1)
         if posted_period == source_period and move["periodo_origen"] not in (None, source_period):
@@ -108,7 +108,7 @@ def calcular_snapshot_cierre(datos, periodo):
         return move
 
     # Todo documento posterior a la apertura debe estar representado en ledger.
-    for invoice in datos.get("facturas", []):
+    for invoice in datos.get("facturas", []):  # cada factura desde la apertura tiene que tener su movimiento
         issue_date = invoice["fecha_emision"]
         if issue_date < inicio:
             continue
@@ -124,7 +124,7 @@ def calcular_snapshot_cierre(datos, periodo):
         require_move("FACTURA", invoice["id_factura"], "FACTURA", amount,
                      issue_date.replace(day=1), "Factura")
 
-    for payment in datos.get("pagos", []):
+    for payment in datos.get("pagos", []):  # lo mismo con los pagos
         # Aún no hay esquema de reversos; todos los pagos persistidos se tratan
         # como activos, y la ausencia de un ledger coincidente bloquea.
         pay_date = _fecha_local(payment["fecha"], f"El pago {payment['id_pago']}")
@@ -134,11 +134,11 @@ def calcular_snapshot_cierre(datos, periodo):
             raise CierreBloqueado(
                 f"La moneda del pago {payment['id_pago']} falta o no coincide con la cuenta."
             )
-        expected = -_dinero(payment["monto"], "Importe del pago")
+        expected = -_dinero(payment["monto"], "Importe del pago")  # el pago se registra en negativo
         require_move("PAGO", payment["id_pago"], "PAGO", expected,
                      _mes_pago(payment["fecha"]), "Pago")
 
-    for correction in datos.get("correcciones", []):
+    for correction in datos.get("correcciones", []):  # y con las correcciones, que necesitan aprobación
         correction_date = _fecha_local(
             correction["registrada_en"], f"La corrección {correction['id_correccion']}"
         )
@@ -154,7 +154,7 @@ def calcular_snapshot_cierre(datos, periodo):
         kind = str(correction["tipo"]).upper()
         if kind not in {"CREDITO", "DEBITO"}:
             raise CierreBloqueado("La corrección tiene un tipo no reconocido.")
-        signed = -amount if kind == "CREDITO" else amount
+        signed = -amount if kind == "CREDITO" else amount  # el crédito baja la deuda y el débito la sube
         move_type = kind
         require_move("CORRECCION", correction["id_correccion"], move_type,
                      signed, correction["fecha_emision_original"].replace(day=1), "Corrección")
@@ -175,7 +175,7 @@ def calcular_snapshot_cierre(datos, periodo):
         if move["tipo_movimiento"] == "APERTURA" and move["tipo_origen"] == "APERTURA":
             continue
         key = (move["tipo_origen"], str(move["referencia_origen"]), move["tipo_movimiento"])
-        if move["fecha_contable"] >= inicio and key not in matched_keys:
+        if move["fecha_contable"] >= inicio and key not in matched_keys:  # un movimiento sin documento que lo respalde bloquea el cierre
             raise CierreBloqueado(
                 f"El movimiento {move['id_movimiento']} no corresponde a una factura, pago o corrección conciliada."
             )
@@ -191,7 +191,7 @@ def calcular_snapshot_cierre(datos, periodo):
             continue
         source_period = move["periodo_origen"]
         posted_period = move["fecha_contable"].replace(day=1)
-        if source_period and source_period < posted_period:
+        if source_period and source_period < posted_period:  # movimiento tardío: va al primer mes abierto después de su mes de origen
             if source_period not in cerrados:
                 raise CierreBloqueado("Un movimiento tardío refiere a un período de origen que no está cerrado.")
             siguiente_abierto = date(source_period.year, source_period.month, 1)
@@ -208,7 +208,7 @@ def calcular_snapshot_cierre(datos, periodo):
 
     # Facturas anuladas requieren crédito íntegro. Pago de factura anulada no
     # se puede revertir porque no existe entidad/estado de reverso de pago.
-    for invoice in datos.get("facturas", []):
+    for invoice in datos.get("facturas", []):  # una factura anulada necesita un crédito por el total y no puede tener pagos
         if str(invoice["estado"]).strip().casefold() != "anulada" or invoice["fecha_emision"] < inicio:
             continue
         credits = sum((_dinero(c["importe"], "Crédito") for c in datos.get("correcciones", [])
@@ -223,24 +223,24 @@ def calcular_snapshot_cierre(datos, periodo):
     # Sumar movimientos contabilizados desde la apertura hasta el fin del mes.
     # El saldo inicial del mes se reconstruye desde la apertura verificada y
     # todos los movimientos anteriores al primer día del período.
-    opening = apertura["saldo_inicial"] + sum((
+    opening = apertura["saldo_inicial"] + sum((  # saldo inicial del mes: apertura más todo lo anterior al mes
         _dinero(m["importe_firmado"], "Importe de movimiento")
         for m in movimientos
         if inicio <= m["fecha_contable"] < periodo and m["tipo_movimiento"] != "APERTURA"
     ), Decimal("0"))
     current_period_moves = [m for m in movimientos if periodo <= m["fecha_contable"] < next_month
                             and m["tipo_movimiento"] != "APERTURA"]
-    reconstructed = apertura["saldo_inicial"] + sum((
+    reconstructed = apertura["saldo_inicial"] + sum((  # saldo de hoy rearmado con todos los movimientos
         _dinero(m["importe_firmado"], "Importe de movimiento")
         for m in movimientos
         if inicio <= m["fecha_contable"] and m["tipo_movimiento"] != "APERTURA"
     ), Decimal("0"))
-    if _dinero(cuenta["saldo"], "Saldo actual") != reconstructed:
+    if _dinero(cuenta["saldo"], "Saldo actual") != reconstructed:  # si el saldo de la cuenta no coincide con los movimientos, no se cierra
         raise CierreBloqueado(
             "El saldo actual no concilia con la apertura y el ledger; se requiere conciliación aprobada y trazable."
         )
 
-    total_facturas = sum((_dinero(m["importe_firmado"], "Factura") for m in current_period_moves
+    total_facturas = sum((_dinero(m["importe_firmado"], "Factura") for m in current_period_moves  # totales del mes por tipo de movimiento
                           if m["tipo_movimiento"] == "FACTURA"), Decimal("0"))
     total_pagos = -sum((_dinero(m["importe_firmado"], "Pago") for m in current_period_moves
                         if m["tipo_movimiento"] == "PAGO"), Decimal("0"))
@@ -252,7 +252,7 @@ def calcular_snapshot_cierre(datos, periodo):
     if any(m["tipo_movimiento"] not in known for m in current_period_moves):
         raise CierreBloqueado("Hay movimientos del período sin clasificación conciliable.")
 
-    final = opening + total_facturas - total_pagos + ajustes
+    final = opening + total_facturas - total_pagos + ajustes  # saldo final del mes
     return {
         "moneda": moneda,
         "saldo_inicial": opening,
@@ -265,35 +265,35 @@ def calcular_snapshot_cierre(datos, periodo):
     }
 
 
-def hoy_argentina():
+def hoy_argentina():  # fecha de hoy en Argentina; la usan el cierre y la apertura
     return datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).date()
 
 
-def siguiente_mes(periodo):
+def siguiente_mes(periodo):  # día 1 del mes siguiente; la usa cerrar_cuenta_mensual
     return date(periodo.year + (periodo.month == 12),
                 1 if periodo.month == 12 else periodo.month + 1, 1)
 
 
-def cerrar_cuenta_mensual(id_cliente, periodo, hoy=None):
+def cerrar_cuenta_mensual(id_cliente, periodo, hoy=None):  # cierra un mes de un cliente; la usa cerrar_mes_todos
     periodo = _mes(periodo)
     hoy = hoy or hoy_argentina()
     # Un cierre es inmutable: si el mes no terminó, un movimiento posterior
     # del mismo mes quedaría fuera del snapshot.
-    if siguiente_mes(periodo) > hoy:
+    if siguiente_mes(periodo) > hoy:  # solo se cierran meses ya terminados
         motivo = f"El período {periodo:%Y-%m} todavía no terminó."
         logger.warning("Cierre bloqueado: cliente=%s período=%s motivo=%s",
                        id_cliente, periodo, motivo)
         return {"estado": "BLOQUEADO", "motivo": motivo}
     try:
-        result = cierre_cuenta_repository.ejecutar_cierre_atomico(
+        result = cierre_cuenta_repository.ejecutar_cierre_atomico(  # en una transacción: bloquea la cuenta, calcula y guarda el cierre
             id_cliente, periodo,
             lambda datos: calcular_snapshot_cierre(datos, periodo),
         )
         logger.info("Cierre mensual creado: cliente=%s período=%s", id_cliente, periodo)
-        return {"estado": "CERRADO", **result}
+        return {"estado": "CERRADO", **result}  # el mes queda CERRADO y ya no se puede cambiar
     except cierre_cuenta_repository.CierreExistente as error:
         logger.warning("Cierre duplicado bloqueado: cliente=%s período=%s", id_cliente, periodo)
-        raise CierreDuplicado(str(error)) from error
+        raise CierreDuplicado(str(error)) from error  # ese mes ya estaba cerrado: no se cierra dos veces
     except CierreBloqueado as error:
         logger.warning("Cierre bloqueado: cliente=%s período=%s motivo=%s", id_cliente, periodo, error)
         return {"estado": "BLOQUEADO", "motivo": str(error)}
@@ -302,7 +302,7 @@ def cerrar_cuenta_mensual(id_cliente, periodo, hoy=None):
         raise
 
 
-def cerrar_mes_todos(periodo, hoy=None):
+def cerrar_mes_todos(periodo, hoy=None):  # cierra un mes para todos los clientes; la usa "Cierre mensual" (facturación, opción 11)
     """Cierra el período para todos los clientes con cuenta corriente.
 
     Devuelve {"periodo", "cerrados", "bloqueados", "ya_cerrados", "errores"}.
@@ -312,7 +312,7 @@ def cerrar_mes_todos(periodo, hoy=None):
     resumen = {"periodo": periodo, "cerrados": [], "bloqueados": [],
                "ya_cerrados": [], "errores": []}
 
-    for id_cliente, nombre in cierre_cuenta_repository.listar_clientes_con_cuenta():
+    for id_cliente, nombre in cierre_cuenta_repository.listar_clientes_con_cuenta():  # si un cliente falla, se sigue con los demás
         try:
             resultado = cerrar_cuenta_mensual(id_cliente, periodo, hoy=hoy)
         except CierreDuplicado as error:
@@ -345,7 +345,7 @@ def cerrar_mes_todos(periodo, hoy=None):
 # Apertura de cuenta corriente
 # ------------------------------------------------------------------
 
-def validar_datos_apertura(saldo_inicial, fecha_vigencia, referencia, hoy=None):
+def validar_datos_apertura(saldo_inicial, fecha_vigencia, referencia, hoy=None):  # controla saldo, fecha y referencia de una apertura; la usan la previsualización y el registro
     hoy = hoy or hoy_argentina()
     saldo = _dinero(saldo_inicial, "El saldo inicial")
     if abs(saldo) > IMPORTE_MAXIMO:
@@ -353,7 +353,7 @@ def validar_datos_apertura(saldo_inicial, fecha_vigencia, referencia, hoy=None):
             f"El saldo inicial no puede superar {formato.dinero(IMPORTE_MAXIMO)}.")
     if not isinstance(fecha_vigencia, date) or isinstance(fecha_vigencia, datetime):
         raise CierreBloqueado("La fecha de vigencia debe ser una fecha calendario.")
-    if fecha_vigencia > hoy:
+    if fecha_vigencia > hoy:  # la apertura no puede regir desde el futuro
         raise CierreBloqueado("La fecha de vigencia no puede ser futura.")
     referencia = str(referencia or "").strip()
     if not referencia:
@@ -361,7 +361,7 @@ def validar_datos_apertura(saldo_inicial, fecha_vigencia, referencia, hoy=None):
     return saldo, fecha_vigencia, referencia
 
 
-def previsualizar_apertura(id_cliente, saldo_inicial, fecha_vigencia, hoy=None):
+def previsualizar_apertura(id_cliente, saldo_inicial, fecha_vigencia, hoy=None):  # prueba la apertura sin guardarla; la usa "Apertura de cuenta corriente" (facturación, opción 10)
     """Sin escribir: con esta apertura, ¿el primer mes concilia y cerraría?
 
     Devuelve {"concilia": bool, "motivo" o "snapshot", "saldo_documentos"}.
@@ -374,7 +374,7 @@ def previsualizar_apertura(id_cliente, saldo_inicial, fecha_vigencia, hoy=None):
     )
     datos = cierre_cuenta_repository.leer_datos_cierre(id_cliente)
     cuenta = datos.get("cuenta") or {}
-    datos["apertura"] = {
+    datos["apertura"] = {  # apertura de prueba, sin aprobar todavía
         "id_apertura": None,
         "id_cliente": id_cliente,
         "moneda": cuenta.get("moneda"),
@@ -389,7 +389,7 @@ def previsualizar_apertura(id_cliente, saldo_inicial, fecha_vigencia, hoy=None):
                              "saldo": sugerido},
     }
     try:
-        resultado["snapshot"] = calcular_snapshot_cierre(
+        resultado["snapshot"] = calcular_snapshot_cierre(  # simula el cierre del primer mes
             datos, fecha_vigencia.replace(day=1)
         )
         resultado["concilia"] = True
@@ -399,7 +399,7 @@ def previsualizar_apertura(id_cliente, saldo_inicial, fecha_vigencia, hoy=None):
     return resultado
 
 
-def registrar_apertura(id_cliente, saldo_inicial, fecha_vigencia, referencia,
+def registrar_apertura(id_cliente, saldo_inicial, fecha_vigencia, referencia,  # guarda la apertura aprobada; la usa la opción 10 de facturación
                        aprobado_por, hoy=None):
     saldo, fecha_vigencia, referencia = validar_datos_apertura(
         saldo_inicial, fecha_vigencia, referencia, hoy=hoy
