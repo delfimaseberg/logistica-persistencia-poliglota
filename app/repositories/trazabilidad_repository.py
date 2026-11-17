@@ -1,7 +1,7 @@
 from app.database.postgres_connection import get_postgres_connection
 
 
-def actualizar_estado_envio(id_envio, estado, fecha_entrega=None):
+def actualizar_estado_envio(id_envio, estado, fecha_entrega=None):  # cambia el estado del envío por un evento; la usan registrar evento y el reintento de estados pendientes
     """Actualiza el estado por un evento logístico.
 
     Pasar a Entregado exige la fecha real de entrega (la del evento) y se
@@ -9,7 +9,7 @@ def actualizar_estado_envio(id_envio, estado, fecha_entrega=None):
     final; también lo impide el trigger de la migración 013).
     """
     entregado = str(estado).strip().casefold() == "entregado"
-    if entregado and fecha_entrega is None:
+    if entregado and fecha_entrega is None:  # Entregado siempre necesita la fecha real
         raise ValueError("Pasar a Entregado requiere la fecha real de entrega.")
 
     with get_postgres_connection() as conexion:
@@ -20,9 +20,9 @@ def actualizar_estado_envio(id_envio, estado, fecha_entrega=None):
                 SET estado = %s,
                     fecha_entrega = %s
                 WHERE id_envio = %s
-                  AND LOWER(BTRIM(estado)) <> 'entregado'
+                  AND LOWER(BTRIM(estado)) <> 'entregado'  -- un envío entregado ya no cambia
                 """,
-                (estado, fecha_entrega if entregado else None, id_envio)
+                (estado, fecha_entrega if entregado else None, id_envio)  # la fecha de entrega solo se guarda al entregar
             )
             actualizado = cursor.rowcount > 0
 
@@ -34,7 +34,7 @@ def actualizar_estado_envio(id_envio, estado, fecha_entrega=None):
                     """
                     UPDATE sensor_iot s
                     SET estado = 'Inactivo',
-                        motivo_inactivo = 'Entrega del envío ' || %s::text
+                        motivo_inactivo = 'Entrega del envío ' || %s::text  -- con este motivo se reactivan si el contenedor vuelve a viajar
                     FROM envio_contenedor ec
                     WHERE ec.id_envio = %s
                       AND s.id_contenedor = ec.id_contenedor
@@ -46,7 +46,7 @@ def actualizar_estado_envio(id_envio, estado, fecha_entrega=None):
             return actualizado
 
 
-def listar_ids_envios():
+def listar_ids_envios():  # todos los envíos; la usa resincronizar_todos
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute(
@@ -55,7 +55,7 @@ def listar_ids_envios():
             return [fila[0] for fila in cursor.fetchall()]
 
 
-def listar_envios_de_contenedor(id_contenedor):
+def listar_envios_de_contenedor(id_contenedor):  # envíos del contenedor; la usa el recorrido de un contenedor
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute("""
@@ -69,7 +69,7 @@ def listar_envios_de_contenedor(id_contenedor):
             return cursor.fetchall()
 
 
-def _operador(columnas):
+def _operador(columnas):  # arma el diccionario del operador o None; la usa obtener_datos_proyeccion
     id_operador, razon_social, modalidades, estado = columnas
     if id_operador is None:
         return None
@@ -81,7 +81,7 @@ def _operador(columnas):
     }
 
 
-def obtener_datos_proyeccion(id_envio):
+def obtener_datos_proyeccion(id_envio):  # envío, cliente, tramos y contenedores de PostgreSQL para copiar a Neo4j; la usa reconciliar_envio
     """Datos de PostgreSQL necesarios para proyectar un envío en Neo4j.
 
     Devuelve None si el envío no existe.
@@ -112,9 +112,9 @@ def obtener_datos_proyeccion(id_envio):
                        ov.estado
                 FROM tramo t
                 JOIN vehiculo v ON v.id_vehiculo = t.id_vehiculo
-                LEFT JOIN operador_logistico ot
+                LEFT JOIN operador_logistico ot  -- operador que hizo el tramo (puede faltar)
                        ON ot.id_operador = t.id_operador
-                LEFT JOIN operador_logistico ov
+                LEFT JOIN operador_logistico ov  -- operador actual del vehículo
                        ON ov.id_operador = v.id_operador
                 WHERE t.id_envio = %s
                 ORDER BY t.fecha_salida, t.id_tramo

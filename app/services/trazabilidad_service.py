@@ -62,16 +62,16 @@ from app.utils.errores import mensaje_error
 from app.services.autenticacion import requiere_permiso
 
 
-logger = obtener_logger("trazabilidad")
+logger = obtener_logger("trazabilidad")  # registro en logs/app.log
 
-MAX_PUNTOS_GPS_MOSTRADOS = 25
+MAX_PUNTOS_GPS_MOSTRADOS = 25  # para no llenar la pantalla de puntos GPS
 
 
 # ------------------------------------------------------------------
 # Utilidades de interfaz
 # ------------------------------------------------------------------
 
-def pedir(mensaje, funcion, *args):
+def pedir(mensaje, funcion, *args):  # repite la pregunta hasta que la validación pase
     while True:
         try:
             return funcion(input(mensaje), *args)
@@ -83,7 +83,7 @@ def pausar():
     input("\nPresioná Enter para continuar...")
 
 
-def formatear_fecha(fecha):
+def formatear_fecha(fecha):  # fecha en hora argentina para mostrar
     if fecha is None:
         return "-"
 
@@ -93,7 +93,7 @@ def formatear_fecha(fecha):
     return fecha.astimezone(ZONA_ARGENTINA).strftime("%d/%m/%Y %H:%M")
 
 
-def formatear_duracion(delta):
+def formatear_duracion(delta):  # duración en días, horas o minutos; la usa el seguimiento temporal
     segundos = int(delta.total_seconds())
     signo = "-" if segundos < 0 else ""
     segundos = abs(segundos)
@@ -111,7 +111,7 @@ def formatear_duracion(delta):
     return f"{signo}{minutos} min"
 
 
-def pedir_envio():
+def pedir_envio():  # pide un ID y busca el envío en PostgreSQL; la usan las opciones 1 a 4
     id_envio = pedir(
         "ID del envío: ",
         validar_entero_positivo_logistica,
@@ -127,7 +127,7 @@ def pedir_envio():
     return envio
 
 
-def mostrar_evento(numero, evento):
+def mostrar_evento(numero, evento):  # imprime un evento de MongoDB; la usa el historial
     ubicacion = evento.get("ubicacion") or {}
     print("--------------------------------")
     print(f"{numero}. {formato.evento(evento['tipo'])}")
@@ -149,7 +149,7 @@ def mostrar_evento(numero, evento):
 # 1. Registrar evento logístico (MongoDB)
 # ------------------------------------------------------------------
 
-def elegir_tipo_evento():
+def elegir_tipo_evento():  # elige el tipo de evento; la usa registrar evento
     print("\nTipo de evento:")
 
     for numero, tipo in enumerate(TIPOS_EVENTO, start=1):
@@ -169,7 +169,7 @@ def elegir_tipo_evento():
         print("Error: seleccioná una opción de la lista.")
 
 
-def pedir_detalle(tipo):
+def pedir_detalle(tipo):  # pide los datos extra según el tipo de evento
     detalle = {}
 
     for campo, clase in DETALLE_POR_TIPO.get(tipo, []):
@@ -195,7 +195,7 @@ def pedir_detalle(tipo):
 
 
 @requiere_permiso(1)
-def registrar_evento_service():
+def registrar_evento_service():  # registra un evento logístico; opción 1 del menú de trazabilidad
     print("\n--- REGISTRAR EVENTO LOGÍSTICO ---")
 
     try:
@@ -218,7 +218,7 @@ def registrar_evento_service():
             return
 
         try:
-            advertencias = validar_evento_permitido(
+            advertencias = validar_evento_permitido(  # controla que el evento tenga sentido para el estado actual
                 envio[5], tipo, tipos_registrados(id_envio)
             )
         except ValueError as error:
@@ -279,7 +279,7 @@ def registrar_evento_service():
 
         usuario = obtener_sesion_actual()
 
-        documento = {
+        documento = {  # documento del evento para MongoDB
             "envio_id": id_envio,
             "tipo": tipo,
             "fecha_hora": fecha_hora,
@@ -290,7 +290,7 @@ def registrar_evento_service():
             "fecha_registro": datetime.now(timezone.utc)
         }
 
-        id_evento = insertar_evento(documento)
+        id_evento = insertar_evento(documento)  # el evento se guarda primero en MongoDB
         logger.info(
             "Evento %s registrado para el envío %s (id %s)",
             tipo, id_envio, id_evento
@@ -298,13 +298,13 @@ def registrar_evento_service():
 
         print("\nEvento registrado correctamente.")
 
-        nuevo_estado = estado_nuevo_por_evento(tipo, envio[5])
+        nuevo_estado = estado_nuevo_por_evento(tipo, envio[5])  # algunos eventos cambian el estado del envío
 
         if nuevo_estado:
             # La fecha real de entrega es la del evento ENTREGADO.
             fecha_entrega = fecha_hora if tipo == "ENTREGADO" else None
             try:
-                if not actualizar_estado_envio(
+                if not actualizar_estado_envio(  # ENTREGADO guarda la fecha real de entrega y apaga los sensores
                     id_envio, nuevo_estado, fecha_entrega
                 ):
                     raise RuntimeError(
@@ -316,7 +316,7 @@ def registrar_evento_service():
                         f"{formatear_fecha(fecha_entrega)}"
                     )
                 print(f"Estado del envío actualizado a: {nuevo_estado}")
-                sincronizar_envio_neo4j(id_envio)
+                sincronizar_envio_neo4j(id_envio)  # copia el estado nuevo a Neo4j
             except Exception as error:
                 logger.error(
                     "Evento %s guardado pero no se pudo actualizar el "
@@ -324,7 +324,7 @@ def registrar_evento_service():
                     id_evento, id_envio, error
                 )
                 try:
-                    registrar_pendiente_estado(
+                    registrar_pendiente_estado(  # si PostgreSQL falló, queda pendiente en MongoDB para reintentar
                         id_envio, nuevo_estado, id_evento, error,
                         fecha_entrega=fecha_entrega,
                     )
@@ -347,7 +347,7 @@ def registrar_evento_service():
 # ------------------------------------------------------------------
 
 @requiere_permiso(1, portal=("CLIENTE",), portal_con_dato=True)
-def historial_envio_service(envio=None):
+def historial_envio_service(envio=None):  # todos los eventos de un envío; opción 2 de trazabilidad y el portal del cliente
     """envio: fila ya verificada (portal del cliente); si falta, se pide."""
     print("\n--- HISTORIAL DE EVENTOS DE UN ENVÍO ---")
 
@@ -357,7 +357,7 @@ def historial_envio_service(envio=None):
         if envio is None:
             return
 
-        eventos = listar_eventos_envio(envio[0])
+        eventos = listar_eventos_envio(envio[0])  # eventos de MongoDB en orden de fecha
 
         print(
             f"\nEnvío {envio[0]} | {envio[3]} -> {envio[4]} | "
@@ -386,7 +386,7 @@ def historial_envio_service(envio=None):
 # ------------------------------------------------------------------
 
 @requiere_permiso(1, portal=("CLIENTE",), portal_con_dato=True)
-def seguimiento_temporal_service(envio=None):
+def seguimiento_temporal_service(envio=None):  # plazos y línea de tiempo de un envío; opción 3 de trazabilidad y el portal del cliente
     """envio: fila ya verificada (portal del cliente); si falta, se pide."""
     print("\n--- SEGUIMIENTO TEMPORAL DE UN ENVÍO ---")
 
@@ -398,7 +398,7 @@ def seguimiento_temporal_service(envio=None):
 
         ahora = datetime.now(timezone.utc)
         eventos = listar_eventos_envio(envio[0])
-        tramos = listar_tramos_de_envio(envio[0])
+        tramos = listar_tramos_de_envio(envio[0])  # tramos de PostgreSQL para la llegada estimada
         estado = envio[5]
 
         print(f"\nEnvío {envio[0]} | Cliente: {envio[2]}")
@@ -412,7 +412,7 @@ def seguimiento_temporal_service(envio=None):
             llegada = max(fechas_llegada) if fechas_llegada else None
             print(f"Llegada estimada (último tramo): {formatear_fecha(llegada)}")
 
-            if llegada and normalizar(estado) not in ("entregado", "cancelado"):
+            if llegada and normalizar(estado) not in ("entregado", "cancelado"):  # demorado si ya pasó la llegada estimada
                 if ahora > llegada:
                     print(
                         "SITUACIÓN: DEMORADO por "
@@ -433,7 +433,7 @@ def seguimiento_temporal_service(envio=None):
         print("\nLínea de tiempo:")
         anterior = None
 
-        for evento in eventos:
+        for evento in eventos:  # línea de tiempo con el tiempo entre eventos
             fecha = evento["fecha_hora"]
             ubicacion = (evento.get("ubicacion") or {}).get("nombre", "-")
             salto = ""
@@ -472,7 +472,7 @@ def seguimiento_temporal_service(envio=None):
 # ------------------------------------------------------------------
 
 @requiere_permiso(1, portal=("CLIENTE",), portal_con_dato=True)
-def ruta_completa_service(envio=None):
+def ruta_completa_service(envio=None):  # recorrido de un envío desde Neo4j; opción 4 de trazabilidad y el portal del cliente
     """envio: fila ya verificada (portal del cliente); si falta, se pide."""
     print("\n--- RUTA COMPLETA DE UN ENVÍO ---")
 
@@ -482,7 +482,7 @@ def ruta_completa_service(envio=None):
         if envio is None:
             return
 
-        filas = obtener_ruta_envio(envio[0])
+        filas = obtener_ruta_envio(envio[0])  # una fila por tramo desde el grafo
 
         if not filas:
             print(
@@ -542,7 +542,7 @@ def ruta_completa_service(envio=None):
 # 5. Recorrido de un contenedor (PostgreSQL + MongoDB + Cassandra)
 # ------------------------------------------------------------------
 
-def pedir_cantidad_meses():
+def pedir_cantidad_meses():  # cuántos meses de GPS mirar; la usa el recorrido de un contenedor
     while True:
         texto = input(
             "Meses hacia atrás a consultar (1-12, Enter = 3): "
@@ -558,7 +558,7 @@ def pedir_cantidad_meses():
 
 
 @requiere_permiso(1)
-def recorrido_contenedor_service():
+def recorrido_contenedor_service():  # eventos y posiciones GPS de un contenedor en una sola línea de tiempo; opción 5 de trazabilidad
     print("\n--- RECORRIDO DE UN CONTENEDOR ---")
 
     try:
@@ -576,7 +576,7 @@ def recorrido_contenedor_service():
 
         print(f"\nContenedor {contenedor[0]} | Código: {contenedor[1]}")
 
-        envios = listar_envios_de_contenedor(id_contenedor)
+        envios = listar_envios_de_contenedor(id_contenedor)  # envíos del contenedor (PostgreSQL)
 
         if envios:
             print("Envíos asociados:")
@@ -590,10 +590,10 @@ def recorrido_contenedor_service():
 
         meses = ultimos_meses(pedir_cantidad_meses())
 
-        eventos = listar_eventos_envios([e[0] for e in envios])
-        puntos = consultar_gps_contenedor(id_contenedor, meses)
+        eventos = listar_eventos_envios([e[0] for e in envios])  # eventos de esos envíos (MongoDB)
+        puntos = consultar_gps_contenedor(id_contenedor, meses)  # posiciones GPS por mes (Cassandra)
 
-        linea = fusionar_recorrido(eventos, puntos)
+        linea = fusionar_recorrido(eventos, puntos)  # junta todo ordenado por fecha
 
         if not linea:
             print(
@@ -601,7 +601,7 @@ def recorrido_contenedor_service():
             )
             return
 
-        gps = [item for item in linea if item["origen"] == "GPS"]
+        gps = [item for item in linea if item["origen"] == "GPS"]  # de los GPS se muestra solo una muestra
         gps_mostrados = set(
             id(item) for item in muestrear(gps, MAX_PUNTOS_GPS_MOSTRADOS)
         )
@@ -634,7 +634,7 @@ def recorrido_contenedor_service():
 # ------------------------------------------------------------------
 
 @requiere_permiso(1)
-def sincronizar_proyeccion_service():
+def sincronizar_proyeccion_service():  # pendientes y resincronización con Neo4j; opción 6 del menú de trazabilidad
     print("\n--- SINCRONIZAR / REPARAR LA RED DE RUTAS ---")
 
     try:
@@ -659,7 +659,7 @@ def sincronizar_proyeccion_service():
         opcion = input("\nOpción: ").strip()
 
         if opcion == "1":
-            resueltos, fallidos = reparar_pendientes()
+            resueltos, fallidos = reparar_pendientes()  # reintenta los pendientes guardados en MongoDB
             print(f"\nResueltos: {resueltos} | Fallidos: {len(fallidos)}")
 
             for id_envio, error in fallidos:
@@ -682,7 +682,7 @@ def sincronizar_proyeccion_service():
                     print("Quedó pendiente; podés reintentarlo con la opción 1.")
 
         elif opcion == "3":
-            correctos, errores = resincronizar_todos()
+            correctos, errores = resincronizar_todos()  # reconstruye todo el grafo desde PostgreSQL
             print(
                 f"\nSincronizados: {correctos} | Con error: {len(errores)}"
             )
@@ -692,7 +692,7 @@ def sincronizar_proyeccion_service():
 
         elif opcion == "4":
             ok, fallos = 0, 0
-            for pendiente in listar_pendientes_estado():
+            for pendiente in listar_pendientes_estado():  # aplica en PostgreSQL los cambios de estado que quedaron colgados
                 try:
                     if not actualizar_estado_envio(
                         pendiente["envio_id"], pendiente["estado"],
@@ -723,7 +723,7 @@ def sincronizar_proyeccion_service():
 # 7 y 8. Operadores en la red (Neo4j)
 # ------------------------------------------------------------------
 
-def fecha_entrega_de_pendiente(pendiente):
+def fecha_entrega_de_pendiente(pendiente):  # fecha de entrega de un estado pendiente; la usa la opción 6 (cambios de estado)
     """Fecha real de entrega de un estado pendiente de aplicar.
 
     Usa la guardada en el pendiente; si es un pendiente anterior que no la
@@ -741,7 +741,7 @@ def fecha_entrega_de_pendiente(pendiente):
     )
 
 
-def cliente_visible(sesion):
+def cliente_visible(sesion):  # a qué cliente se limitan los datos según el usuario; la usan las opciones 7 y 8 y el portal
     """Cliente al que se restringen las consultas, o None si ve todo.
 
     Depende de la PARTE del usuario, no de su nivel de permisos:
@@ -768,11 +768,11 @@ def cliente_visible(sesion):
 
 
 @requiere_permiso(1, portal=("CLIENTE",))
-def quien_llevo_contenedor_service():
+def quien_llevo_contenedor_service():  # operadores que llevaron un contenedor; opción 7 de trazabilidad y el portal del cliente
     print("\n--- ¿QUIÉN LLEVÓ EL CONTENEDOR? ---")
 
     try:
-        restringido = cliente_visible(obtener_sesion_actual())
+        restringido = cliente_visible(obtener_sesion_actual())  # un cliente solo ve sus propios envíos
 
         from app.repositories.contenedor_repository import buscar_contenedor_por_codigo
 
@@ -782,7 +782,7 @@ def quien_llevo_contenedor_service():
             print("\nNo existe un contenedor con ese código.")
             return
 
-        filas = operadores_de_contenedor(contenedor[0], restringido)
+        filas = operadores_de_contenedor(contenedor[0], restringido)  # consulta en Neo4j
 
         if not filas:
             if restringido:
@@ -812,7 +812,7 @@ def quien_llevo_contenedor_service():
 
 
 @requiere_permiso(1)
-def red_operadores_cliente_service():
+def red_operadores_cliente_service():  # operadores de un cliente y con cuántos otros clientes los comparte; opción 8 de trazabilidad
     print("\n--- RED CLIENTE - OPERADORES - ENVÍOS ---")
 
     try:
@@ -827,7 +827,7 @@ def red_operadores_cliente_service():
                 "El ID del cliente"
             )
 
-        filas = red_operadores_cliente(id_cliente)
+        filas = red_operadores_cliente(id_cliente)  # consulta en Neo4j; de otros clientes solo la cantidad
 
         if not filas:
             print(

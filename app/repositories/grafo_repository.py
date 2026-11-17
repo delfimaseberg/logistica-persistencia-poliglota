@@ -5,7 +5,7 @@ from app.utils.validaciones_trazabilidad import normalizar_nombre_grafo
 # Operador identificado por su id de PostgreSQL. "etiqueta" se mantiene por
 # compatibilidad con las consultas de ruta.
 _MERGE_OPERADOR = """
-    MERGE (op:Operador {id_operador: $op.id_operador})
+    MERGE (op:Operador {id_operador: $op.id_operador})  // crea o actualiza el operador por su ID
     SET op.razon_social = $op.razon_social,
         op.etiqueta = $op.razon_social,
         op.modalidades = $op.modalidades,
@@ -13,7 +13,7 @@ _MERGE_OPERADOR = """
 """
 
 
-def _sincronizar_tx(tx, datos):
+def _sincronizar_tx(tx, datos):  # copia un envío completo a Neo4j en una transacción; la usa sincronizar_envio_grafo
     """Proyecta un envío completo. Es idempotente (usa MERGE)."""
     envio = datos["envio"]
     cliente = datos["cliente"]
@@ -24,7 +24,7 @@ def _sincronizar_tx(tx, datos):
     # Cliente y envío. Si el envío cambió de cliente se elimina la
     # relación anterior.
     tx.run("""
-        MERGE (c:Cliente {id_cliente: $cliente.id_cliente})
+        MERGE (c:Cliente {id_cliente: $cliente.id_cliente})  // MERGE: si ya existe, no lo duplica
         SET c.razon_social = $cliente.razon_social,
             c.pais = $cliente.pais
         MERGE (e:Envio {id_envio: $envio.id_envio})
@@ -34,21 +34,21 @@ def _sincronizar_tx(tx, datos):
             e.destino = $envio.destino,
             e.fecha_creacion = $envio.fecha_creacion
         WITH c, e
-        OPTIONAL MATCH (otro:Cliente)-[viejo:REALIZA]->(e)
+        OPTIONAL MATCH (otro:Cliente)-[viejo:REALIZA]->(e)  // si cambió de cliente, se borra la relación vieja
         WHERE otro.id_cliente <> $cliente.id_cliente
         DELETE viejo
-        MERGE (c)-[:REALIZA]->(e)
+        MERGE (c)-[:REALIZA]->(e)  // cliente REALIZA envío
     """, cliente=cliente, envio=envio).consume()
 
     # Tramos que ya no existen en PostgreSQL.
     tx.run("""
         MATCH (:Envio {id_envio: $id_envio})-[:TIENE_TRAMO]->(t:Tramo)
-        WHERE NOT t.id_tramo IN $ids
+        WHERE NOT t.id_tramo IN $ids  // tramos que ya no están en PostgreSQL
         DETACH DELETE t
     """, id_envio=id_envio,
         ids=[t["id_tramo"] for t in tramos]).consume()
 
-    for tramo in tramos:
+    for tramo in tramos:  # cada tramo: nodo, vehículo, ubicaciones y operadores
         origen_norm = normalizar_nombre_grafo(tramo["origen"])
         destino_norm = normalizar_nombre_grafo(tramo["destino"])
 
@@ -60,13 +60,13 @@ def _sincronizar_tx(tx, datos):
                 t.destino = $t.destino,
                 t.fecha_salida = $t.fecha_salida,
                 t.fecha_estimada_llegada = $t.fecha_estimada_llegada
-            MERGE (e)-[:TIENE_TRAMO]->(t)
+            MERGE (e)-[:TIENE_TRAMO]->(t)  // envío TIENE_TRAMO tramo
         """, id_envio=id_envio, t=tramo).consume()
 
         # Relaciones del tramo que pudieron cambiar.
         tx.run("""
             MATCH (:Tramo {id_tramo: $id_tramo})
-                  -[r:UTILIZA_VEHICULO|SALE_DE|LLEGA_A|REALIZADO_POR]->()
+                  -[r:UTILIZA_VEHICULO|SALE_DE|LLEGA_A|REALIZADO_POR]->()  // se borran y se vuelven a crear abajo
             DELETE r
         """, id_tramo=tramo["id_tramo"]).consume()
 
@@ -75,8 +75,8 @@ def _sincronizar_tx(tx, datos):
             MERGE (v:Vehiculo {id_vehiculo: $t.id_vehiculo})
             SET v.identificacion = $t.identificacion,
                 v.tipo = $t.tipo_vehiculo
-            MERGE (t)-[:UTILIZA_VEHICULO]->(v)
-            MERGE (o:Ubicacion {nombre: $origen_norm})
+            MERGE (t)-[:UTILIZA_VEHICULO]->(v)  // tramo UTILIZA_VEHICULO vehículo
+            MERGE (o:Ubicacion {nombre: $origen_norm})  // ubicación por nombre normalizado: la comparten varios tramos
             ON CREATE SET o.etiqueta = $t.origen
             MERGE (t)-[:SALE_DE]->(o)
             MERGE (d:Ubicacion {nombre: $destino_norm})
@@ -86,7 +86,7 @@ def _sincronizar_tx(tx, datos):
             destino_norm=destino_norm).consume()
 
         # Operador que realizó el tramo (PostgreSQL tramo.id_operador).
-        if tramo.get("operador"):
+        if tramo.get("operador"):  # tramo REALIZADO_POR operador
             tx.run(_MERGE_OPERADOR + """
                 WITH op
                 MATCH (t:Tramo {id_tramo: $id_tramo})
@@ -95,7 +95,7 @@ def _sincronizar_tx(tx, datos):
 
         # Operador actual del vehículo; puede haber cambiado.
         tx.run("""
-            MATCH (:Vehiculo {id_vehiculo: $id_vehiculo})
+            MATCH (:Vehiculo {id_vehiculo: $id_vehiculo})  // el operador del vehículo se reemplaza por el actual
                   -[r:OPERADO_POR]->(:Operador)
             DELETE r
         """, id_vehiculo=tramo["id_vehiculo"]).consume()
@@ -110,26 +110,26 @@ def _sincronizar_tx(tx, datos):
 
     # Contenedores del envío.
     tx.run("""
-        MATCH (:Envio {id_envio: $id_envio})-[r:UTILIZA_CONTENEDOR]->()
+        MATCH (:Envio {id_envio: $id_envio})-[r:UTILIZA_CONTENEDOR]->()  // se rehacen las relaciones con los contenedores
         DELETE r
     """, id_envio=id_envio).consume()
 
     if contenedores:
         tx.run("""
             MATCH (e:Envio {id_envio: $id_envio})
-            UNWIND $contenedores AS c
+            UNWIND $contenedores AS c  // una fila por contenedor
             MERGE (k:Contenedor {id_contenedor: c.id_contenedor})
             SET k.codigo = c.codigo
             MERGE (e)-[:UTILIZA_CONTENEDOR]->(k)
         """, id_envio=id_envio, contenedores=contenedores).consume()
 
 
-def sincronizar_envio_grafo(datos):
+def sincronizar_envio_grafo(datos):  # abre la sesión y escribe en Neo4j; la usa reconciliar_envio
     with abrir_sesion_neo4j() as sesion:
         sesion.execute_write(_sincronizar_tx, datos)
 
 
-def _eliminar_tx(tx, id_envio):
+def _eliminar_tx(tx, id_envio):  # borra el envío y sus tramos del grafo
     tx.run("""
         MATCH (e:Envio {id_envio: $id_envio})
         OPTIONAL MATCH (e)-[:TIENE_TRAMO]->(t:Tramo)
@@ -137,15 +137,15 @@ def _eliminar_tx(tx, id_envio):
     """, id_envio=id_envio).consume()
 
 
-def eliminar_envio_grafo(id_envio):
+def eliminar_envio_grafo(id_envio):  # lo usa reconciliar_envio si el envío ya no está en PostgreSQL
     with abrir_sesion_neo4j() as sesion:
         sesion.execute_write(_eliminar_tx, id_envio)
 
 
-def _ruta_tx(tx, id_envio):
+def _ruta_tx(tx, id_envio):  # una fila por tramo con ubicaciones, vehículo y operador
     resultado = tx.run("""
         MATCH (e:Envio {id_envio: $id_envio})
-        OPTIONAL MATCH (cl:Cliente)-[:REALIZA]->(e)
+        OPTIONAL MATCH (cl:Cliente)-[:REALIZA]->(e)  // OPTIONAL: el envío sale aunque le falten datos
         OPTIONAL MATCH (e)-[:TIENE_TRAMO]->(t:Tramo)
         OPTIONAL MATCH (t)-[:SALE_DE]->(o:Ubicacion)
         OPTIONAL MATCH (t)-[:LLEGA_A]->(d:Ubicacion)
@@ -170,7 +170,7 @@ def _ruta_tx(tx, id_envio):
     return [dict(fila) for fila in resultado]
 
 
-def obtener_ruta_envio(id_envio):
+def obtener_ruta_envio(id_envio):  # ruta de un envío; la usa la opción 4 de trazabilidad y el portal
     """Filas de la ruta (una por tramo). Lista vacía si el envío no está
     en el grafo.
     """
@@ -182,11 +182,11 @@ def obtener_ruta_envio(id_envio):
 # Operadores: red de relaciones y "quién llevó mi contenedor"
 # ------------------------------------------------------------------
 
-def _operadores_contenedor_tx(tx, id_contenedor, id_cliente):
+def _operadores_contenedor_tx(tx, id_contenedor, id_cliente):  # tramos y operadores de los envíos que usan el contenedor
     resultado = tx.run("""
         MATCH (cl:Cliente)-[:REALIZA]->(e:Envio)
-              -[:UTILIZA_CONTENEDOR]->(:Contenedor {id_contenedor: $id_contenedor})
-        WHERE $id_cliente IS NULL OR cl.id_cliente = $id_cliente
+              -[:UTILIZA_CONTENEDOR]->(:Contenedor {id_contenedor: $id_contenedor})  // cliente, envío y contenedor en un solo camino
+        WHERE $id_cliente IS NULL OR cl.id_cliente = $id_cliente  // si es un cliente, solo sus envíos
         MATCH (e)-[:TIENE_TRAMO]->(t:Tramo)
         OPTIONAL MATCH (t)-[:REALIZADO_POR]->(op:Operador)
         RETURN e.id_envio AS id_envio,
@@ -203,7 +203,7 @@ def _operadores_contenedor_tx(tx, id_contenedor, id_cliente):
     return [dict(fila) for fila in resultado]
 
 
-def operadores_de_contenedor(id_contenedor, id_cliente=None):
+def operadores_de_contenedor(id_contenedor, id_cliente=None):  # la usa la opción 7 de trazabilidad y el portal
     """Tramos y operadores que llevaron un contenedor.
 
     Con id_cliente, solo los envíos de ese cliente (un cliente nunca ve
@@ -215,12 +215,12 @@ def operadores_de_contenedor(id_contenedor, id_cliente=None):
         )
 
 
-def _red_cliente_tx(tx, id_cliente):
+def _red_cliente_tx(tx, id_cliente):  # operadores del cliente y cuántos otros clientes comparten
     resultado = tx.run("""
         MATCH (cl:Cliente {id_cliente: $id_cliente})-[:REALIZA]->(e:Envio)
-              -[:TIENE_TRAMO]->(:Tramo)-[:REALIZADO_POR]->(op:Operador)
+              -[:TIENE_TRAMO]->(:Tramo)-[:REALIZADO_POR]->(op:Operador)  // cliente, envío, tramo y operador
         WITH op, collect(DISTINCT e.id_envio) AS envios
-        OPTIONAL MATCH (otro:Cliente)-[:REALIZA]->(:Envio)
+        OPTIONAL MATCH (otro:Cliente)-[:REALIZA]->(:Envio)  // otros clientes que usaron el mismo operador
               -[:TIENE_TRAMO]->(:Tramo)-[:REALIZADO_POR]->(op)
         WHERE otro.id_cliente <> $id_cliente
         RETURN op.id_operador AS id_operador,
@@ -233,7 +233,7 @@ def _red_cliente_tx(tx, id_cliente):
     return [dict(fila) for fila in resultado]
 
 
-def red_operadores_cliente(id_cliente):
+def red_operadores_cliente(id_cliente):  # la usa la opción 8 de trazabilidad
     """Operadores que llevaron envíos del cliente.
 
     De los otros clientes que comparten operador solo se devuelve la
@@ -243,7 +243,7 @@ def red_operadores_cliente(id_cliente):
         return sesion.execute_read(_red_cliente_tx, id_cliente)
 
 
-def _eliminar_operadores_legados_tx(tx):
+def _eliminar_operadores_legados_tx(tx):  # borra operadores viejos sin ID
     resultado = tx.run("""
         MATCH (op:Operador)
         WHERE op.id_operador IS NULL
@@ -253,7 +253,7 @@ def _eliminar_operadores_legados_tx(tx):
     return resultado.single()["eliminados"]
 
 
-def eliminar_operadores_legados():
+def eliminar_operadores_legados():  # la usa resincronizar_todos
     """Borra los :Operador creados desde el texto libre empresa_operadora.
 
     Son los nodos sin id_operador (identificados solo por nombre). Desde la
@@ -268,7 +268,7 @@ def eliminar_operadores_legados():
 # Reportes: operadores por envío y por contenedor (solo lectura)
 # ------------------------------------------------------------------
 
-def _operadores_por_envio_tx(tx, ids_envios):
+def _operadores_por_envio_tx(tx, ids_envios):  # operador y medio de cada tramo de esos envíos
     resultado = tx.run("""
         MATCH (e:Envio)-[:TIENE_TRAMO]->(t:Tramo)-[:REALIZADO_POR]->(op:Operador)
         WHERE e.id_envio IN $ids
@@ -278,7 +278,7 @@ def _operadores_por_envio_tx(tx, ids_envios):
     return [dict(fila) for fila in resultado]
 
 
-def operadores_por_envio(ids_envios):
+def operadores_por_envio(ids_envios):  # agrupa por envío; la usan los reportes internos
     """{id_envio: [(id_operador, razón social, medio), ...]} según el grafo."""
     if not ids_envios:
         return {}
@@ -292,12 +292,12 @@ def operadores_por_envio(ids_envios):
     return resultado
 
 
-def _operadores_contenedores_cliente_tx(tx, id_cliente, ids_envios, id_contenedor):
+def _operadores_contenedores_cliente_tx(tx, id_cliente, ids_envios, id_contenedor):  # tramos y operadores de los contenedores del cliente
     resultado = tx.run("""
         MATCH (cl:Cliente {id_cliente: $id_cliente})-[:REALIZA]->(e:Envio)
               -[:UTILIZA_CONTENEDOR]->(k:Contenedor)
         WHERE e.id_envio IN $ids
-          AND ($id_contenedor IS NULL OR k.id_contenedor = $id_contenedor)
+          AND ($id_contenedor IS NULL OR k.id_contenedor = $id_contenedor)  // contenedor opcional
         MATCH (e)-[:TIENE_TRAMO]->(t:Tramo)
         OPTIONAL MATCH (t)-[:REALIZADO_POR]->(op:Operador)
         RETURN k.codigo AS contenedor, e.id_envio AS id_envio,
@@ -310,7 +310,7 @@ def _operadores_contenedores_cliente_tx(tx, id_cliente, ids_envios, id_contenedo
     return [dict(fila) for fila in resultado]
 
 
-def operadores_de_contenedores_cliente(id_cliente, ids_envios, id_contenedor=None):
+def operadores_de_contenedores_cliente(id_cliente, ids_envios, id_contenedor=None):  # la usa el reporte cobrable de operadores
     """Tramos y operadores de los contenedores de UN cliente (solo sus envíos)."""
     if not ids_envios:
         return []
