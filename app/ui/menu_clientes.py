@@ -7,7 +7,7 @@ from app.services.cliente_service import (
 )
 
 
-def mostrar_menu_clientes():
+def mostrar_menu_clientes():  # menú de clientes; opción 1 del menú principal
     while True:
         print("\n==========================================")
         print("          GESTIÓN DE CLIENTES")
@@ -21,7 +21,7 @@ def mostrar_menu_clientes():
 
         opcion = input("\nSeleccioná una opción: ")
 
-        if opcion == "1":
+        if opcion == "1":  # cada servicio controla el permiso por su cuenta
             registrar_cliente()
 
         elif opcion == "2":

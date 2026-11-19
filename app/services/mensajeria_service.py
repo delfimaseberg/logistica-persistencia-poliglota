@@ -29,14 +29,14 @@ from app.repositories.mensajeria_repository import (
 from app.utils.errores import mensaje_error
 
 
-ZONA_ARGENTINA = ZoneInfo("America/Argentina/Buenos_Aires")
+ZONA_ARGENTINA = ZoneInfo("America/Argentina/Buenos_Aires")  # para mostrar las fechas
 
 
 def pausar():
     input("\nPresioná Enter para continuar...")
 
 
-def pedir_id(mensaje):
+def pedir_id(mensaje):  # pide un número entero positivo
     while True:
         valor = input(mensaje).strip()
 
@@ -46,7 +46,7 @@ def pedir_id(mensaje):
         print("Ingresá un número entero positivo.")
 
 
-def obtener_id_usuario_actual():
+def obtener_id_usuario_actual():  # id del usuario de la sesión; la usan todas las opciones
     sesion = obtener_sesion_actual()
 
     if sesion is None:
@@ -55,20 +55,20 @@ def obtener_id_usuario_actual():
     return sesion["id_usuario"]
 
 
-def destinatarios_para_sesion():
+def destinatarios_para_sesion():  # a quién puede escribir el usuario según su parte; la usan listar, elegir y validar destinatario
     """Usuarios a los que puede escribir el usuario de la sesión (por parte)."""
     sesion = obtener_sesion_actual()
 
     if sesion is None:
         raise PermissionError("Debés iniciar sesión.")
 
-    tipo, id_parte = parte_de(sesion)
+    tipo, id_parte = parte_de(sesion)  # la parte sale siempre de la sesión
     return obtener_destinatarios_permitidos(
         sesion["id_usuario"], tipo, id_parte
     )
 
 
-def validar_destinatario(destinatario_id):
+def validar_destinatario(destinatario_id):  # segundo control al enviar; la usa enviar_mensaje_service
     """El servicio también controla al enviar, no solo la lista."""
     permitidos = {usuario[0] for usuario in destinatarios_para_sesion()}
 
@@ -78,12 +78,12 @@ def validar_destinatario(destinatario_id):
         )
 
 
-def puede_ver_emails():
+def puede_ver_emails():  # solo los internos ven los emails de los demás
     sesion = obtener_sesion_actual()
     return sesion is not None and es_interno(sesion)
 
 
-def exigir_interno_para_grupos():
+def exigir_interno_para_grupos():  # solo internos crean grupos y agregan miembros
     sesion = obtener_sesion_actual()
 
     if sesion is None or not es_interno(sesion):
@@ -92,7 +92,7 @@ def exigir_interno_para_grupos():
         )
 
 
-def pedir_contenido():
+def pedir_contenido():  # pide el texto del mensaje, hasta 2000 caracteres
     contenido = input("Mensaje: ").strip()
 
     if not contenido:
@@ -104,7 +104,7 @@ def pedir_contenido():
     return contenido
 
 
-def formatear_fecha(fecha):
+def formatear_fecha(fecha):  # fecha en hora argentina
     if fecha is None:
         return "Sin fecha"
 
@@ -122,7 +122,7 @@ def formatear_fecha(fecha):
     )
 
 
-def obtener_nombre_usuario(id_usuario):
+def obtener_nombre_usuario(id_usuario):  # nombre del usuario para mostrar
     if id_usuario is None:
         return "Sin usuario"
 
@@ -138,7 +138,7 @@ def obtener_nombre_usuario(id_usuario):
     return f"Usuario {id_usuario}"
 
 
-def seleccionar_de_lista(elementos, titulo, obtener_descripcion):
+def seleccionar_de_lista(elementos, titulo, obtener_descripcion):  # lista numerada para elegir; la usan las pantallas de mensajería
     if not elementos:
         print("\nNo hay elementos disponibles.")
         return None
@@ -165,7 +165,7 @@ def seleccionar_de_lista(elementos, titulo, obtener_descripcion):
         print("Opción inválida. Intentá nuevamente.")
 
 
-def seleccionar_usuario(excluir_id=None):
+def seleccionar_usuario(excluir_id=None):  # elige un destinatario permitido; la usan enviar y conversación
     # Solo los destinatarios permitidos para la parte del usuario.
     usuarios = destinatarios_para_sesion()
     con_email = puede_ver_emails()
@@ -184,7 +184,7 @@ def seleccionar_usuario(excluir_id=None):
     )
 
 
-def describir_usuario(usuario, mostrar_email=True):
+def describir_usuario(usuario, mostrar_email=True):  # nombre, email (si corresponde) y parte
     """'Nombre Apellido (email) - Parte'. La parte es opcional en la fila.
 
     A los usuarios externos no se les muestra el email de los demás.
@@ -197,7 +197,7 @@ def describir_usuario(usuario, mostrar_email=True):
     return texto
 
 
-def seleccionar_grupo(id_usuario):
+def seleccionar_grupo(id_usuario):  # elige uno de los grupos del usuario
     grupos = listar_grupos_usuario(id_usuario)
 
     return seleccionar_de_lista(
@@ -210,14 +210,14 @@ def seleccionar_grupo(id_usuario):
     )
 
 
-def nombre_remitente(mensaje):
+def nombre_remitente(mensaje):  # nombre de quien mandó el mensaje
     """Los mensajes de alertas los emite el sistema, no un usuario."""
     if mensaje.get("remitente_nombre"):
         return mensaje["remitente_nombre"]
     return obtener_nombre_usuario(mensaje.get("remitente_id"))
 
 
-def mostrar_mensaje(mensaje, numero=None):
+def mostrar_mensaje(mensaje, numero=None):  # imprime un mensaje; la usan bandeja, enviados, conversación y grupos
     print("-" * 45)
 
     if numero is not None:
@@ -241,7 +241,7 @@ def mostrar_mensaje(mensaje, numero=None):
         print(f"Estado: {estado}")
 
 
-def listar_usuarios_mensajeria_service():
+def listar_usuarios_mensajeria_service():  # a quién le puedo escribir; opción 1 de mensajería
     print("\n--- USUARIOS DISPONIBLES ---")
 
     try:
@@ -262,7 +262,7 @@ def listar_usuarios_mensajeria_service():
         pausar()
 
 
-def enviar_mensaje_service():
+def enviar_mensaje_service():  # manda un mensaje privado; opción 2 de mensajería
     print("\n--- ENVIAR MENSAJE PRIVADO ---")
 
     try:
@@ -277,7 +277,7 @@ def enviar_mensaje_service():
             return
 
         destinatario_id = destinatario[0]
-        validar_destinatario(destinatario_id)
+        validar_destinatario(destinatario_id)  # se vuelve a controlar antes de guardar
 
         print(
             f"\nDestinatario: {destinatario[1]} {destinatario[2]}"
@@ -293,7 +293,7 @@ def enviar_mensaje_service():
             print("Envío cancelado.")
             return
 
-        registrar_mensaje_privado(
+        registrar_mensaje_privado(  # se guarda en MongoDB como no leído
             remitente_id,
             destinatario_id,
             contenido
@@ -308,7 +308,7 @@ def enviar_mensaje_service():
         pausar()
 
 
-def consultar_bandeja_service():
+def consultar_bandeja_service():  # mensajes privados y de alertas recibidos; opción 3 de mensajería
     print("\n--- BANDEJA DE ENTRADA ---")
 
     try:
@@ -334,7 +334,7 @@ def consultar_bandeja_service():
         pausar()
 
 
-def consultar_enviados_service():
+def consultar_enviados_service():  # mensajes privados enviados; opción 4 de mensajería
     print("\n--- MENSAJES ENVIADOS ---")
 
     try:
@@ -357,7 +357,7 @@ def consultar_enviados_service():
         pausar()
 
 
-def consultar_conversacion_service():
+def consultar_conversacion_service():  # mensajes con otro usuario, en orden; opción 5 de mensajería
     print("\n--- CONSULTAR CONVERSACIÓN ---")
 
     try:
@@ -395,7 +395,7 @@ def consultar_conversacion_service():
         pausar()
 
 
-def marcar_leido_service():
+def marcar_leido_service():  # marca como leído un mensaje recibido; opción 6 de mensajería
     print("\n--- MARCAR MENSAJE COMO LEÍDO ---")
 
     try:
@@ -425,7 +425,7 @@ def marcar_leido_service():
             print("Operación cancelada.")
             return
 
-        if marcar_mensaje_leido(
+        if marcar_mensaje_leido(  # solo si el mensaje es para este usuario
             str(mensaje["_id"]),
             id_usuario
         ):
@@ -440,11 +440,11 @@ def marcar_leido_service():
         pausar()
 
 
-def crear_grupo_service():
+def crear_grupo_service():  # crea un grupo de trabajo; opción 7 de mensajería (internos)
     print("\n--- CREAR GRUPO DE TRABAJO ---")
 
     try:
-        exigir_interno_para_grupos()
+        exigir_interno_para_grupos()  # control en el servicio, además del menú
         creador_id = obtener_id_usuario_actual()
 
         nombre = input("Nombre del grupo: ").strip()
@@ -458,7 +458,7 @@ def crear_grupo_service():
             print("La descripción no puede superar 500 caracteres.")
             return
 
-        crear_grupo(
+        crear_grupo(  # el creador queda como administrador
             nombre,
             descripcion,
             creador_id
@@ -474,7 +474,7 @@ def crear_grupo_service():
         pausar()
 
 
-def listar_grupos_service():
+def listar_grupos_service():  # grupos en los que participa el usuario; opción 8 de mensajería (internos)
     print("\n--- MIS GRUPOS DE TRABAJO ---")
 
     try:
@@ -508,14 +508,14 @@ def listar_grupos_service():
 
 
 
-def agregar_miembro_service():
+def agregar_miembro_service():  # suma un usuario a un grupo propio; opción 9 de mensajería (internos)
     print("\n--- AGREGAR MIEMBRO A GRUPO ---")
 
     try:
         exigir_interno_para_grupos()
         id_usuario = obtener_id_usuario_actual()
 
-        grupos = [
+        grupos = [  # solo los grupos que creó este usuario
             grupo
             for grupo in listar_grupos_usuario(id_usuario)
             if grupo.get("creador_id") == id_usuario
@@ -531,7 +531,7 @@ def agregar_miembro_service():
             print("Operación cancelada.")
             return
 
-        usuarios = obtener_usuarios_activos()
+        usuarios = obtener_usuarios_activos()  # a un grupo se puede sumar a cualquier usuario activo
 
         usuarios_disponibles = [
             usuario
@@ -573,7 +573,7 @@ def agregar_miembro_service():
 
 
 
-def enviar_mensaje_grupo_service():
+def enviar_mensaje_grupo_service():  # manda un mensaje a un grupo; opción 10 de mensajería
     print("\n--- ENVIAR MENSAJE A GRUPO ---")
 
     try:
@@ -597,7 +597,7 @@ def enviar_mensaje_grupo_service():
             print("Envío cancelado.")
             return
 
-        registrar_mensaje_grupo(
+        registrar_mensaje_grupo(  # controla que sea miembro y lo guarda en MongoDB
             id_usuario,
             str(grupo["_id"]),
             contenido
@@ -612,7 +612,7 @@ def enviar_mensaje_grupo_service():
         pausar()
 
 
-def consultar_mensajes_grupo_service():
+def consultar_mensajes_grupo_service():  # mensajes de un grupo; opción 11 de mensajería
     print("\n--- CONSULTAR MENSAJES DE GRUPO ---")
 
     try:

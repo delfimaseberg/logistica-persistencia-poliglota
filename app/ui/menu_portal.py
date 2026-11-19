@@ -12,7 +12,7 @@ from app.services.reportes_pantallas import mis_reportes_menu
 from app.services.contrasena_service import cambiar_mi_contrasena_service
 
 
-OPCIONES_CLIENTE = {
+OPCIONES_CLIENTE = {  # portal del cliente: todo filtrado por su cliente
     "1": ("Mis envíos", portal.mis_envios_service),
     "2": ("Seguimiento de un envío (línea de tiempo)", portal.seguimiento_envio_service),
     "3": ("Eventos de un envío", portal.eventos_envio_service),
@@ -26,39 +26,39 @@ OPCIONES_CLIENTE = {
     "11": ("Cambiar mi contraseña", cambiar_mi_contrasena_service),
 }
 
-OPCIONES_OPERADOR = {
+OPCIONES_OPERADOR = {  # portal del operador logístico
     "1": ("Mensajería", mostrar_menu_mensajeria),
     "2": ("Mis tramos realizados", portal.mis_tramos_service),
     "3": ("Mis facturas y lo que nos falta pagarles", portal.mi_cuenta_tercero_service),
     "4": ("Cambiar mi contraseña", cambiar_mi_contrasena_service),
 }
 
-OPCIONES_PROVEEDOR = {
+OPCIONES_PROVEEDOR = {  # portal del proveedor
     "1": ("Mensajería", mostrar_menu_mensajeria),
     "2": ("Mis facturas y lo que nos falta pagarles", portal.mi_cuenta_tercero_service),
     "3": ("Cambiar mi contraseña", cambiar_mi_contrasena_service),
 }
 
-TITULOS = {
+TITULOS = {  # título de cada portal
     "CLIENTE": "PORTAL DEL CLIENTE",
     "OPERADOR": "PORTAL DEL OPERADOR LOGÍSTICO",
     "PROVEEDOR": "PORTAL DEL PROVEEDOR",
 }
-OPCIONES_POR_PARTE = {
+OPCIONES_POR_PARTE = {  # qué opciones tiene cada parte
     "CLIENTE": OPCIONES_CLIENTE,
     "OPERADOR": OPCIONES_OPERADOR,
     "PROVEEDOR": OPCIONES_PROVEEDOR,
 }
 
 
-def mostrar_portal(usuario):
-    tipo, _ = parte_de(usuario)
+def mostrar_portal(usuario):  # una vuelta del portal según la parte del usuario; la llama mostrar_menu para usuarios externos
+    tipo, _ = parte_de(usuario)  # la parte sale de la sesión, nunca se pregunta
     opciones = OPCIONES_POR_PARTE[tipo]
     cerrar = str(len(opciones) + 1)
 
     while True:
         usuario = obtener_sesion_actual()
-        if usuario is None or parte_de(usuario)[0] != tipo:
+        if usuario is None or parte_de(usuario)[0] != tipo:  # si la sesión cambió o venció, se vuelve al inicio
             return False
 
         print("\n==========================================")

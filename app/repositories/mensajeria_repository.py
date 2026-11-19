@@ -9,10 +9,10 @@ from app.database.mongo_connection import get_mongo_database
 
 # La bandeja de entrada muestra los mensajes privados y los de alertas.
 TIPOS_BANDEJA = ("Privado", "Alerta")
-REMITENTE_ALERTAS = "Sistema de alertas"
+REMITENTE_ALERTAS = "Sistema de alertas"  # nombre que figura como remitente de las alertas
 
 
-def obtener_usuario_activo(id_usuario):
+def obtener_usuario_activo(id_usuario):  # un usuario activo; la usa obtener_nombre_usuario
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute("""
@@ -24,7 +24,7 @@ def obtener_usuario_activo(id_usuario):
             return cursor.fetchone()
 
 
-def obtener_usuarios_activos():
+def obtener_usuarios_activos():  # todos los usuarios activos con su parte; la usa agregar miembro a grupo
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             # Columnas 0-3 como antes; 4 = parte (Cliente/Proveedor/
@@ -32,7 +32,7 @@ def obtener_usuarios_activos():
             # se habla.
             cursor.execute("""
                 SELECT u.id_usuario, u.nombre, u.apellido, u.email,
-                       CASE
+                       CASE  -- a qué parte pertenece cada usuario
                            WHEN u.id_cliente IS NOT NULL
                                THEN 'Cliente: ' || c.razon_social
                            WHEN u.id_proveedor IS NOT NULL
@@ -52,7 +52,7 @@ def obtener_usuarios_activos():
             return cursor.fetchall()
 
 
-def coleccion_mensajes():
+def coleccion_mensajes():  # colección mensajes de MongoDB con sus índices
     coleccion = get_mongo_database()["mensajes"]
     coleccion.create_index(
         [("destinatario_id", 1), ("fecha_hora", -1)],
@@ -67,7 +67,7 @@ def coleccion_mensajes():
         name="idx_mensajes_remitente_fecha"
     )
     # Un solo mensaje por alerta y destinatario, aunque se repita la emisión.
-    coleccion.create_index(
+    coleccion.create_index(  # índice único: evita repetir el mensaje de una alerta
         [("alerta_id", 1), ("destinatario_id", 1)],
         unique=True,
         partialFilterExpression={"alerta_id": {"$type": "string"}},
@@ -76,7 +76,7 @@ def coleccion_mensajes():
     return coleccion
 
 
-def coleccion_grupos():
+def coleccion_grupos():  # colección grupos_trabajo de MongoDB
     coleccion = get_mongo_database()["grupos_trabajo"]
     coleccion.create_index(
         [("miembros.usuario_id", 1)],
@@ -85,7 +85,7 @@ def coleccion_grupos():
     return coleccion
 
 
-def registrar_mensaje_privado(remitente_id, destinatario_id, contenido):
+def registrar_mensaje_privado(remitente_id, destinatario_id, contenido):  # guarda un mensaje privado; la usa enviar_mensaje_service
     documento = {
         "tipo": "Privado",
         "remitente_id": remitente_id,
@@ -93,14 +93,14 @@ def registrar_mensaje_privado(remitente_id, destinatario_id, contenido):
         "grupo_id": None,
         "contenido": contenido,
         "fecha_hora": datetime.now(timezone.utc),
-        "leido": False
+        "leido": False  # nace sin leer
     }
 
     resultado = coleccion_mensajes().insert_one(documento)
     return str(resultado.inserted_id)
 
 
-def obtener_bandeja_entrada(id_usuario):
+def obtener_bandeja_entrada(id_usuario):  # últimos 50 recibidos; la usan bandeja y marcar leído
     return list(
         coleccion_mensajes()
         .find({
@@ -112,7 +112,7 @@ def obtener_bandeja_entrada(id_usuario):
     )
 
 
-def obtener_mensajes_enviados(id_usuario):
+def obtener_mensajes_enviados(id_usuario):  # últimos 50 enviados; la usa consultar_enviados_service
     return list(
         coleccion_mensajes()
         .find({
@@ -124,10 +124,10 @@ def obtener_mensajes_enviados(id_usuario):
     )
 
 
-def obtener_conversacion(id_usuario, otro_usuario):
+def obtener_conversacion(id_usuario, otro_usuario):  # mensajes entre dos usuarios; la usa consultar conversación
     filtro = {
         "tipo": "Privado",
-        "$or": [
+        "$or": [  # en los dos sentidos
             {
                 "remitente_id": id_usuario,
                 "destinatario_id": otro_usuario
@@ -146,10 +146,10 @@ def obtener_conversacion(id_usuario, otro_usuario):
         .limit(50)
     )
 
-    return list(reversed(mensajes))
+    return list(reversed(mensajes))  # los 50 últimos, del más viejo al más nuevo
 
 
-def marcar_mensaje_leido(id_mensaje, destinatario_id):
+def marcar_mensaje_leido(id_mensaje, destinatario_id):  # la usa marcar_leido_service
     try:
         identificador = ObjectId(id_mensaje)
     except (InvalidId, TypeError):
@@ -159,7 +159,7 @@ def marcar_mensaje_leido(id_mensaje, destinatario_id):
         {
             "_id": identificador,
             "tipo": {"$in": list(TIPOS_BANDEJA)},
-            "destinatario_id": destinatario_id
+            "destinatario_id": destinatario_id  # solo el destinatario puede marcarlo
         },
         {
             "$set": {
@@ -172,7 +172,7 @@ def marcar_mensaje_leido(id_mensaje, destinatario_id):
     return resultado.matched_count > 0
 
 
-def contar_mensajes_no_leidos(id_usuario):
+def contar_mensajes_no_leidos(id_usuario):  # cantidad sin leer; la usa la bandeja
     return coleccion_mensajes().count_documents({
         "tipo": {"$in": list(TIPOS_BANDEJA)},
         "destinatario_id": id_usuario,
@@ -180,14 +180,14 @@ def contar_mensajes_no_leidos(id_usuario):
     })
 
 
-def crear_grupo(nombre, descripcion, creador_id):
+def crear_grupo(nombre, descripcion, creador_id):  # guarda el grupo; la usa crear_grupo_service
     documento = {
         "nombre": nombre,
         "descripcion": descripcion,
         "creador_id": creador_id,
         "fecha_creacion": datetime.now(timezone.utc),
         "estado": "Activo",
-        "miembros": [
+        "miembros": [  # los miembros van adentro del documento del grupo
             {
                 "usuario_id": creador_id,
                 "rol": "Administrador",
@@ -200,7 +200,7 @@ def crear_grupo(nombre, descripcion, creador_id):
     return str(resultado.inserted_id)
 
 
-def buscar_grupo(id_grupo):
+def buscar_grupo(id_grupo):  # un grupo activo por ID
     try:
         identificador = ObjectId(id_grupo)
     except (InvalidId, TypeError):
@@ -212,7 +212,7 @@ def buscar_grupo(id_grupo):
     })
 
 
-def listar_grupos_usuario(id_usuario):
+def listar_grupos_usuario(id_usuario):  # grupos donde el usuario es miembro
     return list(
         coleccion_grupos()
         .find({
@@ -223,14 +223,14 @@ def listar_grupos_usuario(id_usuario):
     )
 
 
-def usuario_es_miembro(grupo, id_usuario):
+def usuario_es_miembro(grupo, id_usuario):  # si el usuario está en el grupo
     return any(
         miembro.get("usuario_id") == id_usuario
         for miembro in grupo.get("miembros", [])
     )
 
 
-def agregar_miembro_grupo(id_grupo, id_usuario):
+def agregar_miembro_grupo(id_grupo, id_usuario):  # suma un miembro; la usa agregar_miembro_service
     grupo = buscar_grupo(id_grupo)
 
     if grupo is None:
@@ -243,7 +243,7 @@ def agregar_miembro_grupo(id_grupo, id_usuario):
         {
             "_id": grupo["_id"],
             "estado": "Activo",
-            "miembros.usuario_id": {"$ne": id_usuario}
+            "miembros.usuario_id": {"$ne": id_usuario}  # no se agrega dos veces
         },
         {
             "$push": {
@@ -259,13 +259,13 @@ def agregar_miembro_grupo(id_grupo, id_usuario):
     return resultado.modified_count > 0
 
 
-def registrar_mensaje_grupo(remitente_id, id_grupo, contenido):
+def registrar_mensaje_grupo(remitente_id, id_grupo, contenido):  # guarda un mensaje de grupo; la usa enviar_mensaje_grupo_service
     grupo = buscar_grupo(id_grupo)
 
     if grupo is None:
         raise ValueError("El grupo no existe.")
 
-    if not usuario_es_miembro(grupo, remitente_id):
+    if not usuario_es_miembro(grupo, remitente_id):  # solo los miembros escriben
         raise PermissionError("No pertenecés a este grupo.")
 
     documento = {
@@ -281,13 +281,13 @@ def registrar_mensaje_grupo(remitente_id, id_grupo, contenido):
     return str(resultado.inserted_id)
 
 
-def obtener_mensajes_grupo(id_grupo, id_usuario):
+def obtener_mensajes_grupo(id_grupo, id_usuario):  # últimos 50 del grupo; la usa consultar mensajes de grupo
     grupo = buscar_grupo(id_grupo)
 
     if grupo is None:
         raise ValueError("El grupo no existe.")
 
-    if not usuario_es_miembro(grupo, id_usuario):
+    if not usuario_es_miembro(grupo, id_usuario):  # solo los miembros leen
         raise PermissionError("No pertenecés a este grupo.")
 
     mensajes = list(
@@ -307,7 +307,7 @@ def obtener_mensajes_grupo(id_grupo, id_usuario):
 # Destinatarios permitidos según la parte del usuario
 # ------------------------------------------------------------------
 
-def obtener_destinatarios_permitidos(id_usuario, tipo_parte, id_parte):
+def obtener_destinatarios_permitidos(id_usuario, tipo_parte, id_parte):  # a quién puede escribir cada parte; la usa destinatarios_para_sesion
     """Usuarios activos a los que puede escribir el usuario de la sesión.
 
     - INTERNO: todos.
@@ -338,10 +338,10 @@ def obtener_destinatarios_permitidos(id_usuario, tipo_parte, id_parte):
                 WHERE u.estado = 'ACTIVO'
                   AND u.id_usuario <> %(yo)s
                   AND (
-                      %(tipo)s = 'INTERNO'
+                      %(tipo)s = 'INTERNO'  -- el interno le escribe a todos
                       OR num_nonnulls(u.id_cliente, u.id_proveedor,
-                                      u.id_operador) = 0
-                      OR (%(tipo)s = 'CLIENTE' AND (
+                                      u.id_operador) = 0  -- todos le pueden escribir a los internos
+                      OR (%(tipo)s = 'CLIENTE' AND (  -- cliente: su gente y los operadores de sus envíos
                           u.id_cliente = %(id)s
                           OR u.id_operador IN (
                               SELECT t.id_operador
@@ -349,7 +349,7 @@ def obtener_destinatarios_permitidos(id_usuario, tipo_parte, id_parte):
                               JOIN envio e ON e.id_envio = t.id_envio
                               WHERE e.id_cliente = %(id)s
                                 AND t.id_operador IS NOT NULL)))
-                      OR (%(tipo)s = 'OPERADOR' AND u.id_cliente IN (
+                      OR (%(tipo)s = 'OPERADOR' AND u.id_cliente IN (  -- operador: los clientes cuyos envíos llevó
                           SELECT e.id_cliente
                           FROM tramo t
                           JOIN envio e ON e.id_envio = t.id_envio
@@ -364,7 +364,7 @@ def obtener_destinatarios_permitidos(id_usuario, tipo_parte, id_parte):
 # Mensajes de alerta (emitidos por el sistema)
 # ------------------------------------------------------------------
 
-def destinatarios_alerta(id_envio=None):
+def destinatarios_alerta(id_envio=None):  # quiénes reciben una alerta; la usa notificar_alerta
     """Usuarios internos activos y, si hay envío, los usuarios activos de su cliente.
 
     Devuelve [(id_usuario, es_interno)].
@@ -385,7 +385,7 @@ def destinatarios_alerta(id_envio=None):
             return cursor.fetchall()
 
 
-def registrar_mensaje_alerta(id_alerta, destinatario_id, contenido, fecha_hora=None):
+def registrar_mensaje_alerta(id_alerta, destinatario_id, contenido, fecha_hora=None):  # mensaje del sistema por una alerta; la usa notificar_alerta
     """Mensaje del sistema por una alerta. Devuelve True si se creó."""
     from pymongo.errors import DuplicateKeyError
     documento = {
@@ -402,5 +402,5 @@ def registrar_mensaje_alerta(id_alerta, destinatario_id, contenido, fecha_hora=N
     try:
         coleccion_mensajes().insert_one(documento)
         return True
-    except DuplicateKeyError:
+    except DuplicateKeyError:  # ya se le había mandado esa alerta
         return False

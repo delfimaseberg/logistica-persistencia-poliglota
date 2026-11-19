@@ -19,7 +19,7 @@ def obtener_cliente_por_id(id_cliente):  # trae un cliente por ID; seleccionar_c
                 SELECT id_cliente, razon_social, cuit
                 FROM cliente
                 WHERE id_cliente = %s  -- solo el cliente que se eligió
-            """, (id_cliente,))
+            """, (id_cliente,)) # la coma indica que es una tupla
             return cursor.fetchone()
 
 

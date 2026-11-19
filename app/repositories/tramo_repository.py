@@ -27,7 +27,7 @@ def crear_tramo(tramo):  # inserta un tramo del envío; la usan "Registrar tramo
                 tramo.fecha_estimada_llegada,
                 tramo.id_operador
             ))
-            return cursor.fetchone()[0]
+            return cursor.fetchone()[0] # toma el valor del returning, primera posicion de la fila
 
 
 def listar_tramos_de_envio(id_envio):  # tramos de un envío con vehículo y operador; la usan "Registrar tramo", "Consultar tramos", "Modificar envío" y trazabilidad

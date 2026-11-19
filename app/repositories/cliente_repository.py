@@ -5,26 +5,26 @@ from app.utils.validaciones_datos import validar_contacto
 from app.utils import formato
 
 
-def _validar(cliente):
+def _validar(cliente):  # controla los datos antes de guardar; la usan alta y modificación
     """CUIT con dígito verificador si es de Argentina; si no, formato. Largos,
     email y teléfono según las columnas de la base."""
-    datos = validar_contacto(vars(cliente), cuit_por_pais=True, direccion_obligatoria=True)
+    datos = validar_contacto(vars(cliente), cuit_por_pais=True, direccion_obligatoria=True)  # CUIT con dígito verificador si es de Argentina
     for campo in ("razon_social", "cuit", "email", "telefono", "direccion", "pais"):
         setattr(cliente, campo, datos[campo])
     if cliente.estado not in ("ACTIVO", "INACTIVO"):
         raise ValueError("El estado del cliente debe ser ACTIVO o INACTIVO.")
 
 
-def _repetido(error):
+def _repetido(error):  # mensaje según qué índice único falló
     restriccion = getattr(getattr(error, "diag", None), "constraint_name", "") or ""
     if "email" in restriccion:
         return ValueError("Ya existe un cliente con ese email.")
     return ValueError("Ya existe un cliente con esa identificación fiscal.")
 
 
-def dato_en_uso(campo, valor, excluir_id=None):
+def dato_en_uso(campo, valor, excluir_id=None):  # si otro cliente usa ese CUIT o email; la usa _sin_repetir
     """True si otro cliente usa ese CUIT o email (el email sin distinguir mayúsculas)."""
-    columna = {"cuit": "cuit", "email": "lower(email)"}[campo]
+    columna = {"cuit": "cuit", "email": "lower(email)"}[campo]  # solo dos columnas posibles, no viene del usuario
     parametro = valor if campo == "cuit" else str(valor).lower()
     conexion = get_postgres_connection()
     try:
@@ -34,7 +34,7 @@ def dato_en_uso(campo, valor, excluir_id=None):
                 SELECT EXISTS (
                     SELECT 1 FROM cliente
                     WHERE {columna} = %s
-                      AND (%s::bigint IS NULL OR id_cliente <> %s::bigint)
+                      AND (%s::bigint IS NULL OR id_cliente <> %s::bigint)  -- al modificar no se cuenta a sí mismo
                 );
                 """,
                 (parametro, excluir_id, excluir_id)
@@ -44,7 +44,7 @@ def dato_en_uso(campo, valor, excluir_id=None):
         conexion.close()
 
 
-def crear_cliente(cliente):
+def crear_cliente(cliente):  # guarda un cliente; la usa registrar_cliente
     _validar(cliente)
     conexion = get_postgres_connection()
 
@@ -74,7 +74,7 @@ def crear_cliente(cliente):
         conexion.commit()
         return id_cliente
 
-    except errors.UniqueViolation as error:
+    except errors.UniqueViolation as error:  # el índice único también frena CUIT o email repetidos
         conexion.rollback()
         raise _repetido(error) from None
 
@@ -86,7 +86,7 @@ def crear_cliente(cliente):
         conexion.close()
 
 
-def listar_clientes():
+def listar_clientes():  # todos los clientes; la usan el menú de clientes y la elección de cliente de un usuario
     conexion = get_postgres_connection()
 
     try:
@@ -113,7 +113,7 @@ def listar_clientes():
         conexion.close()
 
 
-def buscar_cliente_por_id(id_cliente):
+def buscar_cliente_por_id(id_cliente):  # un cliente por ID; la usan las pantallas de clientes
     conexion = get_postgres_connection()
 
     try:
@@ -141,7 +141,7 @@ def buscar_cliente_por_id(id_cliente):
         conexion.close()
 
 
-def modificar_cliente(id_cliente, cliente):
+def modificar_cliente(id_cliente, cliente):  # guarda los cambios; la usa modificar_cliente_service
     _validar(cliente)
     conexion = get_postgres_connection()
 
@@ -188,7 +188,7 @@ def modificar_cliente(id_cliente, cliente):
         conexion.close()
 
 
-def eliminar_cliente(id_cliente):
+def eliminar_cliente(id_cliente):  # borra el cliente; las claves foráneas lo impiden si tiene datos relacionados
     conexion = get_postgres_connection()
 
     try:

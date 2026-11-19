@@ -24,8 +24,6 @@ def _dia(columna):  # arma el SQL que pasa una fecha con hora al día argentino;
     return f"({columna} AT TIME ZONE '{ZONA}')::date"
 
 
-# ------------------------------------------------------- 35 operativos
-
 def envios_por_pais(desde, hasta, id_cliente=None):  # cuenta envíos por país de destino; la usa el reporte "Envíos por país de destino"
     """Por país de destino; también los países de origen. NULL = sin dato."""
     return _q(f"""

@@ -20,7 +20,7 @@ from app.services.mensajeria_service import (
 
 
 # (texto, función, solo internos)
-OPCIONES = {
+OPCIONES = {  # las de True (grupos) solo las ven los internos
     "1": ("Listar usuarios con los que puedo comunicarme",
           listar_usuarios_mensajeria_service, False),
     "2": ("Enviar mensaje privado", enviar_mensaje_service, False),
@@ -36,17 +36,17 @@ OPCIONES = {
 }
 
 
-def opciones_para(sesion):
+def opciones_para(sesion):  # opciones que ve el usuario según su parte; la usa mostrar_menu_mensajeria
     """Los usuarios externos no administran grupos (solo participan).
 
     Las opciones visibles se numeran de forma consecutiva (1, 2, 3...).
     """
     interno = sesion is not None and es_interno(sesion)
-    visibles = [opcion for opcion in OPCIONES.values() if interno or not opcion[2]]
+    visibles = [opcion for opcion in OPCIONES.values() if interno or not opcion[2]]  # a los externos se les sacan las de administrar grupos
     return {str(numero): opcion for numero, opcion in enumerate(visibles, 1)}
 
 
-def mostrar_menu_mensajeria():
+def mostrar_menu_mensajeria():  # menú de mensajería; opción 8 del menú interno y opción de cada portal
     # Disponible para cualquier usuario con sesión: cada uno ve a quién
     # puede escribir según su parte.
     if not verificar_sesion():
@@ -58,7 +58,7 @@ def mostrar_menu_mensajeria():
             print("\nDebés iniciar sesión para continuar.")
             return
 
-        opciones = opciones_para(sesion)
+        opciones = opciones_para(sesion)  # se arma de nuevo en cada vuelta
 
         print("\n==========================================")
         print("               MENSAJERÍA")
