@@ -1,6 +1,6 @@
 import os
 import psycopg
-from dotenv import load_dotenv
+from dotenv import load_dotenv # lee el archivo .env
 
 load_dotenv()
 
@@ -11,7 +11,7 @@ POSTGRES_USER = os.getenv("POSTGRES_USER")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 
 
-def get_postgres_connection():
+def get_postgres_connection(): # abre la conexion
     return psycopg.connect(
         host=POSTGRES_HOST,
         port=POSTGRES_PORT,

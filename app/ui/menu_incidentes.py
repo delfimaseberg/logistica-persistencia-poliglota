@@ -12,12 +12,12 @@ from app.services.incidentes_service import (
 from app.services.reglas_alerta_service import menu_reglas_alerta
 
 
-def mostrar_menu_incidentes():
+def mostrar_menu_incidentes():  # menú de incidentes y alertas; opción 7 del menú principal
     if not verificar_permiso(1):
         return
 
     while True:
-        if not verificar_permiso(1):
+        if not verificar_permiso(1):  # se vuelve a controlar en cada vuelta por si venció la sesión
             return
 
         print("\n==========================================")
@@ -43,7 +43,7 @@ def mostrar_menu_incidentes():
         elif opcion == "3":
             cambiar_estado_incidente_service()
 
-        elif opcion == "4":
+        elif opcion == "4":  # revisa las lecturas de Cassandra y genera alertas en MongoDB
             detectar_alertas_service()
 
         elif opcion == "5":
@@ -53,7 +53,7 @@ def mostrar_menu_incidentes():
             atender_alerta_service()
 
         elif opcion == "7":
-            if verificar_permiso(3):
+            if verificar_permiso(3):  # las reglas de alerta piden nivel 3
                 menu_reglas_alerta()
 
         elif opcion == "0":

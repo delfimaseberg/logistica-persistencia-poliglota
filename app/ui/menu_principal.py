@@ -29,7 +29,7 @@ from app.utils.errores import mensaje_error
 
 
 # Menú de usuarios internos: (texto, función, nivel mínimo).
-OPCIONES_INTERNAS = {
+OPCIONES_INTERNAS = {  # cada opción: texto, menú que abre y nivel mínimo
     "1": ("Gestión de clientes", mostrar_menu_clientes, 1),
     "2": ("Gestión de usuarios", mostrar_menu_usuarios, 3),
     "3": ("Gestión de envíos", mostrar_menu_envios, 1),
@@ -45,22 +45,22 @@ OPCIONES_INTERNAS = {
     "13": ("Operadores logísticos", mostrar_menu_operadores, 3),
 }
 # Cerrar sesión es siempre la última opción antes de Salir (igual que en los portales).
-OPCION_CAMBIAR_CONTRASENA = "14"
+OPCION_CAMBIAR_CONTRASENA = "14"  # van aparte porque no abren un submenú
 OPCION_CERRAR_SESION = "15"
 
 
-def ejecutar_modulo(funcion, nivel_minimo=1):
+def ejecutar_modulo(funcion, nivel_minimo=1):  # abre un menú si el nivel alcanza; la usa mostrar_menu_interno
     if verificar_permiso(nivel_minimo):
         funcion()
 
 
-def menu_para(usuario):
+def menu_para(usuario):  # elige qué menú ve el usuario según su parte; la usa mostrar_menu
     """Menú interno para la empresa; portal para clientes, operadores y
     proveedores (no ven las funciones internas)."""
-    return mostrar_menu_interno if es_interno(usuario) else mostrar_portal
+    return mostrar_menu_interno if es_interno(usuario) else mostrar_portal  # internos: menú completo; cliente, operador o proveedor: su portal
 
 
-def mostrar_menu_interno(usuario):
+def mostrar_menu_interno(usuario):  # menú principal de la empresa; lo llama mostrar_menu en cada vuelta
     """Una vuelta del menú interno. True = salir del sistema."""
     print("\n==========================================")
     print("       SISTEMA DE GESTIÓN LOGÍSTICA")
@@ -79,7 +79,7 @@ def mostrar_menu_interno(usuario):
 
     # Si un administrador cerró la sesión mientras se elegía (o venció por
     # inactividad), se avisa antes de interpretar la opción.
-    if obtener_sesion_actual() is None:
+    if obtener_sesion_actual() is None:  # también controla la inactividad
         return False
 
     if opcion in OPCIONES_INTERNAS:
@@ -99,7 +99,7 @@ def mostrar_menu_interno(usuario):
     return False
 
 
-def mostrar_menu():
+def mostrar_menu():  # ciclo principal del programa; lo llama main.py
     while True:
         try:
             usuario = obtener_sesion_actual()
@@ -107,8 +107,8 @@ def mostrar_menu():
             print(f"\nError al consultar la sesión: {mensaje_error(error)}")
             return
 
-        if usuario is None:
-            aviso = tomar_aviso_cierre()
+        if usuario is None:  # sin sesión solo se puede iniciar sesión o salir
+            aviso = tomar_aviso_cierre()  # avisa si la sesión la cerró un administrador o la inactividad
             if aviso:
                 print(f"\n*** {aviso} ***")
             print("\n==========================================")
@@ -128,5 +128,5 @@ def mostrar_menu():
                 print("\nOpción inválida.")
             continue
 
-        if menu_para(usuario)(usuario):
+        if menu_para(usuario)(usuario):  # una vuelta del menú que le toca; True = salir
             break

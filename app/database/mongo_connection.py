@@ -11,7 +11,7 @@ MONGO_DB = os.getenv("MONGO_DB")
 
 
 @lru_cache(maxsize=1)
-def get_mongo_client():
+def get_mongo_client(): # crea el cliente MongoDB una sola vez
     if not MONGO_URI:
         raise ValueError("Falta configurar MONGO_URI en .env")
 
@@ -22,7 +22,7 @@ def get_mongo_client():
     )
 
 
-def get_mongo_database():
+def get_mongo_database(): # devuelve la base indicada en MongoDB
     if not MONGO_DB:
         raise ValueError("Falta configurar MONGO_DB en .env")
 

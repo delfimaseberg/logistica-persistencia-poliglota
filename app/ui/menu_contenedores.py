@@ -17,7 +17,7 @@ from app.services.sensor_service import (
 )
 
 
-def mostrar_menu_contenedores():
+def mostrar_menu_contenedores():  # menú de contenedores y sensores; opción 4 del menú principal
     while True:
         print("\n==========================================")
         print("       GESTIÓN DE CONTENEDORES Y SENSORES")
@@ -42,7 +42,7 @@ def mostrar_menu_contenedores():
 
         opcion = input("\nSeleccioná una opción: ").strip()
 
-        if opcion == "1":
+        if opcion == "1":  # 1 a 5: contenedores, en PostgreSQL
             registrar_contenedor()
         elif opcion == "2":
             listar_contenedores_service()
@@ -52,7 +52,7 @@ def mostrar_menu_contenedores():
             modificar_contenedor_service()
         elif opcion == "5":
             eliminar_contenedor_service()
-        elif opcion == "6":
+        elif opcion == "6":  # 6 a 11: sensores IoT, también en PostgreSQL
             registrar_sensor()
         elif opcion == "7":
             listar_sensores_service()

@@ -24,14 +24,14 @@ from app.utils.politica_contrasena import (
 from app.utils.seguridad import generar_hash_contrasena, verificar_contrasena
 
 
-logger = obtener_logger("contrasenas")
+logger = obtener_logger("contrasenas")  # solo el id del usuario, nunca la contraseña
 
 
 def pausar():
     input("\nPresioná Enter para continuar...")
 
 
-def pedir_contrasena_nueva(email, nombre, apellido, hash_actual=None, titulo="Nueva contraseña"):
+def pedir_contrasena_nueva(email, nombre, apellido, hash_actual=None, titulo="Nueva contraseña"):  # pide una contraseña que cumpla la política; la usan alta de usuario, cambio y restablecimiento
     """Pide la contraseña dos veces (oculta) hasta que cumpla la política.
 
     Devuelve el texto (para convertirlo en hash enseguida) o None si se
@@ -42,27 +42,27 @@ def pedir_contrasena_nueva(email, nombre, apellido, hash_actual=None, titulo="Nu
         contrasena = getpass(f"{titulo} (Enter para cancelar): ")
         if not contrasena:
             return None
-        errores = errores_politica(contrasena, email, nombre, apellido)
-        if hash_actual and verificar_contrasena(contrasena, hash_actual):
+        errores = errores_politica(contrasena, email, nombre, apellido)  # controla la política de contraseñas
+        if hash_actual and verificar_contrasena(contrasena, hash_actual):  # no puede repetir la actual
             errores.append("ser distinta de la actual")
         if errores:
             print("La contraseña debe " + "; ".join(errores) + ".")
             continue
-        if getpass("Repetí la contraseña: ") != contrasena:
+        if getpass("Repetí la contraseña: ") != contrasena:  # se pide dos veces
             print("Las contraseñas no coinciden. Probá de nuevo.")
             continue
         return contrasena
 
 
-def guardar_contrasena(id_usuario, contrasena, debe_cambiar, cerrada_por, conservar_sesion=None):
+def guardar_contrasena(id_usuario, contrasena, debe_cambiar, cerrada_por, conservar_sesion=None):  # guarda el hash y cierra las otras sesiones; la usan cambio, cambio obligatorio y restablecimiento
     """Guarda el hash y cierra las demás sesiones del usuario."""
-    usuario_repository.actualizar_contrasena(
+    usuario_repository.actualizar_contrasena(  # también limpia intentos y bloqueo
         id_usuario, generar_hash_contrasena(contrasena), debe_cambiar
     )
     sesion_repository.cerrar_sesiones_de_usuario(id_usuario, cerrada_por, conservar_sesion)
 
 
-def cambiar_mi_contrasena_service():
+def cambiar_mi_contrasena_service():  # el usuario cambia su contraseña; opción 14 del menú interno y opción de los portales
     """El propio usuario (interno o de un portal), pidiendo la contraseña actual."""
     print("\n--- CAMBIAR MI CONTRASEÑA ---")
     if not verificar_sesion():
@@ -74,11 +74,11 @@ def cambiar_mi_contrasena_service():
             sesion["id_usuario"]
         )
         actual = getpass("Contraseña actual: ")
-        if not verificar_contrasena(actual, hash_actual):
+        if not verificar_contrasena(actual, hash_actual):  # la actual mal también cuenta como intento fallido
             intentos, bloqueado = sesion_repository.registrar_intento_fallido(sesion["id_usuario"])
             logger.warning("Cambio de contraseña rechazado: usuario %s, contraseña actual "
                            "incorrecta (intento %s)", sesion["id_usuario"], intentos)
-            if bloqueado:
+            if bloqueado:  # si llegó al máximo, se bloquea y se cierra la sesión
                 logger.warning("Usuario %s bloqueado por %s minutos", sesion["id_usuario"], MINUTOS_BLOQUEO)
                 sesion_repository.cerrar_sesion_db(sesion["id_sesion"], sesion["id_usuario"])
                 limpiar_sesion()
@@ -91,7 +91,7 @@ def cambiar_mi_contrasena_service():
         if nueva is None:
             print("\nNo se cambió la contraseña.")
             return
-        guardar_contrasena(sesion["id_usuario"], nueva, False, sesion["id_usuario"],
+        guardar_contrasena(sesion["id_usuario"], nueva, False, sesion["id_usuario"],  # conserva la sesión actual y cierra las demás
                            conservar_sesion=sesion["id_sesion"])
         logger.info("Usuario %s cambió su contraseña", sesion["id_usuario"])
         print("\nContraseña cambiada correctamente. Se cerraron tus otras sesiones abiertas.")
@@ -101,7 +101,7 @@ def cambiar_mi_contrasena_service():
         pausar()
 
 
-def cambio_obligatorio(id_usuario, id_sesion, email, nombre, apellido):
+def cambio_obligatorio(id_usuario, id_sesion, email, nombre, apellido):  # obliga a elegir contraseña después de un restablecimiento; la usa iniciar_sesion_service
     """Después de un restablecimiento: hay que elegir una contraseña nueva.
 
     Devuelve True si la cambió; False si canceló (la sesión no se usa).
@@ -111,17 +111,17 @@ def cambio_obligatorio(id_usuario, id_sesion, email, nombre, apellido):
     nueva = pedir_contrasena_nueva(email, nombre, apellido, hash_actual)
     if nueva is None:
         return False
-    guardar_contrasena(id_usuario, nueva, False, id_usuario, conservar_sesion=id_sesion)
+    guardar_contrasena(id_usuario, nueva, False, id_usuario, conservar_sesion=id_sesion)  # ya no tiene que cambiarla
     logger.info("Usuario %s eligió su contraseña después del restablecimiento", id_usuario)
     print("\nContraseña cambiada correctamente.")
     return True
 
 
-def _pedir_usuario_ajeno(accion):
+def _pedir_usuario_ajeno(accion):  # elige otro usuario; la usan restablecer y desbloquear
     from app.services.usuario_service import mostrar_usuario, pedir_id
     sesion = obtener_sesion_actual()
     id_usuario = pedir_id("ID del usuario: ")
-    if id_usuario == sesion["id_usuario"]:
+    if id_usuario == sesion["id_usuario"]:  # uno mismo usa Cambiar mi contraseña
         print(f"\nPara {accion} tu propia cuenta usá 'Cambiar mi contraseña'.")
         return None
     usuario = usuario_repository.buscar_usuario_por_id(id_usuario)
@@ -133,7 +133,7 @@ def _pedir_usuario_ajeno(accion):
 
 
 @requiere_permiso(5)
-def restablecer_contrasena_service():
+def restablecer_contrasena_service():  # el administrador pone una contraseña temporal; opción 8 del menú de usuarios
     """El administrador asigna una contraseña temporal; el usuario la cambia al entrar."""
     print("\n--- RESTABLECER CONTRASEÑA DE UN USUARIO ---")
     try:
@@ -146,7 +146,7 @@ def restablecer_contrasena_service():
             print("\nNo se restableció la contraseña.")
             return
         administrador = obtener_sesion_actual()["id_usuario"]
-        guardar_contrasena(usuario[0], nueva, True, administrador)
+        guardar_contrasena(usuario[0], nueva, True, administrador)  # True: la tiene que cambiar al entrar; se cierran sus sesiones
         logger.info("Administrador %s restableció la contraseña del usuario %s",
                     administrador, usuario[0])
         print("\nContraseña restablecida. El usuario deberá cambiarla en su próximo "
@@ -158,7 +158,7 @@ def restablecer_contrasena_service():
 
 
 @requiere_permiso(5)
-def desbloquear_usuario_service():
+def desbloquear_usuario_service():  # quita el bloqueo; opción 9 del menú de usuarios
     """Limpia intentos y bloqueo sin cambiar la contraseña."""
     print("\n--- DESBLOQUEAR USUARIO ---")
     try:
@@ -176,7 +176,7 @@ def desbloquear_usuario_service():
             print("Cancelado.")
             return
         administrador = obtener_sesion_actual()["id_usuario"]
-        if usuario_repository.desbloquear_usuario(usuario[0]):
+        if usuario_repository.desbloquear_usuario(usuario[0]):  # intentos a cero y sin bloqueo
             logger.info("Administrador %s desbloqueó al usuario %s", administrador, usuario[0])
             print("\nUsuario desbloqueado. La contraseña no cambió.")
         else:

@@ -32,7 +32,7 @@ from app.utils.errores import mensaje_error
 from app.services.autenticacion import requiere_permiso
 
 
-def pedir(mensaje, funcion):
+def pedir(mensaje, funcion):  # repite la pregunta hasta que la validación pase
     while True:
         try:
             return funcion(input(mensaje))
@@ -44,7 +44,7 @@ def pausar():
     input("\nPresioná Enter para continuar...")
 
 
-def mostrar_sensor(sensor):
+def mostrar_sensor(sensor):  # imprime los datos de un sensor; la usan las pantallas de sensores
     print("--------------------------------")
     print(f"ID sensor: {sensor[0]}")
     print(f"ID contenedor: {sensor[1]}")
@@ -55,7 +55,7 @@ def mostrar_sensor(sensor):
     print(f"Estado: {sensor[6]}")
 
 
-def pedir_contenedor():
+def pedir_contenedor():  # elige un contenedor que no esté inactivo; la usan alta y cambio de contenedor
     contenedores = listar_contenedores()
 
     if not contenedores:
@@ -83,7 +83,7 @@ def pedir_contenedor():
             print("Error: no existe ese contenedor.")
             continue
 
-        if contenedor[4] == "Inactivo":
+        if contenedor[4] == "Inactivo":  # a un contenedor inactivo no se le ponen sensores
             print("Error: el contenedor está inactivo.")
             continue
 
@@ -91,7 +91,7 @@ def pedir_contenedor():
 
 
 @requiere_permiso(1)
-def registrar_sensor():
+def registrar_sensor():  # da de alta un sensor en un contenedor; opción 6 del menú de contenedores
     print("\n--- REGISTRAR SENSOR IoT ---")
 
     try:
@@ -128,7 +128,7 @@ def registrar_sensor():
             estado
         )
 
-        id_sensor = crear_sensor(sensor)
+        id_sensor = crear_sensor(sensor)  # INSERT en PostgreSQL; las lecturas van después a Cassandra
 
         print("\nSensor registrado correctamente.")
         print(f"ID generado: {id_sensor}")
@@ -143,7 +143,7 @@ def registrar_sensor():
 
 
 @requiere_permiso(1)
-def listar_sensores_service():
+def listar_sensores_service():  # lista todos los sensores; opción 7 del menú de contenedores
     print("\n--- LISTAR SENSORES ---")
 
     try:
@@ -166,7 +166,7 @@ def listar_sensores_service():
 
 
 @requiere_permiso(1)
-def buscar_sensor_service():
+def buscar_sensor_service():  # muestra un sensor por su ID; opción 8 del menú de contenedores
     print("\n--- BUSCAR SENSOR ---")
 
     try:
@@ -191,7 +191,7 @@ def buscar_sensor_service():
 
 
 @requiere_permiso(1)
-def consultar_sensores_contenedor_service():
+def consultar_sensores_contenedor_service():  # sensores de un contenedor; opción 9 del menú de contenedores
     print("\n--- SENSORES DE UN CONTENEDOR ---")
 
     try:
@@ -227,7 +227,7 @@ def consultar_sensores_contenedor_service():
 
 
 @requiere_permiso(1)
-def modificar_sensor_service():
+def modificar_sensor_service():  # cambia un dato del sensor; opción 10 del menú de contenedores
     print("\n--- MODIFICAR SENSOR ---")
 
     try:
@@ -270,7 +270,7 @@ def modificar_sensor_service():
         estado = actual[6]
 
         if opcion == "1":
-            ultima_lectura = consultar_ultima_lectura_db(id_sensor)
+            ultima_lectura = consultar_ultima_lectura_db(id_sensor)  # pregunta a Cassandra: si ya tiene lecturas, no se cambia de contenedor
 
             if ultima_lectura is not None:
                 print(
@@ -292,7 +292,7 @@ def modificar_sensor_service():
 
 
         elif opcion == "2":
-            ultima_lectura = consultar_ultima_lectura_db(id_sensor)
+            ultima_lectura = consultar_ultima_lectura_db(id_sensor)  # ni de tipo, para no mezclar el historial
 
             if ultima_lectura is not None:
                 print(
@@ -337,7 +337,7 @@ def modificar_sensor_service():
             estado
         )
 
-        if actualizar_sensor(id_sensor, actualizado):
+        if actualizar_sensor(id_sensor, actualizado):  # UPDATE en PostgreSQL
             print("\nSensor modificado correctamente.")
             mostrar_sensor(
                 buscar_sensor_por_id(id_sensor)
@@ -353,7 +353,7 @@ def modificar_sensor_service():
 
 
 @requiere_permiso(1)
-def eliminar_sensor_service():
+def eliminar_sensor_service():  # da de baja un sensor (no lo borra); opción 11 del menú de contenedores
     print("\n--- DAR DE BAJA SENSOR ---")
 
     try:
@@ -389,7 +389,7 @@ def eliminar_sensor_service():
             print("\nOperación cancelada.")
             return
 
-        if eliminar_sensor_db(id_sensor):
+        if eliminar_sensor_db(id_sensor):  # pasa a Inactivo y las lecturas de Cassandra se conservan
             print("\nSensor dado de baja correctamente.")
             print("Estado actual: Inactivo")
         else:

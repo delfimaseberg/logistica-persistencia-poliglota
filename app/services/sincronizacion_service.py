@@ -16,24 +16,24 @@ from app.utils.errores import mensaje_error
 from app.utils.logger import obtener_logger
 
 
-logger = obtener_logger("sincronizacion")
+logger = obtener_logger("sincronizacion")  # los errores con Neo4j quedan en logs/app.log
 
 
-def reconciliar_envio(id_envio):
+def reconciliar_envio(id_envio):  # deja Neo4j igual a PostgreSQL para un envío; la usan todas las funciones de acá
     """Deja Neo4j igual a PostgreSQL para un envío.
 
     Si el envío existe en PostgreSQL lo proyecta; si no existe, lo
     elimina del grafo. Lanza excepción si falla.
     """
-    datos = obtener_datos_proyeccion(id_envio)
+    datos = obtener_datos_proyeccion(id_envio)  # lee el envío de PostgreSQL
 
     if datos is None:
-        eliminar_envio_grafo(id_envio)
+        eliminar_envio_grafo(id_envio)  # ya no existe: se borra del grafo
     else:
         sincronizar_envio_grafo(datos)
 
 
-def _marcar_pendiente(id_envio, error):
+def _marcar_pendiente(id_envio, error):  # guarda el fallo como pendiente en MongoDB
     logger.error(
         "Fallo la sincronización con Neo4j del envío %s: %s",
         id_envio, error
@@ -50,7 +50,7 @@ def _marcar_pendiente(id_envio, error):
         return False
 
 
-def sincronizar_envio_neo4j(id_envio):
+def sincronizar_envio_neo4j(id_envio):  # copia el envío a Neo4j después de un cambio; la usan envíos, tramos, contenedores, eventos y la carga de ejemplo
     """Proyecta el envío en Neo4j sin interrumpir la operación principal.
 
     PostgreSQL ya confirmó el cambio. Si Neo4j falla, el error se guarda
@@ -60,7 +60,7 @@ def sincronizar_envio_neo4j(id_envio):
     try:
         reconciliar_envio(id_envio)
     except Exception as error:
-        guardado = _marcar_pendiente(id_envio, error)
+        guardado = _marcar_pendiente(id_envio, error)  # si Neo4j falla, el cambio en PostgreSQL queda igual y se reintenta después
         if guardado:
             print("\nAdvertencia: la red de rutas no está disponible; la actualización quedó pendiente.")
         else:
@@ -68,7 +68,7 @@ def sincronizar_envio_neo4j(id_envio):
         return False
 
     try:
-        resolver_pendientes_envio(id_envio)
+        resolver_pendientes_envio(id_envio)  # si salió bien, se cierran los pendientes viejos
     except Exception as error:
         logger.warning(
             "No se pudieron cerrar los pendientes del envío %s: %s",
@@ -82,7 +82,7 @@ def sincronizar_envio_neo4j(id_envio):
 # Misma lógica: reconcilia según exista o no en PostgreSQL.
 
 
-def reparar_pendientes():
+def reparar_pendientes():  # reintenta los pendientes de MongoDB; opción 6 de trazabilidad (reintentar)
     """Reintenta los pendientes guardados. Devuelve (resueltos, fallidos)."""
     resueltos = 0
     fallidos = []
@@ -96,7 +96,7 @@ def reparar_pendientes():
             resueltos += 1
             logger.info("Pendiente del envío %s reparado", id_envio)
         except Exception as error:
-            registrar_pendiente_sync(id_envio, error)
+            registrar_pendiente_sync(id_envio, error)  # sigue pendiente, con un intento más
             fallidos.append((id_envio, mensaje_error(error)))
             logger.error(
                 "Reintento fallido del envío %s: %s", id_envio, error
@@ -105,7 +105,7 @@ def reparar_pendientes():
     return resueltos, fallidos
 
 
-def resincronizar_envio(id_envio):
+def resincronizar_envio(id_envio):  # vuelve a copiar un envío; opción 6 de trazabilidad (un envío)
     """Igual que resincronizar_todos, para un solo envío.
 
     Devuelve None si quedó sincronizado o el motivo del error (texto para
@@ -122,7 +122,7 @@ def resincronizar_envio(id_envio):
     return None
 
 
-def resincronizar_todos():
+def resincronizar_todos():  # reconstruye el grafo con todos los envíos; opción 6 de trazabilidad (todos) y la carga de ejemplo
     """Reconstruye la proyección de todos los envíos desde PostgreSQL.
 
     Devuelve (cantidad_ok, lista_de_errores).
@@ -146,7 +146,7 @@ def resincronizar_todos():
     # Los :Operador viejos (creados desde el texto libre del vehículo, sin
     # id_operador) ya no tienen relaciones tras proyectar todos los envíos.
     # Solo se borran si todos los envíos se proyectaron bien.
-    if not errores:
+    if not errores:  # los operadores viejos solo se borran si todo salió bien
         try:
             eliminados = eliminar_operadores_legados()
             if eliminados:

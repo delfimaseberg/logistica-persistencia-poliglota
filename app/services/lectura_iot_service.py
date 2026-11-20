@@ -26,7 +26,7 @@ def pausar():
     input("\nPresioná Enter para continuar...")
 
 
-def pedir_id(mensaje):
+def pedir_id(mensaje):  # pide un ID entero positivo; la usan las pantallas de lecturas
     while True:
         try:
             valor = int(input(mensaje).strip())
@@ -40,7 +40,7 @@ def pedir_id(mensaje):
             print("Error: ingresá un ID entero positivo.")
 
 
-def pedir_decimal(mensaje, minimo=None, maximo=None):
+def pedir_decimal(mensaje, minimo=None, maximo=None):  # pide un número dentro de un rango; la usa registrar lectura
     while True:
         try:
             texto = input(mensaje).strip().replace(",", ".")
@@ -63,7 +63,7 @@ def pedir_decimal(mensaje, minimo=None, maximo=None):
             print("Error: ingresá un número válido.")
 
 
-def pedir_bateria():
+def pedir_bateria():  # batería opcional entre 0 y 100; la usa registrar lectura
     texto = input(
         "Batería (%) (Enter si no se conoce): "
     ).strip()
@@ -88,7 +88,7 @@ def pedir_bateria():
                 return None
 
 
-def pedir_anio_mes():
+def pedir_anio_mes():  # pide el mes AAAA-MM, que es la partición de las lecturas en Cassandra
     while True:
         valor = input(
             "Mes (AAAA-MM, Enter = mes actual): "
@@ -109,10 +109,10 @@ def pedir_anio_mes():
             print("Error: formato inválido. Ejemplo: 2026-10.")
 
 
-def mostrar_lectura(lectura):
+def mostrar_lectura(lectura):  # imprime una lectura con la fecha en hora argentina; la usan las consultas de lecturas
     print("--------------------------------")
 
-    fecha_utc = lectura.fecha_hora
+    fecha_utc = lectura.fecha_hora  # Cassandra guarda la fecha en UTC
 
     if fecha_utc.tzinfo is None:
         fecha_utc = fecha_utc.replace(tzinfo=timezone.utc)
@@ -127,7 +127,7 @@ def mostrar_lectura(lectura):
     )
 
 
-    campos = [
+    campos = [  # campos posibles: solo se muestran los que tienen valor
         ("Temperatura", "temperatura", "°C"),
         ("Humedad", "humedad", "%"),
         ("Vibración", "vibracion", ""),
@@ -145,12 +145,12 @@ def mostrar_lectura(lectura):
 
 
 @requiere_permiso(1)
-def registrar_lectura_service():
+def registrar_lectura_service():  # carga a mano una lectura de un sensor; opción 1 del menú de monitoreo
     print("\n--- REGISTRAR LECTURA IoT ---")
 
     try:
         id_sensor = pedir_id("ID del sensor: ")
-        sensor = buscar_sensor_por_id(id_sensor)
+        sensor = buscar_sensor_por_id(id_sensor)  # el sensor y su contenedor se leen de PostgreSQL
 
         if sensor is None:
             print("\nNo existe ese sensor.")
@@ -160,7 +160,7 @@ def registrar_lectura_service():
         tipo = str(sensor[3]).strip().lower()
         estado = str(sensor[6]).strip().lower()
 
-        if estado != "activo":
+        if estado != "activo":  # solo un sensor activo puede tener lecturas
             print("\nEl sensor no está activo.")
             return
 
@@ -184,7 +184,7 @@ def registrar_lectura_service():
         gps_latitud = None
         gps_longitud = None
 
-        if tipo == "temperatura":
+        if tipo == "temperatura":  # se pide solo el dato que mide el sensor
             temperatura = pedir_decimal("Temperatura (°C): ")
 
         elif tipo == "humedad":
@@ -217,7 +217,7 @@ def registrar_lectura_service():
 
         bateria = pedir_bateria()
 
-        registrar_lectura_db(
+        registrar_lectura_db(  # la escribe en las tres tablas de Cassandra
             id_sensor=id_sensor,
             id_contenedor=id_contenedor,
             temperatura=temperatura,
@@ -240,14 +240,14 @@ def registrar_lectura_service():
 
 
 @requiere_permiso(1)
-def consultar_lecturas_sensor_service():
+def consultar_lecturas_sensor_service():  # lecturas de un sensor en un mes; opción 2 del menú de monitoreo
     print("\n--- CONSULTAR LECTURAS POR SENSOR ---")
 
     try:
         id_sensor = pedir_id("ID del sensor: ")
         anio_mes = pedir_anio_mes()
 
-        lecturas = consultar_lecturas_sensor_db(
+        lecturas = consultar_lecturas_sensor_db(  # una sola partición de Cassandra: sensor y mes
             id_sensor, anio_mes
         )
 
@@ -270,14 +270,14 @@ def consultar_lecturas_sensor_service():
 
 
 @requiere_permiso(1)
-def consultar_lecturas_contenedor_service():
+def consultar_lecturas_contenedor_service():  # lecturas de un contenedor en un mes; opción 3 del menú de monitoreo
     print("\n--- CONSULTAR LECTURAS POR CONTENEDOR ---")
 
     try:
         id_contenedor = pedir_id("ID del contenedor: ")
         anio_mes = pedir_anio_mes()
 
-        lecturas = consultar_lecturas_contenedor_db(
+        lecturas = consultar_lecturas_contenedor_db(  # partición de Cassandra por contenedor y mes
             id_contenedor, anio_mes
         )
 
@@ -301,13 +301,13 @@ def consultar_lecturas_contenedor_service():
 
 
 @requiere_permiso(1)
-def consultar_ultima_lectura_service():
+def consultar_ultima_lectura_service():  # última lectura de un sensor; opción 4 del menú de monitoreo
     print("\n--- ÚLTIMA LECTURA DE UN SENSOR ---")
 
     try:
         id_sensor = pedir_id("ID del sensor: ")
 
-        lectura = consultar_ultima_lectura_db(id_sensor)
+        lectura = consultar_ultima_lectura_db(id_sensor)  # una fila por sensor en ultima_lectura_por_sensor
 
         if lectura is None:
             print("\nNo hay lecturas registradas.")

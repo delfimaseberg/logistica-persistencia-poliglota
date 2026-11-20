@@ -16,18 +16,18 @@ from app.utils.errores import mensaje_error
 from app.services.autenticacion import requiere_permiso
 
 
-logger = obtener_logger("predicciones")
+logger = obtener_logger("predicciones")  # registro en logs/app.log
 
 ZONA_ARGENTINA = ZoneInfo("America/Argentina/Buenos_Aires")
-ESTADOS_FINALIZADOS = {"entregado", "cancelado"}
-ESTADOS_INCIDENTE_CERRADO = {"cerrado", "resuelto"}
+ESTADOS_FINALIZADOS = {"entregado", "cancelado"}  # a estos envíos no se les calcula riesgo
+ESTADOS_INCIDENTE_CERRADO = {"cerrado", "resuelto"}  # incidentes que ya no suman riesgo
 
 
 def pausar():
     input("\nPresioná Enter para continuar...")
 
 
-def formatear_fecha(fecha):
+def formatear_fecha(fecha):  # fecha en hora argentina para mostrar
     if fecha is None:
         return "Sin información"
 
@@ -39,14 +39,14 @@ def formatear_fecha(fecha):
     )
 
 
-def clasificar_riesgo(puntaje, datos_suficientes=True):
-    if puntaje >= 70:
+def clasificar_riesgo(puntaje, datos_suficientes=True):  # nivel según el puntaje de 0 a 100; la usa calcular_riesgo
+    if puntaje >= 70:  # desde 70 puntos: ALTO
         return "ALTO"
 
-    if puntaje >= 35:
+    if puntaje >= 35:  # desde 35 puntos: MEDIO
         return "MEDIO"
 
-    if not datos_suficientes:
+    if not datos_suficientes:  # sin fechas estimadas no se puede decir que es BAJO
         return "INFORMACIÓN INSUFICIENTE"
 
     return "BAJO"
@@ -58,50 +58,50 @@ def clasificar_riesgo(puntaje, datos_suficientes=True):
 # independientes: 1 - (1 - p1)(1 - p2)...
 # ------------------------------------------------------------------
 
-PROB_CLIMA = {"Baja": 0.10, "Media": 0.25, "Alta": 0.45, "Extrema": 0.70}
-NIVEL_CLIMA = {"Baja": "BAJO", "Media": "MEDIO", "Alta": "ALTO", "Extrema": "EXTREMO"}
-ORDEN_CLIMA = ("Baja", "Media", "Alta", "Extrema")
-MIN_ENVIOS_HISTORIAL = 2
-ORDEN_NIVEL = {"BAJO": 0, "INFORMACIÓN INSUFICIENTE": 0, "MEDIO": 1, "ALTO": 2}
+PROB_CLIMA = {"Baja": 0.10, "Media": 0.25, "Alta": 0.45, "Extrema": 0.70}  # probabilidad de demora que aporta una alerta climática según su severidad
+NIVEL_CLIMA = {"Baja": "BAJO", "Media": "MEDIO", "Alta": "ALTO", "Extrema": "EXTREMO"}  # riesgo climático que se informa según la severidad de la peor alerta
+ORDEN_CLIMA = ("Baja", "Media", "Alta", "Extrema")  # severidades climáticas de menor a mayor
+MIN_ENVIOS_HISTORIAL = 2  # mínimo de entregados en la ruta para usar su propia tasa de atraso
+ORDEN_NIVEL = {"BAJO": 0, "INFORMACIÓN INSUFICIENTE": 0, "MEDIO": 1, "ALTO": 2}  # para comparar niveles y quedarse con el mayor
 
 
-def prob_incidente(severidad):
+def prob_incidente(severidad):  # probabilidad de demora que aporta un incidente abierto; la usa calcular_riesgo
     valor = str(severidad).strip().lower()
     if valor in {"critica", "crítica", "critico", "crítico"}:
-        return 0.40
+        return 0.40  # incidente crítico: 40 por ciento
     if valor == "alta":
-        return 0.30
+        return 0.30  # alta: 30 por ciento
     if valor == "media":
-        return 0.20
-    return 0.10
+        return 0.20  # media: 20 por ciento
+    return 0.10  # baja u otra: 10 por ciento
 
 
-def combinar_probabilidades(probabilidades):
+def combinar_probabilidades(probabilidades):  # combina los factores como independientes: 1 menos el producto de (1 - p); la usa calcular_riesgo
     restante = 1.0
     for p in probabilidades:
         restante *= 1.0 - min(max(float(p), 0.0), 1.0)
     return 1.0 - restante
 
 
-def nivel_por_probabilidad(probabilidad):
-    if probabilidad >= 0.60:
+def nivel_por_probabilidad(probabilidad):  # nivel según la probabilidad de demora; la usa calcular_riesgo
+    if probabilidad >= 0.60:  # desde 60 por ciento: ALTO
         return "ALTO"
-    if probabilidad >= 0.30:
+    if probabilidad >= 0.30:  # desde 30 por ciento: MEDIO
         return "MEDIO"
     return "BAJO"
 
 
-def _utc(fecha):
+def _utc(fecha):  # le pone UTC a las fechas sin zona horaria
     if fecha is None:
         return None
     return fecha.replace(tzinfo=timezone.utc) if fecha.tzinfo is None else fecha
 
 
-def _se_superponen(inicio_a, fin_a, inicio_b, fin_b):
+def _se_superponen(inicio_a, fin_a, inicio_b, fin_b):  # si dos períodos se pisan
     return inicio_a < fin_b and inicio_b < fin_a
 
 
-def alertas_que_afectan(datos, alertas, ahora):
+def alertas_que_afectan(datos, alertas, ahora):  # alertas climáticas que caen en el lugar y el momento del viaje; la usa calcular_riesgo
     """Alertas climáticas que afectan al envío.
 
     - Por ciudad: la de un tramo (origen o destino) durante ese tramo, de la
@@ -118,15 +118,15 @@ def alertas_que_afectan(datos, alertas, ahora):
     ultima_llegada = max(llegadas) if llegadas else None
 
     ventanas = []      # (lugares normalizados, inicio, fin)
-    lugares_envio = {normalizar_lugar(x) for x in (
+    lugares_envio = {normalizar_lugar(x) for x in (  # países y ciudades del envío: cuentan durante todo el viaje
         datos.get("pais_origen"), datos.get("pais_destino"),
         datos.get("origen"), datos.get("destino")) if x}
     ventanas.append((lugares_envio, inicio_viaje, fin_viaje))
-    for salida, llegada, origen, destino, *_ in tramos:
+    for salida, llegada, origen, destino, *_ in tramos:  # ciudades de cada tramo: cuentan solo mientras dura ese tramo
         if salida is None or llegada is None:
             continue
         fin = _utc(llegada)
-        if fin == ultima_llegada:
+        if fin == ultima_llegada:  # si el último tramo está demorado, se estira hasta hoy
             fin = max(fin, ahora)
         ventanas.append(({normalizar_lugar(origen), normalizar_lugar(destino)},
                          _utc(salida), fin))
@@ -137,13 +137,13 @@ def alertas_que_afectan(datos, alertas, ahora):
         lugar = alerta.get("ubicacion_normalizada")
         if inicio is None or fin is None:
             continue
-        if any(lugar in lugares and _se_superponen(a, b, inicio, fin)
+        if any(lugar in lugares and _se_superponen(a, b, inicio, fin)  # afecta si coincide el lugar y se superponen los períodos
                for lugares, a, b in ventanas):
             afectan.append(alerta)
     return afectan
 
 
-def mas_severa_por_ubicacion(alertas):
+def mas_severa_por_ubicacion(alertas):  # deja una sola alerta por lugar, la más severa; la usa calcular_riesgo
     """Una sola alerta por ubicación: la más severa (no se combinan).
 
     Evita contar dos veces el mismo fenómeno registrado por duplicado.
@@ -159,7 +159,7 @@ def mas_severa_por_ubicacion(alertas):
     return list(elegidas.values())
 
 
-def texto_probabilidad(prediccion):
+def texto_probabilidad(prediccion):  # probabilidad de demora en texto; la usan las pantallas de predicciones y el reporte predictivo
     """Dato principal de una predicción: la probabilidad de demora.
 
     Sin fechas estimadas no se puede estimar (o es un mínimo, si ya da ALTO).
@@ -175,7 +175,7 @@ def texto_probabilidad(prediccion):
     return texto
 
 
-def historial_de_ruta(datos, historial):
+def historial_de_ruta(datos, historial):  # tasa de atraso de la ruta del envío; la usa armar_datos_riesgo
     """{ruta, envios, atrasados, tasa, fuente} para la ruta del envío.
 
     Con menos de MIN_ENVIOS_HISTORIAL envíos propios se usa la tasa general.
@@ -185,17 +185,17 @@ def historial_de_ruta(datos, historial):
     clave = (normalizar_lugar(datos.get("origen")), normalizar_lugar(datos.get("destino")))
     ruta = historial["rutas"].get(clave)
     nombre = f"{datos.get('origen')} -> {datos.get('destino')}"
-    if ruta and ruta["envios"] >= MIN_ENVIOS_HISTORIAL:
+    if ruta and ruta["envios"] >= MIN_ENVIOS_HISTORIAL:  # con suficientes envíos se usa la tasa de la ruta
         return {"ruta": nombre, "envios": ruta["envios"], "atrasados": ruta["atrasados"],
                 "tasa": ruta["atrasados"] / ruta["envios"], "fuente": "ruta"}
     general = historial["general"]
-    tasa = general["atrasados"] / general["envios"] if general["envios"] else 0.0
+    tasa = general["atrasados"] / general["envios"] if general["envios"] else 0.0  # si no, la tasa general de todas las rutas
     return {"ruta": nombre, "envios": ruta["envios"] if ruta else 0,
             "atrasados": ruta["atrasados"] if ruta else 0, "tasa": tasa,
             "fuente": "general"}
 
 
-def calcular_historial_rutas(entregados, retrasos):
+def calcular_historial_rutas(entregados, retrasos):  # cuenta entregados y atrasados por ruta; la usa historial_rutas
     """Rutas que suelen atrasarse.
 
     entregados: [(id_envio, origen, destino, llegada_estimada, fecha_entrega)].
@@ -208,10 +208,10 @@ def calcular_historial_rutas(entregados, retrasos):
     rutas = {}
     general = {"envios": 0, "atrasados": 0}
     for id_envio, origen, destino, estimada, entrega in entregados:
-        tarde = (estimada is not None and entrega is not None
+        tarde = (estimada is not None and entrega is not None  # atrasado: entregado después de la llegada estimada...
                  and _utc(entrega) > _utc(estimada))
-        atrasado = tarde or retrasos.get(id_envio, (0, None))[0] > 0
-        clave = (normalizar_lugar(origen), normalizar_lugar(destino))
+        atrasado = tarde or retrasos.get(id_envio, (0, None))[0] > 0  # ...o con algún evento RETRASO
+        clave = (normalizar_lugar(origen), normalizar_lugar(destino))  # la ruta es el par origen y destino
         ruta = rutas.setdefault(clave, {"ruta": f"{origen} -> {destino}",
                                         "envios": 0, "atrasados": 0})
         ruta["envios"] += 1
@@ -221,23 +221,23 @@ def calcular_historial_rutas(entregados, retrasos):
     return {"rutas": rutas, "general": general}
 
 
-def historial_rutas():
+def historial_rutas():  # historial de atrasos por ruta; la usan las predicciones y el reporte predictivo
     """Historial desde PostgreSQL (entregas) y MongoDB (eventos RETRASO)."""
     from app.repositories.predicciones_repository import envios_entregados_por_ruta
     from app.services.reportes_service import retrasos_por_envio
 
-    entregados = envios_entregados_por_ruta()
-    return calcular_historial_rutas(entregados, retrasos_por_envio([f[0] for f in entregados]))
+    entregados = envios_entregados_por_ruta()  # entregas de PostgreSQL
+    return calcular_historial_rutas(entregados, retrasos_por_envio([f[0] for f in entregados]))  # más los eventos RETRASO de MongoDB
 
 
-def armar_datos_riesgo(id_envio, historial=None):
+def armar_datos_riesgo(id_envio, historial=None):  # junta todo lo que necesita calcular_riesgo; la usan evaluar un envío y actualizar predicciones
     """Datos del envío + alertas climáticas de sus lugares + historial de su ruta."""
     from app.repositories.alerta_climatica_repository import (
         alertas_para_lugares,
         normalizar_lugar,
     )
 
-    datos = obtener_datos_riesgo(id_envio)
+    datos = obtener_datos_riesgo(id_envio)  # envío, tramos e incidentes de PostgreSQL
     if datos is None:
         return None
     lugares = {normalizar_lugar(x) for x in (
@@ -246,12 +246,12 @@ def armar_datos_riesgo(id_envio, historial=None):
     for tramo in datos.get("tramos") or []:
         if len(tramo) >= 4:
             lugares |= {normalizar_lugar(tramo[2]), normalizar_lugar(tramo[3])}
-    datos["alertas_climaticas"] = alertas_para_lugares(lugares)
+    datos["alertas_climaticas"] = alertas_para_lugares(lugares)  # alertas climáticas de esos lugares en MongoDB
     datos["historial_ruta"] = historial_de_ruta(datos, historial or historial_rutas())
     return datos
 
 
-def calcular_riesgo(datos, ahora=None):
+def calcular_riesgo(datos, ahora=None):  # calcula puntaje, probabilidad de demora y nivel de riesgo; la usan evaluar un envío y actualizar predicciones
     if datos is None:
         raise ValueError("El envío no existe.")
 
@@ -282,7 +282,7 @@ def calcular_riesgo(datos, ahora=None):
                 if tramo[1] is not None
             ]
 
-            if fechas:
+            if fechas:  # con fechas estimadas se puede evaluar el plazo
                 datos_suficientes = True
 
                 fechas = [
@@ -291,31 +291,31 @@ def calcular_riesgo(datos, ahora=None):
                     for fecha in fechas
                 ]
 
-                llegada_estimada = max(fechas)
+                llegada_estimada = max(fechas)  # la llegada del último tramo
 
                 horas_vencidas = (
                     ahora - llegada_estimada
                 ).total_seconds() / 3600
 
-                if horas_vencidas > 48:
+                if horas_vencidas > 48:  # más de 48 horas tarde: 60 puntos
                     puntaje_demora = 60
                     motivos.append(
                         "Llegada estimada superada por más de 48 horas"
                     )
 
-                elif horas_vencidas > 24:
+                elif horas_vencidas > 24:  # más de 24 horas tarde: 45 puntos
                     puntaje_demora = 45
                     motivos.append(
                         "Llegada estimada superada por más de 24 horas"
                     )
 
-                elif horas_vencidas > 0:
+                elif horas_vencidas > 0:  # vencida: 30 puntos
                     puntaje_demora = 30
                     motivos.append(
                         "Llegada estimada superada"
                     )
 
-                elif horas_vencidas > -24:
+                elif horas_vencidas > -24:  # falta menos de un día: 15 puntos
                     puntaje_demora = 15
                     motivos.append(
                         "Faltan menos de 24 horas para la llegada estimada"
@@ -331,7 +331,7 @@ def calcular_riesgo(datos, ahora=None):
                 "Sin tramos registrados: no se puede evaluar la demora"
             )
 
-    incidentes_abiertos = [
+    incidentes_abiertos = [  # solo los incidentes que siguen abiertos
         incidente
         for incidente in incidentes
         if str(incidente[1]).strip().lower()
@@ -345,18 +345,18 @@ def calcular_riesgo(datos, ahora=None):
             if valor in {
                 "critica", "crítica", "critico", "crítico"
             }:
-                puntaje_operativo += 35
+                puntaje_operativo += 35  # incidente crítico: 35 puntos
 
             elif valor == "alta":
-                puntaje_operativo += 25
+                puntaje_operativo += 25  # alta: 25
 
             elif valor == "media":
-                puntaje_operativo += 15
+                puntaje_operativo += 15  # media: 15
 
             else:
-                puntaje_operativo += 10
+                puntaje_operativo += 10  # baja: 10
 
-        puntaje_operativo = min(puntaje_operativo, 60)
+        puntaje_operativo = min(puntaje_operativo, 60)  # los incidentes suman como máximo 60 puntos
 
         if incidentes_abiertos:
             motivos.append(
@@ -364,10 +364,10 @@ def calcular_riesgo(datos, ahora=None):
             )
 
         if prioridad == "alta":
-            puntaje_operativo += 10
+            puntaje_operativo += 10  # prioridad alta suma 10 puntos
             motivos.append("Envío de prioridad alta")
 
-    puntaje = min(
+    puntaje = min(  # puntaje total: plazo más incidentes, hasta 100
         100,
         puntaje_demora + puntaje_operativo
     )
@@ -389,7 +389,7 @@ def calcular_riesgo(datos, ahora=None):
     factores = []
 
     if not finalizado:
-        if historial and historial["tasa"] > 0:
+        if historial and historial["tasa"] > 0:  # factor 1: la tasa de atraso de la ruta
             factores.append(("Historial de la ruta", historial["tasa"]))
             texto_fuente = (
                 f"{historial['atrasados']} de {historial['envios']} envíos de la ruta atrasados"
@@ -401,22 +401,22 @@ def calcular_riesgo(datos, ahora=None):
                 f"({texto_fuente})"
             )
 
-        if evalua_clima:
+        if evalua_clima:  # factor 2: la alerta climática más severa que afecta al viaje
             afectan = mas_severa_por_ubicacion(
                 alertas_que_afectan(datos, datos["alertas_climaticas"], ahora))
             if afectan:
                 peor = max(afectan, key=lambda a: ORDEN_CLIMA.index(a["severidad"]))
-                factores.append(("Clima", PROB_CLIMA[peor["severidad"]]))
+                factores.append(("Clima", PROB_CLIMA[peor["severidad"]]))  # cuenta solo la peor, no todas
                 for alerta in afectan:
                     motivos.append(
                         f"Alerta climática {alerta['severidad']}: {alerta['fenomeno']} "
                         f"en {alerta['ubicacion']}"
                     )
 
-        for severidad, _ in incidentes_abiertos:
+        for severidad, _ in incidentes_abiertos:  # factor 3: cada incidente abierto
             factores.append((f"Incidente {severidad}", prob_incidente(severidad)))
 
-        if puntaje_demora >= 30:
+        if puntaje_demora >= 30:  # factor 4: llegada estimada vencida; la demora ya es segura
             factores.append(("Llegada estimada vencida", 1.0))
 
     if finalizado:
@@ -434,7 +434,7 @@ def calcular_riesgo(datos, ahora=None):
             "No se detectaron factores de riesgo con las reglas actuales"
         )
 
-    probabilidad = combinar_probabilidades(p for _, p in factores)
+    probabilidad = combinar_probabilidades(p for _, p in factores)  # combina los cuatro factores
 
     nivel_riesgo = clasificar_riesgo(
         puntaje,
@@ -444,7 +444,7 @@ def calcular_riesgo(datos, ahora=None):
     # El nivel general es el mayor entre el del puntaje y el de la
     # probabilidad. Sin fechas estimadas la probabilidad es parcial: solo
     # reemplaza "información insuficiente" si ya da riesgo ALTO.
-    nivel_probabilidad = nivel_por_probabilidad(probabilidad)
+    nivel_probabilidad = nivel_por_probabilidad(probabilidad)  # nivel final: el mayor entre puntaje y probabilidad
     if ORDEN_NIVEL[nivel_probabilidad] > ORDEN_NIVEL[nivel_riesgo] and (
             nivel_riesgo != "INFORMACIÓN INSUFICIENTE" or nivel_probabilidad == "ALTO"):
         nivel_riesgo = nivel_probabilidad
@@ -488,7 +488,7 @@ def calcular_riesgo(datos, ahora=None):
     }
 
 
-def mostrar_prediccion(prediccion):
+def mostrar_prediccion(prediccion):  # imprime una predicción; la usan evaluar un envío y el historial de predicciones
     print("\n------------------------------------------")
     print(f"Envío: {prediccion['envio_id']}")
     print(f"Cliente: {prediccion['cliente']}")
@@ -529,7 +529,7 @@ def mostrar_prediccion(prediccion):
         print(f" - {motivo}")
 
 
-def seleccionar_envio():
+def seleccionar_envio():  # elige un envío de la lista; la usan las opciones 1 y 2
     envios = listar_envios_analisis()
 
     if not envios:
@@ -561,7 +561,7 @@ def seleccionar_envio():
 
 
 @requiere_permiso(1)
-def evaluar_envio_service():
+def evaluar_envio_service():  # calcula el riesgo de un envío; opción 1 del menú de predicciones
     print("\n--- EVALUAR RIESGO DE ENVÍO ---")
 
     try:
@@ -580,7 +580,7 @@ def evaluar_envio_service():
         ).strip().upper()
 
         if guardar == "S":
-            id_prediccion = guardar_prediccion(prediccion)
+            id_prediccion = guardar_prediccion(prediccion)  # se guarda en MongoDB solo si se confirma
 
             logger.info(
                 "Evaluación guardada para envío %s: %s",
@@ -603,7 +603,7 @@ def evaluar_envio_service():
 
 
 @requiere_permiso(1)
-def historial_predicciones_service():
+def historial_predicciones_service():  # predicciones guardadas de un envío; opción 2 del menú de predicciones
     print("\n--- HISTORIAL DE PREDICCIONES ---")
 
     try:
@@ -612,7 +612,7 @@ def historial_predicciones_service():
         if id_envio is None:
             return
 
-        historial = obtener_historial_predicciones(id_envio)
+        historial = obtener_historial_predicciones(id_envio)  # las últimas 10 de MongoDB
 
         if not historial:
             print(
@@ -636,7 +636,7 @@ def historial_predicciones_service():
 
 
 @requiere_permiso(1)
-def historico_incidentes_service():
+def historico_incidentes_service():  # incidentes por cliente y promedio por envío; opción 4 del menú de predicciones
     print("\n--- ANÁLISIS HISTÓRICO DE INCIDENTES ---")
 
     try:
@@ -670,7 +670,7 @@ def historico_incidentes_service():
 
 
 @requiere_permiso(1)
-def demoras_estimadas_service():
+def demoras_estimadas_service():  # envíos activos con la llegada estimada ya pasada; opción 5 del menú de predicciones
     print("\n--- ENVÍOS CON LLEGADA ESTIMADA VENCIDA ---")
 
     try:
@@ -706,7 +706,7 @@ def demoras_estimadas_service():
         pausar()
 
 
-def actualizar_predicciones_activas():
+def actualizar_predicciones_activas():  # calcula y guarda la predicción de cada envío activo; la usan la opción 6 y el proceso periódico
     """
     Calcula y guarda las evaluaciones de todos los envíos activos.
 
@@ -732,7 +732,7 @@ def actualizar_predicciones_activas():
     }
 
     # El historial de rutas se calcula una sola vez para todo el lote.
-    historial = historial_rutas() if activos else None
+    historial = historial_rutas() if activos else None  # se calcula una vez y sirve para todos
 
     for envio in activos:
         id_envio = envio[0]
@@ -741,7 +741,7 @@ def actualizar_predicciones_activas():
             datos = armar_datos_riesgo(id_envio, historial)
             prediccion = calcular_riesgo(datos)
 
-            guardar_prediccion(prediccion)
+            guardar_prediccion(prediccion)  # en MongoDB, una por envío y por día
 
             resumen["guardadas"] += 1
 
@@ -786,7 +786,7 @@ def actualizar_predicciones_activas():
 
 
 @requiere_permiso(3)
-def actualizar_predicciones_service():
+def actualizar_predicciones_service():  # confirma y muestra el resultado de actualizar todas; opción 6 del menú de predicciones
     print("\n--- ACTUALIZAR PREDICCIONES DE RIESGO ---")
 
     try:

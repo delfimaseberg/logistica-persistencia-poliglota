@@ -34,7 +34,7 @@ def obtener_driver_neo4j():
 
 
 def abrir_sesion_neo4j():
-    """Abre la base configurada; sin NEO4J_DATABASE usa la predeterminada."""
+    # Abre la base configurada; sin NEO4J_DATABASE usa la predeterminada.
     driver = obtener_driver_neo4j()
     if NEO4J_DATABASE:
         return driver.session(database=NEO4J_DATABASE)

@@ -24,7 +24,7 @@ from app.utils import formato
 from app.utils.errores import mensaje_error
 
 
-def pedir_dato(mensaje, validador, *args):
+def pedir_dato(mensaje, validador, *args):  # repite la pregunta hasta que la validación pase
     while True:
         try:
             return validador(input(mensaje), *args)
@@ -40,7 +40,7 @@ def validar_apellido(valor):
     return validar_largo(valor, "El apellido", LARGOS_USUARIO["apellido"])
 
 
-def pedir_email_libre(excluir_id=None):
+def pedir_email_libre(excluir_id=None):  # pide un email que no use otro usuario; la usan alta y modificación
     """Email válido que no use otro usuario (sin distinguir mayúsculas)."""
     while True:
         email = pedir_dato("Email: ", validar_email)
@@ -49,7 +49,7 @@ def pedir_email_libre(excluir_id=None):
         print("Error: ya existe un usuario con ese email.")
 
 
-def pedir_id(mensaje):
+def pedir_id(mensaje):  # pide un ID; la usan estas pantallas y las de contraseñas
     while True:
         valor = input(mensaje).strip()
 
@@ -59,7 +59,7 @@ def pedir_id(mensaje):
         print("Error: el ID debe ser un número entero positivo.")
 
 
-def seleccionar_cliente():
+def seleccionar_cliente():  # elige el cliente del usuario; la usa seleccionar_parte
     clientes = listar_clientes()
 
     if not clientes:
@@ -85,7 +85,7 @@ def seleccionar_cliente():
         print("Error: seleccioná uno de los clientes disponibles.")
 
 
-def _seleccionar_de(filas, titulo):
+def _seleccionar_de(filas, titulo):  # elige un proveedor u operador activo; la usa seleccionar_parte
     """Lista terceros activos (id, razón social, CUIT, ...) y pide un ID."""
     activas = [fila for fila in filas if fila[8] == "ACTIVO"]
 
@@ -105,7 +105,7 @@ def _seleccionar_de(filas, titulo):
         print("Error: seleccioná uno de la lista.")
 
 
-def seleccionar_parte():
+def seleccionar_parte():  # a quién pertenece el usuario: cliente, proveedor, operador o interno
     """Devuelve (id_cliente, id_proveedor, id_operador) o None si se cancela.
 
     Las tres en None = usuario interno.
@@ -129,13 +129,13 @@ def seleccionar_parte():
                 listar_operadores(), "operadores logísticos"
             )
             return None if id_operador is None else (None, None, id_operador)
-        if opcion == "4":
+        if opcion == "4":  # interno: sin cliente, proveedor ni operador
             return (None, None, None)
 
         print("Error: seleccioná una opción válida.")
 
 
-def seleccionar_rol():
+def seleccionar_rol():  # elige el rol; la usan alta y modificación
     roles = listar_roles()
 
     if not roles:
@@ -161,7 +161,7 @@ def seleccionar_rol():
         print("Error: seleccioná uno de los roles disponibles.")
 
 
-def seleccionar_estado():
+def seleccionar_estado():  # ACTIVO o INACTIVO
     while True:
         print("\nEstados disponibles:")
         print("1. ACTIVO")
@@ -179,7 +179,7 @@ def seleccionar_estado():
 
         print("Error: seleccioná una opción válida.")
 
-def mostrar_usuario(usuario):
+def mostrar_usuario(usuario):  # imprime un usuario con su parte y su acceso; la usan las pantallas de usuarios
     if usuario is None:
         print("Usuario no encontrado.")
         return
@@ -203,7 +203,7 @@ Fecha de registro: {formato.fecha_hora(usuario[7])}{_estado_acceso(usuario)}
 """)
 
 
-def _estado_acceso(usuario):
+def _estado_acceso(usuario):  # bloqueo, intentos y cambio pendiente; la usa mostrar_usuario
     """Bloqueo e intentos fallidos (columnas 11-13, migración 016)."""
     if len(usuario) <= 11:
         return ""
@@ -218,7 +218,7 @@ def _estado_acceso(usuario):
 
 
 @requiere_permiso(5)
-def registrar_usuario():
+def registrar_usuario():  # da de alta un usuario; opción 1 del menú de usuarios
     print("\n--- REGISTRAR USUARIO ---")
 
     parte = seleccionar_parte()
@@ -239,14 +239,14 @@ def registrar_usuario():
     apellido = pedir_dato("Apellido: ", validar_apellido)
     email = pedir_email_libre()
 
-    contrasena = pedir_contrasena_nueva(email, nombre, apellido, titulo="Contraseña")
+    contrasena = pedir_contrasena_nueva(email, nombre, apellido, titulo="Contraseña")  # tiene que cumplir la política
     if contrasena is None:
         print("\nAlta cancelada.")
         input("\nPresioná Enter para continuar...")
         return
 
-    contrasena_hash = generar_hash_contrasena(contrasena)
-    del contrasena
+    contrasena_hash = generar_hash_contrasena(contrasena)  # se guarda solo el hash
+    del contrasena  # el texto de la contraseña no se guarda en ningún lado
 
     estado = seleccionar_estado()
 
@@ -263,7 +263,7 @@ def registrar_usuario():
     )
 
     try:
-        id_usuario = crear_usuario(usuario)
+        id_usuario = crear_usuario(usuario)  # INSERT en PostgreSQL
 
         print("\nUsuario registrado correctamente.")
         print(f"ID asignado: {id_usuario}")
@@ -275,7 +275,7 @@ def registrar_usuario():
 
 
 @requiere_permiso(3)
-def listar_usuarios_service():
+def listar_usuarios_service():  # lista todos los usuarios; opción 2 del menú de usuarios
     print("\n--- LISTADO DE USUARIOS ---")
 
     try:
@@ -296,7 +296,7 @@ def listar_usuarios_service():
 
 
 @requiere_permiso(3)
-def buscar_usuario_service():
+def buscar_usuario_service():  # muestra un usuario por ID; opción 3 del menú de usuarios
     print("\n--- BUSCAR USUARIO ---")
 
     id_usuario = pedir_id(
@@ -319,7 +319,7 @@ def buscar_usuario_service():
 
 
 @requiere_permiso(5)
-def modificar_usuario_service():
+def modificar_usuario_service():  # cambia los datos de un usuario; opción 4 del menú de usuarios
     print("\n--- MODIFICAR USUARIO ---")
 
     id_usuario = pedir_id(
@@ -397,7 +397,7 @@ def modificar_usuario_service():
 
 
 @requiere_permiso(5)
-def eliminar_usuario_service():
+def eliminar_usuario_service():  # borra un usuario; opción 5 del menú de usuarios
     print("\n--- ELIMINAR USUARIO ---")
 
     id_usuario = pedir_id(

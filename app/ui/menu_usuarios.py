@@ -20,17 +20,17 @@ from app.services.autenticacion import verificar_permiso
 from app.ui.menu_roles import mostrar_menu_roles
 
 
-def ejecutar_operacion(funcion, nivel_minimo):
+def ejecutar_operacion(funcion, nivel_minimo):  # ejecuta la opción si el nivel alcanza
     if verificar_permiso(nivel_minimo):
         funcion()
 
 
-def mostrar_menu_usuarios():
+def mostrar_menu_usuarios():  # menú de usuarios; opción 2 del menú principal (nivel 3)
     if not verificar_permiso(3):
         return
 
     while True:
-        if not verificar_permiso(3):
+        if not verificar_permiso(3):  # se controla en cada vuelta por si venció la sesión
             return
 
         print("\n==========================================")
@@ -50,7 +50,7 @@ def mostrar_menu_usuarios():
         opcion = input("\nSeleccioná una opción: ").strip()
 
         if opcion == "1":
-            ejecutar_operacion(registrar_usuario, 5)
+            ejecutar_operacion(registrar_usuario, 5)  # consultar pide nivel 3; dar de alta, modificar o borrar, nivel 5
 
         elif opcion == "2":
             ejecutar_operacion(listar_usuarios_service, 3)
@@ -67,16 +67,16 @@ def mostrar_menu_usuarios():
         elif opcion == "6":
             ejecutar_operacion(mostrar_menu_roles, 5)
 
-        elif opcion == "7":
+        elif opcion == "7":  # sesiones abiertas y usuarios bloqueados
             ejecutar_operacion(
                 consultar_sesiones_activas_service,
                 5
             )
 
-        elif opcion == "8":
+        elif opcion == "8":  # contraseña temporal que el usuario cambia al entrar
             ejecutar_operacion(restablecer_contrasena_service, 5)
 
-        elif opcion == "9":
+        elif opcion == "9":  # quita el bloqueo sin cambiar la contraseña
             ejecutar_operacion(desbloquear_usuario_service, 5)
 
         elif opcion == "0":

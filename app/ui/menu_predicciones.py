@@ -12,12 +12,12 @@ from app.services.clima_service import menu_alertas_climaticas
 from app.services import reportes_pantallas as pantallas
 
 
-def mostrar_menu_predicciones():
+def mostrar_menu_predicciones():  # menú de análisis y predicciones; opción 11 del menú principal
     if not verificar_permiso(1):
         return
 
     while True:
-        if not verificar_permiso(1):
+        if not verificar_permiso(1):  # se controla en cada vuelta por si venció la sesión
             return
 
         print("\n==========================================")
@@ -34,7 +34,7 @@ def mostrar_menu_predicciones():
 
         opcion = input("\nSeleccioná una opción: ").strip()
 
-        if opcion == "1":
+        if opcion == "1":  # calcula el riesgo de un envío y deja guardarlo en MongoDB
             evaluar_envio_service()
         elif opcion == "2":
             historial_predicciones_service()
@@ -46,10 +46,10 @@ def mostrar_menu_predicciones():
         elif opcion == "5":
             demoras_estimadas_service()
         elif opcion == "6":
-            if verificar_permiso(3):
+            if verificar_permiso(3):  # actualizar todas las predicciones pide nivel 3
                 actualizar_predicciones_service()
         elif opcion == "7":
-            if verificar_permiso(3):
+            if verificar_permiso(3):  # las alertas climáticas también
                 menu_alertas_climaticas()
         elif opcion == "0":
             break

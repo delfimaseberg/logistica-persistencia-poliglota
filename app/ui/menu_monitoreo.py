@@ -18,12 +18,12 @@ from app.services.monitoreo_continuo_service import monitoreo_continuo_service
 from app.services.simulacion_fallas_service import simular_falla_sensor_service
 
 
-def mostrar_menu_monitoreo():
+def mostrar_menu_monitoreo():  # menú de monitoreo IoT; opción 5 del menú principal
     if not verificar_permiso(1):
         return
 
     while True:
-        if not verificar_permiso(1):
+        if not verificar_permiso(1):  # se vuelve a controlar en cada vuelta por si venció la sesión
             return
 
         print("\n==========================================")
@@ -44,7 +44,7 @@ def mostrar_menu_monitoreo():
             "\nSeleccioná una opción: "
         ).strip()
 
-        if opcion == "1":
+        if opcion == "1":  # 1 a 4: registrar y consultar lecturas en Cassandra
             registrar_lectura_service()
 
         elif opcion == "2":
@@ -56,7 +56,7 @@ def mostrar_menu_monitoreo():
         elif opcion == "4":
             consultar_ultima_lectura_service()
 
-        elif opcion == "5":
+        elif opcion == "5":  # lecturas simuladas para los sensores activos
             simular_lecturas_service()
 
         elif opcion == "6":
@@ -65,7 +65,7 @@ def mostrar_menu_monitoreo():
         elif opcion == "7":
             consultar_posiciones_gps_service()
             
-        elif opcion == "8":
+        elif opcion == "8":  # simulación que se repite hasta Ctrl+C
             monitoreo_continuo_service()
 
         elif opcion == "9":

@@ -38,7 +38,7 @@ from app.services.autenticacion import requiere_permiso
 ZONA_ARGENTINA = ZoneInfo("America/Argentina/Buenos_Aires")
 
 
-def pedir_id(mensaje):
+def pedir_id(mensaje):  # pide un ID entero positivo; la usan las pantallas de incidentes
     while True:
         try:
             numero = int(input(mensaje).strip())
@@ -53,7 +53,7 @@ def pausar():
     input("\nPresioná Enter para continuar...")
 
 
-def mostrar_incidente(fila):
+def mostrar_incidente(fila):  # imprime un incidente; la usan consultar y actualizar incidente
     print("-" * 45)
     print(f"ID: {fila[0]} | Envío: {fila[1]}")
     print(f"Tipo: {fila[2]}")
@@ -65,7 +65,7 @@ def mostrar_incidente(fila):
 
 
 @requiere_permiso(1)
-def registrar_incidente_service():
+def registrar_incidente_service():  # carga a mano un incidente de un envío; opción 1 del menú de incidentes
     print("\n--- REGISTRAR INCIDENTE ---")
 
     try:
@@ -109,7 +109,7 @@ def registrar_incidente_service():
             print("Operación cancelada.")
             return
 
-        id_incidente = crear_incidente(
+        id_incidente = crear_incidente(  # INSERT en PostgreSQL; nace Abierto
             id_envio, tipo, severidad, descripcion
         )
 
@@ -123,7 +123,7 @@ def registrar_incidente_service():
 
 
 @requiere_permiso(1)
-def consultar_incidentes_service():
+def consultar_incidentes_service():  # lista incidentes, filtrando por envío y estado; opción 2 del menú de incidentes
     print("\n--- CONSULTAR INCIDENTES ---")
 
     try:
@@ -159,7 +159,7 @@ def consultar_incidentes_service():
 
 
 @requiere_permiso(1)
-def cambiar_estado_incidente_service():
+def cambiar_estado_incidente_service():  # pasa un incidente a En proceso o Cerrado; opción 3 del menú de incidentes
     print("\n--- ACTUALIZAR INCIDENTE ---")
 
     try:
@@ -172,7 +172,7 @@ def cambiar_estado_incidente_service():
 
         mostrar_incidente(incidente)
 
-        if incidente[5] == "Cerrado":
+        if incidente[5] == "Cerrado":  # un incidente cerrado ya no se cambia
             print("El incidente ya está cerrado.")
             return
 
@@ -200,7 +200,7 @@ def cambiar_estado_incidente_service():
         pausar()
 
 
-def detectar_anomalias(lectura, vigentes=None):
+def detectar_anomalias(lectura, vigentes=None):  # anomalías de la carga en una lectura según los umbrales; la usa revisar_lecturas_sensores
     """Anomalías de la carga en una lectura, según las reglas de alerta activas.
 
     Devuelve [(tipo, severidad, descripción)]. Si la lectura tiene valores
@@ -208,12 +208,12 @@ def detectar_anomalias(lectura, vigentes=None):
     """
     if vigentes is None:
         vigentes = reglas_vigentes()
-    if not es_lectura_valida_para_umbrales(lectura):
+    if not es_lectura_valida_para_umbrales(lectura):  # con valores imposibles es falla del sensor, no de la carga
         return []
     return evaluar_umbrales(lectura, vigentes)
 
 
-def buscar_envios_activos_de_contenedor(id_contenedor):
+def buscar_envios_activos_de_contenedor(id_contenedor):  # envíos en curso del contenedor (PostgreSQL); la usan la revisión de lecturas y la de sensores sin transmisión
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute("""
@@ -221,14 +221,14 @@ def buscar_envios_activos_de_contenedor(id_contenedor):
                 FROM envio_contenedor ec
                 JOIN envio e ON e.id_envio = ec.id_envio
                 WHERE ec.id_contenedor = %s
-                  AND e.estado NOT IN ('Cancelado', 'Entregado')
+                  AND e.estado NOT IN ('Cancelado', 'Entregado')  -- solo envíos en curso
                 ORDER BY e.id_envio
             """, (id_contenedor,))
 
             return [fila[0] for fila in cursor.fetchall()]
 
 
-def obtener_incidente_compatible(
+def obtener_incidente_compatible(  # busca un incidente viejo de la misma lectura y tipo; la usa procesar_incidente_de_alerta
     id_envio, id_sensor, id_lectura, tipo
 ):
     """
@@ -262,7 +262,7 @@ def obtener_incidente_compatible(
     return anterior
 
 
-def procesar_incidente_de_alerta(
+def procesar_incidente_de_alerta(  # busca o crea el incidente de una alerta y los vincula; la usa revisar_lecturas_sensores
     alerta,
     id_envio,
     id_sensor,
@@ -280,7 +280,7 @@ def procesar_incidente_de_alerta(
     """
     id_vinculado = alerta.get("incidente_id")
 
-    if id_vinculado is not None:
+    if id_vinculado is not None:  # si la alerta ya tenía incidente y es el correcto, se reutiliza
         incidente = buscar_incidente(id_vinculado)
 
         if incidente is not None:
@@ -308,7 +308,7 @@ def procesar_incidente_de_alerta(
         vincular_incidente_alerta(alerta["_id"], anterior)
         return anterior, "recuperado"
 
-    id_incidente, creado = obtener_o_crear_incidente_iot(
+    id_incidente, creado = obtener_o_crear_incidente_iot(  # si no hay, lo crea en PostgreSQL
         id_envio,
         id_sensor,
         id_lectura,
@@ -317,13 +317,13 @@ def procesar_incidente_de_alerta(
         descripcion,
     )
 
-    vincular_incidente_alerta(alerta["_id"], id_incidente)
+    vincular_incidente_alerta(alerta["_id"], id_incidente)  # guarda el ID del incidente en la alerta de MongoDB
 
     accion = "creado" if creado else "reutilizado"
     return id_incidente, accion
 
 
-def _texto_umbrales(vigentes):
+def _texto_umbrales(vigentes):  # reglas activas en texto; la usa detectar_alertas_service
     lineas = []
     for (variable, limite), reglas in sorted(vigentes.items()):
         nombre, unidad = VARIABLES[variable][0], VARIABLES[variable][1]
@@ -334,7 +334,7 @@ def _texto_umbrales(vigentes):
     return lineas
 
 
-def revisar_lecturas_sensores(ahora=None, horas_vigencia=24):
+def revisar_lecturas_sensores(ahora=None, horas_vigencia=24):  # busca fallas y anomalías en las lecturas recientes; la usan la opción 4, la simulación de fallas, el proceso periódico y la carga de ejemplo
     """Revisa las lecturas recientes de cada sensor activo y emite alertas.
 
     - Umbrales de la carga sobre la última lectura (crea incidente si el
@@ -345,7 +345,7 @@ def revisar_lecturas_sensores(ahora=None, horas_vigencia=24):
     """
     ahora = ahora or datetime.now(timezone.utc)
     vigentes = reglas_vigentes()
-    congeladas = umbral(vigentes, "lecturas_congeladas", "MAX", 6)
+    congeladas = umbral(vigentes, "lecturas_congeladas", "MAX", 6)  # cuántas lecturas iguales cuentan como congeladas
     cantidad = max(10, int(congeladas))
     resumen = {"revisados": 0, "sin_lecturas": 0, "antiguas": 0, "anomalias": 0,
                "fallas": 0, "alertas_nuevas": 0, "mensajes": 0, "incidentes": 0,
@@ -356,13 +356,13 @@ def revisar_lecturas_sensores(ahora=None, horas_vigencia=24):
         if str(sensor[6]).strip().lower() != "activo":
             continue
         try:
-            lecturas = ultimas_lecturas_sensor(id_sensor, cantidad, ahora)
+            lecturas = ultimas_lecturas_sensor(id_sensor, cantidad, ahora)  # últimas lecturas del sensor en Cassandra
             if not lecturas:
                 resumen["sin_lecturas"] += 1
                 continue
             resumen["revisados"] += 1
             limite = ahora - timedelta(hours=horas_vigencia)
-            recientes = [l for l in lecturas
+            recientes = [l for l in lecturas  # solo las de las últimas 24 horas
                          if (l.fecha_hora if l.fecha_hora.tzinfo else
                              l.fecha_hora.replace(tzinfo=timezone.utc)) >= limite]
             if not recientes:
@@ -370,10 +370,10 @@ def revisar_lecturas_sensores(ahora=None, horas_vigencia=24):
                 continue
 
             envios = buscar_envios_activos_de_contenedor(id_contenedor)
-            id_envio = envios[0] if len(envios) == 1 else None
+            id_envio = envios[0] if len(envios) == 1 else None  # la alerta se asocia al envío solo si el contenedor tiene uno solo en curso
             ultima = recientes[0]
 
-            for tipo, severidad, descripcion, id_lectura in fallas_de_sensor(recientes, vigentes):
+            for tipo, severidad, descripcion, id_lectura in fallas_de_sensor(recientes, vigentes):  # fallas del equipo: alerta y mensajes, pero sin incidente
                 alerta = emitir_alerta(
                     sensor_id=id_sensor, contenedor_id=id_contenedor, tipo=tipo,
                     severidad=severidad, descripcion=descripcion,
@@ -383,7 +383,7 @@ def revisar_lecturas_sensores(ahora=None, horas_vigencia=24):
                 resumen["mensajes"] += alerta.get("mensajes_creados", 0)
                 resumen["detalle"].append((id_sensor, tipo, descripcion, None))
 
-            for tipo, severidad, descripcion in detectar_anomalias(ultima, vigentes):
+            for tipo, severidad, descripcion in detectar_anomalias(ultima, vigentes):  # umbrales de la carga: solo sobre la última lectura
                 alerta = emitir_alerta(
                     sensor_id=id_sensor, contenedor_id=id_contenedor, tipo=tipo,
                     severidad=severidad, descripcion=descripcion,
@@ -392,7 +392,7 @@ def revisar_lecturas_sensores(ahora=None, horas_vigencia=24):
                 resumen["alertas_nuevas"] += bool(alerta.get("nueva"))
                 resumen["mensajes"] += alerta.get("mensajes_creados", 0)
                 id_incidente = None
-                if id_envio is not None:
+                if id_envio is not None:  # una anomalía de la carga con envío genera incidente
                     id_incidente, _ = procesar_incidente_de_alerta(
                         alerta=alerta, id_envio=id_envio, id_sensor=id_sensor,
                         id_lectura=ultima.id_lectura, tipo=tipo,
@@ -405,7 +405,7 @@ def revisar_lecturas_sensores(ahora=None, horas_vigencia=24):
 
 
 @requiere_permiso(1)
-def detectar_alertas_service():
+def detectar_alertas_service():  # ejecuta la detección y muestra el resultado; opción 4 del menú de incidentes
     print("\n--- DETECTAR ANOMALÍAS Y FALLAS DE SENSORES ---")
     print("Se analizan las lecturas de las últimas 24 horas de cada sensor activo.")
     try:
@@ -447,7 +447,7 @@ def detectar_alertas_service():
         pausar()
 
 
-def _fecha_alerta(fecha):
+def _fecha_alerta(fecha):  # fecha de la alerta en hora argentina; la usa mostrar_alerta
     if fecha is None:
         return "-"
     if fecha.tzinfo is None:
@@ -455,7 +455,7 @@ def _fecha_alerta(fecha):
     return fecha.astimezone(ZONA_ARGENTINA).strftime("%d/%m/%Y %H:%M")
 
 
-def mostrar_alerta(alerta, numero, eventos=None):
+def mostrar_alerta(alerta, numero, eventos=None):  # imprime una alerta con su envío, incidente y último evento; la usan consultar y atender alertas
     print("-" * 45)
     print(f"{numero}. {alerta.get('tipo')} | {alerta.get('severidad')} | "
           f"{alerta.get('estado')} | {_fecha_alerta(alerta.get('fecha'))}")
@@ -465,7 +465,7 @@ def mostrar_alerta(alerta, numero, eventos=None):
     if alerta.get("incidente_id") is not None:
         lugar.append(f"incidente {alerta['incidente_id']}")
     print("   " + " | ".join(lugar))
-    evento = (eventos or {}).get(alerta.get("evento_id"))
+    evento = (eventos or {}).get(alerta.get("evento_id"))  # el último evento del envío cuando se detectó la alerta
     if evento is not None:
         print(f"   Último evento: {formato.evento(evento.get('tipo'))}, "
               f"{_fecha_alerta(evento.get('fecha_hora'))}")
@@ -475,7 +475,7 @@ def mostrar_alerta(alerta, numero, eventos=None):
 
 
 @requiere_permiso(1)
-def consultar_alertas_service():
+def consultar_alertas_service():  # lista alertas de MongoDB por estado y sensor; opción 5 del menú de incidentes
     print("\n--- CONSULTAR ALERTAS ---")
 
     try:
@@ -514,7 +514,7 @@ def consultar_alertas_service():
 
 
 @requiere_permiso(1)
-def atender_alerta_service():
+def atender_alerta_service():  # marca una alerta activa como Atendida; opción 6 del menú de incidentes
     print("\n--- MARCAR ALERTA COMO ATENDIDA ---")
 
     try:
@@ -533,7 +533,7 @@ def atender_alerta_service():
             print("Cancelado.")
             return
 
-        if actualizar_estado_alerta(str(alertas[int(valor) - 1]["_id"]), "Atendida"):
+        if actualizar_estado_alerta(str(alertas[int(valor) - 1]["_id"]), "Atendida"):  # UPDATE en MongoDB
             print("Alerta marcada como atendida.")
         else:
             print("No se encontró la alerta.")

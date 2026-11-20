@@ -10,7 +10,7 @@ from app.utils import formato
 from app.utils.errores import mensaje_error
 
 
-CRITERIOS = {
+CRITERIOS = {  # por cada criterio: a qué se aplica y con qué bases de cálculo
     "BASE": ("ENVIO", ("FIJO",)),
     "PESO": ("ENVIO", ("POR_KG",)),
     "DISTANCIA": ("ENVIO", ("POR_KM",)),
@@ -21,7 +21,7 @@ CRITERIOS = {
 }
 
 
-def _entero(mensaje):
+def _entero(mensaje):  # pide un entero positivo; la usan las opciones de este menú
     while True:
         valor = input(mensaje).strip()
         if valor.isdigit() and int(valor) > 0:
@@ -29,7 +29,7 @@ def _entero(mensaje):
         print("Ingresá un entero positivo.")
 
 
-def _importe(mensaje):
+def _importe(mensaje):  # pide un decimal no negativo; la usan las opciones de este menú
     while True:
         try:
             valor = Decimal(input(mensaje).strip().replace(",", "."))
@@ -40,7 +40,7 @@ def _importe(mensaje):
         print("Ingresá un importe decimal válido no negativo.")
 
 
-def _fecha(mensaje, opcional=False):
+def _fecha(mensaje, opcional=False):  # pide una fecha AAAA-MM-DD; la usa crear regla
     while True:
         valor = input(mensaje).strip()
         if opcional and not valor:
@@ -51,14 +51,14 @@ def _fecha(mensaje, opcional=False):
             print("Usá el formato AAAA-MM-DD.")
 
 
-def _usuario_id():
+def _usuario_id():  # id del usuario conectado; lo usan crear y aprobar regla
     usuario = obtener_sesion_actual()
     if not usuario:
         raise ValueError("La sesión expiró; volvé a iniciar sesión.")
     return usuario["id_usuario"]
 
 
-def _listar_reglas():
+def _listar_reglas():  # lista las reglas con sus componentes; opción 5 (y antes de aprobar)
     filas = repo.listar_reglas()
     if not filas:
         print("No hay reglas tarifarias registradas.")
@@ -68,7 +68,7 @@ def _listar_reglas():
         nombre = "Tarifa estándar" if r[1] == "TARIFA_ESTANDAR" else r[1]
         print(f"{r[0]} | {nombre} | {r[2]} | {r[3]} | desde {formato.fecha(r[4])}"
               f"{' hasta ' + formato.fecha(r[5]) if r[5] else ', sin fecha de fin'} | {str(r[6]).capitalize()}")
-        detalle = repo.obtener_regla(r[0])
+        detalle = repo.obtener_regla(r[0])  # trae los componentes de cada regla
         for componente in detalle["componentes"]:
             print("   - {} {} | {} | importe {}".format(
                 str(componente["criterio"]).replace("_", " ").capitalize(),
@@ -78,14 +78,14 @@ def _listar_reglas():
             ))
 
 
-def _crear_categoria():
+def _crear_categoria():  # registra una categoría de carga; opción 1
     codigo = input("Código de categoría definido por la empresa: ").strip()
     descripcion = input("Descripción: ").strip()
     service.registrar_tipo_carga(codigo, descripcion)
     print("Categoría registrada.")
 
 
-def _registrar_carga():
+def _registrar_carga():  # agrega una partida de carga a un envío; opción 2
     tipos = repo.listar_tipos_carga()
     if not tipos:
         print("Primero registrá una categoría de carga.")
@@ -117,11 +117,11 @@ def _registrar_carga():
     if fragil not in {"S", "N"}:
         raise ValueError("Indicá S o N para fragilidad.")
     descripcion = input("Descripción opcional: ").strip() or None
-    service.registrar_partida_carga(id_envio, tipo[0], peso, fragil == "S", descripcion)
+    service.registrar_partida_carga(id_envio, tipo[0], peso, fragil == "S", descripcion)  # el servicio valida y guarda en PostgreSQL
     print("Partida de carga registrada.")
 
 
-def _registrar_distancia():
+def _registrar_distancia():  # carga los km de un tramo; opción 3
     id_tramo = _entero("ID del tramo: ")
     distancia = _importe("Distancia documentada del tramo en km: ")
     if distancia <= 0:
@@ -130,7 +130,7 @@ def _registrar_distancia():
     print("Distancia registrada; no fue inferida de las ubicaciones.")
 
 
-def _crear_regla():
+def _crear_regla():  # arma una regla nueva componente por componente; opción 4
     codigo = input("Código identificador de la regla: ").strip()
     version = _entero("Número de versión: ")
     moneda = input("Código de moneda (configurado por la empresa): ").strip()
@@ -148,11 +148,11 @@ def _crear_regla():
         ambito, bases = CRITERIOS[criterio]
         print("Bases admitidas:", ", ".join(bases))
         base = input("Base de cálculo: ").strip().upper()
-        if base not in bases:
+        if base not in bases:  # cada criterio admite solo ciertas bases
             print("Base no admitida para ese criterio.")
             continue
         selector = None
-        if criterio == "CATEGORIA":
+        if criterio == "CATEGORIA":  # el selector sale de las categorías o de los medios cargados
             tipos = repo.listar_tipos_carga()
             for i, tipo in enumerate(tipos, 1):
                 print(f"{i}. {tipo[0]} — {tipo[1]}")
@@ -173,24 +173,24 @@ def _crear_regla():
             "ambito": ambito, "base_calculo": base,
             "importe": _importe("Importe configurado por la empresa: "),
         })
-    id_regla = service.crear_regla(
+    id_regla = service.crear_regla(  # queda como BORRADOR hasta que se apruebe
         codigo, version, moneda, desde, hasta, _usuario_id(), componentes
     )
     print(f"Borrador de regla creado. ID: {id_regla}")
 
 
-def _aprobar_regla():
+def _aprobar_regla():  # aprueba una regla en borrador; opción 6
     _listar_reglas()
     id_regla = _entero("ID de la regla a aprobar: ")
     referencia = input("Referencia documentada de aprobación: ").strip()
-    service.aprobar_regla(id_regla, _usuario_id(), referencia)
+    service.aprobar_regla(id_regla, _usuario_id(), referencia)  # pasa a APROBADA y la anterior del mismo código a REEMPLAZADA
     print("Regla aprobada. La versión anterior del mismo código queda reemplazada.")
 
 
-def mostrar_menu_tarifas():
+def mostrar_menu_tarifas():  # menú avanzado de reglas tarifarias; opción 14 de facturación
     if not verificar_permiso(3):
         return
-    acciones = {
+    acciones = {  # opción elegida y la función que la atiende
         "1": _crear_categoria,
         "2": _registrar_carga,
         "3": _registrar_distancia,
@@ -202,7 +202,7 @@ def mostrar_menu_tarifas():
         # estándar (menú de facturación, opción "Precios de transporte").
     }
     while True:
-        if not verificar_permiso(3):
+        if not verificar_permiso(3):  # se vuelve a controlar en cada vuelta por si venció la sesión
             return
         print("\n--- REGLAS TARIFARIAS Y DATOS DE CARGA (avanzado) ---")
         print("1. Registrar categoría de carga")

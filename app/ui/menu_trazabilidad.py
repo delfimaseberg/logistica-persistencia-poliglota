@@ -11,9 +11,9 @@ from app.services.trazabilidad_service import (
 )
 
 
-def mostrar_menu_trazabilidad():
+def mostrar_menu_trazabilidad():  # menú de trazabilidad; opción 6 del menú principal
     while True:
-        if not verificar_permiso(1):
+        if not verificar_permiso(1):  # se controla en cada vuelta por si venció la sesión
             return
 
         print("\n==========================================")
@@ -31,17 +31,17 @@ def mostrar_menu_trazabilidad():
 
         opcion = input("\nSeleccioná una opción: ").strip()
 
-        if opcion == "1":
+        if opcion == "1":  # eventos en MongoDB; pueden cambiar el estado del envío en PostgreSQL
             registrar_evento_service()
         elif opcion == "2":
             historial_envio_service()
         elif opcion == "3":
             seguimiento_temporal_service()
-        elif opcion == "4":
+        elif opcion == "4":  # la ruta se lee del grafo de Neo4j
             ruta_completa_service()
-        elif opcion == "5":
+        elif opcion == "5":  # junta eventos de MongoDB y GPS de Cassandra
             recorrido_contenedor_service()
-        elif opcion == "6":
+        elif opcion == "6":  # copia o repara los envíos en Neo4j
             sincronizar_proyeccion_service()
         elif opcion == "7":
             quien_llevo_contenedor_service()

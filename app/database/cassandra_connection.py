@@ -28,22 +28,21 @@ def get_cassandra_session():
     return cluster, session
 
 
-# ------------------------------------------------------------------
 # Sesión compartida
 #
 # Abrir un Cluster por operación agota conexiones con volumen (por ejemplo,
 # el registro continuo de lecturas). El driver de Cassandra está pensado
 # para una sesión por proceso: es thread-safe, mantiene su propio pool y se
 # reconecta sola. Se crea la primera vez que se usa y se cierra al salir.
-# ------------------------------------------------------------------
+
 
 _cluster = None
 _session = None
 _lock = threading.Lock()
 
 
-def obtener_sesion_cassandra():
-    """Sesión compartida, con el keyspace del proyecto ya seleccionado."""
+def obtener_sesion_cassandra(): # crea la sesion la 1era vez, ya conectada al keyspace del proyecto y dsp devuelve siempre la misma
+
     global _cluster, _session
 
     with _lock:
@@ -66,7 +65,7 @@ def cerrar_sesion_cassandra():
         _session = None
 
 
-atexit.register(cerrar_sesion_cassandra)
+atexit.register(cerrar_sesion_cassandra) # la cierra sola cuando termina el programa
 
 
 def probar_conexion_cassandra():

@@ -12,17 +12,17 @@ def pausar():
     input("\nPresioná Enter para continuar...")
 
 
-def _fecha(texto):
+def _fecha(texto):  # AAAA-MM-DD a dd/mm/aaaa
     return date.fromisoformat(texto).strftime("%d/%m/%Y")
 
 
-def describir(alerta):
+def describir(alerta):  # una alerta climática en una línea; la usan listar y anular
     estado = "" if alerta.get("estado") == "Vigente" else f" [{alerta.get('estado')}]"
     return (f"{alerta['fenomeno']} en {alerta['ubicacion']} | {alerta['severidad']} | "
             f"del {_fecha(alerta['fecha_desde'])} al {_fecha(alerta['fecha_hasta'])}{estado}")
 
 
-def _pedir_fecha(mensaje, por_defecto):
+def _pedir_fecha(mensaje, por_defecto):  # pide una fecha con valor por defecto; la usa registrar
     while True:
         texto = input(f"{mensaje} AAAA-MM-DD [Enter = {por_defecto:%d/%m/%Y}]: ").strip()
         if not texto:
@@ -34,7 +34,7 @@ def _pedir_fecha(mensaje, por_defecto):
 
 
 @solo_internos
-def registrar_alerta_climatica_service():
+def registrar_alerta_climatica_service():  # carga una alerta climática; opción 1 del menú de alertas climáticas
     print("\n--- REGISTRAR ALERTA CLIMÁTICA ---")
     print("La ubicación puede ser una ciudad (la de un tramo o del envío) o un país.")
     try:
@@ -48,9 +48,9 @@ def registrar_alerta_climatica_service():
             return
         hoy = date.today()
         desde = _pedir_fecha("Desde", hoy)
-        hasta = _pedir_fecha("Hasta", desde + timedelta(days=2))
+        hasta = _pedir_fecha("Hasta", desde + timedelta(days=2))  # por defecto dura tres días
         descripcion = input("Descripción (opcional): ").strip()
-        repo.registrar_alerta_climatica(ubicacion, fenomeno, severidad, desde, hasta,
+        repo.registrar_alerta_climatica(ubicacion, fenomeno, severidad, desde, hasta,  # se guarda en MongoDB
                                         obtener_sesion_actual()["id_usuario"], descripcion)
         print("Alerta climática registrada. Se considera en las próximas predicciones.")
     except ValueError as error:
@@ -61,7 +61,7 @@ def registrar_alerta_climatica_service():
         pausar()
 
 
-def listar_alertas_climaticas_service():
+def listar_alertas_climaticas_service():  # alertas vigentes; opción 2 del menú de alertas climáticas
     print("\n--- ALERTAS CLIMÁTICAS VIGENTES ---")
     try:
         alertas = repo.listar_alertas_climaticas()
@@ -78,7 +78,7 @@ def listar_alertas_climaticas_service():
 
 
 @solo_internos
-def anular_alerta_climatica_service():
+def anular_alerta_climatica_service():  # anula una alerta (no la borra); opción 3 del menú de alertas climáticas
     print("\n--- ANULAR ALERTA CLIMÁTICA ---")
     try:
         alertas = repo.listar_alertas_climaticas()
@@ -105,7 +105,7 @@ def anular_alerta_climatica_service():
         pausar()
 
 
-OPCIONES_CLIMA = {
+OPCIONES_CLIMA = {  # opciones del menú de alertas climáticas
     "1": ("Registrar alerta climática", registrar_alerta_climatica_service),
     "2": ("Listar alertas climáticas vigentes", listar_alertas_climaticas_service),
     "3": ("Anular alerta climática", anular_alerta_climatica_service),
@@ -113,7 +113,7 @@ OPCIONES_CLIMA = {
 
 
 @requiere_permiso(3)
-def menu_alertas_climaticas():
+def menu_alertas_climaticas():  # menú de alertas climáticas; opción 7 del menú de predicciones
     while True:
         print("\n--- ALERTAS CLIMÁTICAS ---")
         for clave, (texto, _) in OPCIONES_CLIMA.items():

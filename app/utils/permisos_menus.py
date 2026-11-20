@@ -9,10 +9,10 @@ import importlib
 import inspect
 from pathlib import Path
 
-RAIZ = Path(__file__).resolve().parents[2]
+RAIZ = Path(__file__).resolve().parents[2]  # carpeta raíz del proyecto
 
 # Menú principal interno: módulo -> nivel de la opción (menu_principal.OPCIONES_INTERNAS).
-MENUS_INTERNOS = {
+MENUS_INTERNOS = {  # menú y nivel que pide para entrar
     "app.ui.menu_clientes": 1,
     "app.ui.menu_usuarios": 3,
     "app.ui.menu_roles": 5,
@@ -31,7 +31,7 @@ MENUS_INTERNOS = {
 }
 
 
-def _nivel_en(nodo):
+def _nivel_en(nodo):  # nivel de un verificar_permiso(N) en el código
     """N si el nodo es verificar_permiso(N) / ejecutar_*(f, N) / tupla (texto, f, N)."""
     if isinstance(nodo, ast.Call) and getattr(nodo.func, "id", "") == "verificar_permiso":
         if nodo.args and isinstance(nodo.args[0], ast.Constant):
@@ -39,12 +39,12 @@ def _nivel_en(nodo):
     return None
 
 
-def servicios_por_menu():
+def servicios_por_menu():  # nivel que exige cada menú para cada servicio que llama; la usan los tests de permisos
     """{(módulo del servicio, nombre): nivel mínimo que exige el menú}."""
     resultado = {}
     for modulo, nivel_menu in MENUS_INTERNOS.items():
         mod = importlib.import_module(modulo)
-        arbol = ast.parse(inspect.getsource(mod))
+        arbol = ast.parse(inspect.getsource(mod))  # lee el código del menú, sin ejecutarlo
         nombres = {}
         for nombre, objeto in vars(mod).items():
             if inspect.isfunction(objeto) and objeto.__module__.startswith("app.services"):
@@ -52,7 +52,7 @@ def servicios_por_menu():
             elif inspect.ismodule(objeto) and objeto.__name__.startswith("app.services"):
                 nombres[nombre] = objeto
 
-        def registrar(funcion, nivel):
+        def registrar(funcion, nivel):  # anota el nivel de un servicio
             original = inspect.unwrap(funcion)
             if original.__module__ == "app.services.autenticacion":
                 return            # verificar_permiso / obtener_sesion_actual
@@ -60,7 +60,7 @@ def servicios_por_menu():
             # Si dos menús la llaman con niveles distintos, vale el menor.
             resultado[clave] = min(resultado.get(clave, nivel), nivel)
 
-        def visitar(nodo, nivel):
+        def visitar(nodo, nivel):  # recorre el código del menú buscando llamadas a servicios
             # Un if verificar_permiso(N) sube el nivel de su cuerpo.
             if isinstance(nodo, ast.If):
                 n = _nivel_en(nodo.test)
@@ -89,7 +89,7 @@ def servicios_por_menu():
             for hijo in ast.iter_child_nodes(nodo):
                 visitar(hijo, nivel)
 
-        def _funciones(nodo):
+        def _funciones(nodo):  # servicios que aparecen en ese pedazo de código
             """Funciones de servicio referenciadas directamente por el nodo."""
             if isinstance(nodo, ast.Name) and inspect.isfunction(nombres.get(nodo.id)):
                 yield nombres[nodo.id]

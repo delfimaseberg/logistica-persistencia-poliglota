@@ -10,7 +10,7 @@ from app.utils.errores import mensaje_error
 from app.services.autenticacion import requiere_permiso
 
 
-def pedir_id_rol():
+def pedir_id_rol():  # pide el ID de un rol; la usan buscar, modificar y eliminar
     while True:
         valor = input("ID del rol: ").strip()
 
@@ -20,7 +20,7 @@ def pedir_id_rol():
         print("Error: el ID debe ser un número entero positivo.")
 
 
-def pedir_descripcion():
+def pedir_descripcion():  # pide el nombre del rol; la usan alta y modificación
     while True:
         descripcion = input("Descripción: ").strip()
 
@@ -30,7 +30,7 @@ def pedir_descripcion():
         print("Error: la descripción es obligatoria (hasta 255 caracteres).")
 
 
-def pedir_nivel_permisos():
+def pedir_nivel_permisos():  # pide el nivel del rol; la usan alta y modificación
     while True:
         valor = input(
             "Nivel de permisos (0 a 5): "
@@ -39,7 +39,7 @@ def pedir_nivel_permisos():
         if valor.isdigit():
             nivel = int(valor)
 
-            if 0 <= nivel <= 5:
+            if 0 <= nivel <= 5:  # el nivel va de 0 a 5; 5 es administrador
                 return nivel
 
         print(
@@ -48,7 +48,7 @@ def pedir_nivel_permisos():
         )
 
 
-def mostrar_rol(rol):
+def mostrar_rol(rol):  # imprime un rol
     if rol is None:
         print("Rol no encontrado.")
         return
@@ -61,7 +61,7 @@ Nivel de permisos: {rol[2]}
 
 
 @requiere_permiso(5)
-def registrar_rol():
+def registrar_rol():  # da de alta un rol; opción 1 del menú de roles
     print("\n--- REGISTRAR ROL ---")
 
     descripcion = pedir_descripcion()
@@ -73,7 +73,7 @@ def registrar_rol():
     )
 
     try:
-        id_rol = crear_rol(rol)
+        id_rol = crear_rol(rol)  # INSERT en PostgreSQL
 
         print("\nRol registrado correctamente.")
         print(f"ID asignado: {id_rol}")
@@ -85,7 +85,7 @@ def registrar_rol():
 
 
 @requiere_permiso(5)
-def listar_roles_service():
+def listar_roles_service():  # lista los roles; opción 2 del menú de roles
     print("\n--- LISTADO DE ROLES ---")
 
     try:
@@ -105,7 +105,7 @@ def listar_roles_service():
 
 
 @requiere_permiso(5)
-def buscar_rol_service():
+def buscar_rol_service():  # muestra un rol por ID; opción 3 del menú de roles
     print("\n--- BUSCAR ROL ---")
 
     id_rol = pedir_id_rol()
@@ -121,7 +121,7 @@ def buscar_rol_service():
 
 
 @requiere_permiso(5)
-def modificar_rol_service():
+def modificar_rol_service():  # cambia nombre y nivel de un rol; opción 4 del menú de roles
     print("\n--- MODIFICAR ROL ---")
 
     id_rol = pedir_id_rol()
@@ -164,7 +164,7 @@ def modificar_rol_service():
 
 
 @requiere_permiso(5)
-def eliminar_rol_service():
+def eliminar_rol_service():  # borra un rol; opción 5 del menú de roles
     print("\n--- ELIMINAR ROL ---")
 
     id_rol = pedir_id_rol()
@@ -187,7 +187,7 @@ def eliminar_rol_service():
         if confirmacion != "S":
             print("Eliminación cancelada.")
         else:
-            eliminado = eliminar_rol(id_rol)
+            eliminado = eliminar_rol(id_rol)  # si hay usuarios con ese rol, la base no deja borrarlo
 
             if eliminado:
                 print("Rol eliminado correctamente.")

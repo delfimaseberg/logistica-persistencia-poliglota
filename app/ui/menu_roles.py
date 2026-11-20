@@ -9,12 +9,12 @@ from app.services.rol_service import (
 from app.services.autenticacion import verificar_permiso
 
 
-def mostrar_menu_roles():
+def mostrar_menu_roles():  # menú de roles; opción 6 del menú de usuarios (nivel 5)
     if not verificar_permiso(5):
         return
 
     while True:
-        if not verificar_permiso(5):
+        if not verificar_permiso(5):  # se controla en cada vuelta por si venció la sesión
             return
 
         print("\n==========================================")

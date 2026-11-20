@@ -9,7 +9,7 @@ from app.utils.errores import mensaje_error
 from app.services.autenticacion import requiere_permiso
 
 
-FALLAS = {
+FALLAS = {  # opción del menú: texto y código de la falla
     "1": ("Valor imposible", "imposible"),
     "2": ("Lecturas congeladas (siempre el mismo valor)", "congelada"),
     "3": ("Salto brusco de temperatura", "salto"),
@@ -20,24 +20,24 @@ def pausar():
     input("\nPresioná Enter para continuar...")
 
 
-def lecturas_de_falla(falla, tipo_sensor, ahora, congeladas=6, salto_maximo=10.0):
+def lecturas_de_falla(falla, tipo_sensor, ahora, congeladas=6, salto_maximo=10.0):  # arma lecturas que provocan la falla; la usan la simulación y la carga de ejemplo
     """[(fecha_hora, valores)] que reproducen la falla. Sin escribir nada."""
     tipo = str(tipo_sensor).strip().lower()
     campo = "humedad" if tipo == "humedad" else "temperatura"
-    if falla == "imposible":
+    if falla == "imposible":  # un valor fuera del rango físico
         if tipo == "humedad":
             return [(ahora, {"humedad": 140.0, "bateria": 80.0})]
         if tipo == "temperatura":
             return [(ahora, {"temperatura": -99.0, "bateria": 80.0})]
         return [(ahora, {"bateria": 150.0})]
-    if falla == "congelada":
+    if falla == "congelada":  # N lecturas iguales cada 5 minutos
         if tipo not in ("temperatura", "humedad"):
             raise ValueError("Elegí un sensor de temperatura o de humedad.")
         valor = 5.5 if campo == "temperatura" else 60.0
         cantidad = int(congeladas)
         return [(ahora - timedelta(minutes=5 * (cantidad - 1 - i)),
                  {campo: valor, "bateria": 80.0}) for i in range(cantidad)]
-    if falla == "salto":
+    if falla == "salto":  # dos lecturas a 10 minutos con más diferencia que el máximo
         if tipo != "temperatura":
             raise ValueError("Elegí un sensor de temperatura.")
         return [(ahora - timedelta(minutes=10), {"temperatura": 4.0, "bateria": 80.0}),
@@ -46,7 +46,7 @@ def lecturas_de_falla(falla, tipo_sensor, ahora, congeladas=6, salto_maximo=10.0
 
 
 @requiere_permiso(1)
-def simular_falla_sensor_service():
+def simular_falla_sensor_service():  # graba una falla en un sensor; opción 9 del menú de monitoreo
     print("\n--- SIMULAR FALLA DE SENSOR ---")
     try:
         sensores = sensores_activos()
@@ -66,17 +66,17 @@ def simular_falla_sensor_service():
         if eleccion is None:
             print("Opción inválida.")
             return
-        vigentes = reglas_vigentes()
+        vigentes = reglas_vigentes()  # usa los umbrales activos para que la falla se detecte
         lecturas = lecturas_de_falla(
             eleccion[1], sensor[3], datetime.now(timezone.utc),
             umbral(vigentes, "lecturas_congeladas", "MAX", 6),
             umbral(vigentes, "salto_temperatura", "MAX", 10.0))
         for fecha, valores in lecturas:
-            registrar_lectura_db(sensor[0], sensor[1], fecha_hora=fecha, **valores)
+            registrar_lectura_db(sensor[0], sensor[1], fecha_hora=fecha, **valores)  # en las tres tablas de Cassandra
         print(f"Se registraron {len(lecturas)} lectura(s) con la falla.")
         if input("¿Ejecutar la detección ahora? (S/N): ").strip().upper() == "S":
             from app.services.incidentes_service import revisar_lecturas_sensores
-            resumen = revisar_lecturas_sensores()
+            resumen = revisar_lecturas_sensores()  # la misma detección que la opción 4 de incidentes
             for id_sensor, tipo, descripcion, _ in resumen["detalle"]:
                 if id_sensor == sensor[0]:
                     print(f"  {tipo}: {descripcion}")
