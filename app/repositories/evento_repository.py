@@ -18,6 +18,14 @@ def insertar_evento(documento):  # guarda un evento en MongoDB; la usan registra
     return str(resultado.inserted_id)
 
 
+def eliminar_evento(id_evento):
+    """Borra un evento por su id. Solo para compensar una transacción fallida."""
+    from bson import ObjectId
+    db = get_mongo_database()
+    resultado = db[COLECCION_EVENTOS].delete_one({"_id": ObjectId(str(id_evento))})
+    return resultado.deleted_count == 1
+
+
 def listar_eventos_envio(id_envio):  # eventos de un envío; la usan historial, seguimiento, reportes y la fecha de entrega pendiente
     """Eventos de un envío en orden cronológico."""
     db = get_mongo_database()

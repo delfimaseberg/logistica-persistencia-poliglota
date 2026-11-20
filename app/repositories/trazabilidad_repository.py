@@ -1,49 +1,99 @@
 from app.database.postgres_connection import get_postgres_connection
+from app.repositories.evento_repository import eliminar_evento, insertar_evento
+from app.utils.logger import obtener_logger
 
 
-def actualizar_estado_envio(id_envio, estado, fecha_entrega=None):  # cambia el estado del envío por un evento; la usan registrar evento y el reintento de estados pendientes
+logger = obtener_logger("trazabilidad")
+
+
+class EstadoNoActualizado(RuntimeError):  # el UPDATE del envío no afectó filas
+    """El envío no existe o ya estaba Entregado."""
+
+
+def _es_entregado(estado, fecha_entrega):  # controla la fecha antes de abrir la transacción
+    entregado = str(estado).strip().casefold() == "entregado"
+    if entregado and fecha_entrega is None:  # Entregado siempre necesita la fecha real
+        raise ValueError("Pasar a Entregado requiere la fecha real de entrega.")
+    return entregado
+
+
+def actualizar_estado_envio(id_envio, estado, fecha_entrega=None):  # cambia el estado del envío; hoy la usa el reintento de estados pendientes
     """Actualiza el estado por un evento logístico.
 
     Pasar a Entregado exige la fecha real de entrega (la del evento) y se
     guarda junto con el estado. Un envío Entregado ya no cambia (estado
     final; también lo impide el trigger de la migración 013).
     """
-    entregado = str(estado).strip().casefold() == "entregado"
-    if entregado and fecha_entrega is None:  # Entregado siempre necesita la fecha real
-        raise ValueError("Pasar a Entregado requiere la fecha real de entrega.")
+    entregado = _es_entregado(estado, fecha_entrega)
 
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
-            cursor.execute(
-                """
-                UPDATE envio
-                SET estado = %s,
-                    fecha_entrega = %s
-                WHERE id_envio = %s
-                  AND LOWER(BTRIM(estado)) <> 'entregado'  -- un envío entregado ya no cambia
-                """,
-                (estado, fecha_entrega if entregado else None, id_envio)  # la fecha de entrega solo se guarda al entregar
-            )
-            actualizado = cursor.rowcount > 0
+            return _actualizar_estado(cursor, id_envio, estado, fecha_entrega, entregado)
 
-            if actualizado and entregado:
-                # En la misma transacción: los sensores de sus contenedores
-                # dejan de transmitir; pasan a Inactivo para no generar
-                # alertas falsas de "sin transmisión".
-                cursor.execute(
-                    """
-                    UPDATE sensor_iot s
-                    SET estado = 'Inactivo',
-                        motivo_inactivo = 'Entrega del envío ' || %s::text  -- con este motivo se reactivan si el contenedor vuelve a viajar
-                    FROM envio_contenedor ec
-                    WHERE ec.id_envio = %s
-                      AND s.id_contenedor = ec.id_contenedor
-                      AND s.estado = 'Activo'
-                    """,
-                    (id_envio, id_envio)
-                )
 
-            return actualizado
+def _actualizar_estado(cursor, id_envio, estado, fecha_entrega, entregado):  # UPDATE de envío y sensores sin confirmar; lo usan actualizar_estado_envio y registrar_evento_y_estado
+    cursor.execute(
+        """
+        UPDATE envio
+        SET estado = %s,
+            fecha_entrega = %s
+        WHERE id_envio = %s
+          AND LOWER(BTRIM(estado)) <> 'entregado'  -- un envío entregado ya no cambia
+        """,
+        (estado, fecha_entrega if entregado else None, id_envio)  # la fecha de entrega solo se guarda al entregar
+    )
+    actualizado = cursor.rowcount > 0
+
+    if actualizado and entregado:
+        # En la misma transacción: los sensores de sus contenedores
+        # dejan de transmitir; pasan a Inactivo para no generar
+        # alertas falsas de "sin transmisión".
+        cursor.execute(
+            """
+            UPDATE sensor_iot s
+            SET estado = 'Inactivo',
+                motivo_inactivo = 'Entrega del envío ' || %s::text  -- con este motivo se reactivan si el contenedor vuelve a viajar
+            FROM envio_contenedor ec
+            WHERE ec.id_envio = %s
+              AND s.id_contenedor = ec.id_contenedor
+              AND s.estado = 'Activo'
+            """,
+            (id_envio, id_envio)
+        )
+
+    return actualizado
+
+
+def registrar_evento_y_estado(documento, id_envio, estado, fecha_entrega=None):  # guarda el evento y el estado juntos (rollback si falla MongoDB, borra el evento si falla el commit); la usa registrar_evento_service
+    """Guarda el evento (MongoDB) y el estado del envío (PostgreSQL) juntos.
+
+    O quedan las dos cosas o ninguna:
+    - si falla MongoDB, PostgreSQL hace rollback;
+    - si falla el commit de PostgreSQL, se borra el evento de MongoDB.
+    Devuelve el id del evento.
+    """
+    entregado = _es_entregado(estado, fecha_entrega)
+    id_evento = None
+
+    try:
+        with get_postgres_connection() as conexion:  # inicio de la transacción en PostgreSQL (todavía sin commit)
+            with conexion.cursor() as cursor:
+                if not _actualizar_estado(cursor, id_envio, estado, fecha_entrega, entregado):
+                    raise EstadoNoActualizado(  # sale del with: rollback, MongoDB no se toca
+                        "el envío no existe o ya estaba Entregado."
+                    )
+            id_evento = insertar_evento(documento)  # MongoDB; si falla, sale del with y PostgreSQL hace rollback
+        # al salir del with sin errores, psycopg hace el commit de PostgreSQL
+    except Exception:
+        if id_evento is not None:  # el evento ya estaba en MongoDB pero el commit falló
+            try:
+                eliminar_evento(id_evento)  # compensación: se deshace el insert en MongoDB
+            except Exception:
+                logger.exception("No se pudo compensar el evento %s del envío %s",
+                                 id_evento, id_envio)
+        raise
+
+    return id_evento
 
 
 def listar_ids_envios():  # todos los envíos; la usa resincronizar_todos

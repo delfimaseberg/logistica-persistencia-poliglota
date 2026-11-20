@@ -17,7 +17,8 @@ from app.repositories.evento_repository import (
 )
 from app.repositories.trazabilidad_repository import (
     actualizar_estado_envio,
-    listar_envios_de_contenedor
+    listar_envios_de_contenedor,
+    registrar_evento_y_estado
 )
 from app.repositories.grafo_repository import (
     obtener_ruta_envio,
@@ -290,49 +291,42 @@ def registrar_evento_service():  # registra un evento logístico; opción 1 del 
             "fecha_registro": datetime.now(timezone.utc)
         }
 
-        id_evento = insertar_evento(documento)  # el evento se guarda primero en MongoDB
+        nuevo_estado = estado_nuevo_por_evento(tipo, envio[5])  # algunos eventos cambian el estado del envío
+
+        if not nuevo_estado:
+            # Sin cambio de estado: solo se guarda el evento en MongoDB, como siempre.
+            id_evento = insertar_evento(documento)
+            logger.info(
+                "Evento %s registrado para el envío %s (id %s)",
+                tipo, id_envio, id_evento
+            )
+            print("\nEvento registrado correctamente.")
+            return
+
+        # La fecha real de entrega es la del evento ENTREGADO.
+        fecha_entrega = fecha_hora if tipo == "ENTREGADO" else None
+        try:
+            id_evento = registrar_evento_y_estado(  # guarda el evento en MongoDB y el estado en PostgreSQL juntos, o nada
+                documento, id_envio, nuevo_estado, fecha_entrega
+            )
+        except Exception as error:
+            logger.error("No se registró el evento %s del envío %s: %s",
+                         tipo, id_envio, error)
+            print(f"\nNo se registró el evento: {mensaje_error(error)}")  # no queda nada guardado ni pendiente
+            return
+
         logger.info(
             "Evento %s registrado para el envío %s (id %s)",
             tipo, id_envio, id_evento
         )
-
         print("\nEvento registrado correctamente.")
-
-        nuevo_estado = estado_nuevo_por_evento(tipo, envio[5])  # algunos eventos cambian el estado del envío
-
-        if nuevo_estado:
-            # La fecha real de entrega es la del evento ENTREGADO.
-            fecha_entrega = fecha_hora if tipo == "ENTREGADO" else None
-            try:
-                if not actualizar_estado_envio(  # ENTREGADO guarda la fecha real de entrega y apaga los sensores
-                    id_envio, nuevo_estado, fecha_entrega
-                ):
-                    raise RuntimeError(
-                        "No se encontró el envío o ya estaba Entregado"
-                    )
-                if fecha_entrega is not None:
-                    print(
-                        "Fecha real de entrega registrada: "
-                        f"{formatear_fecha(fecha_entrega)}"
-                    )
-                print(f"Estado del envío actualizado a: {nuevo_estado}")
-                sincronizar_envio_neo4j(id_envio)  # copia el estado nuevo a Neo4j
-            except Exception as error:
-                logger.error(
-                    "Evento %s guardado pero no se pudo actualizar el "
-                    "estado del envío %s: %s",
-                    id_evento, id_envio, error
-                )
-                try:
-                    registrar_pendiente_estado(  # si PostgreSQL falló, queda pendiente en MongoDB para reintentar
-                        id_envio, nuevo_estado, id_evento, error,
-                        fecha_entrega=fecha_entrega,
-                    )
-                    print("\nAdvertencia: evento guardado; la actualización del estado quedó pendiente.")
-                except Exception as error_pendiente:
-                    logger.exception("No se pudo persistir el pendiente de estado: %s", error_pendiente)
-                    print("\nADVERTENCIA: no se pudo actualizar el estado del envío ni dejarlo pendiente. "
-                          "El detalle quedó registrado para revisión.")
+        if fecha_entrega is not None:
+            print(
+                "Fecha real de entrega registrada: "
+                f"{formatear_fecha(fecha_entrega)}"
+            )
+        print(f"Estado del envío actualizado a: {nuevo_estado}")
+        sincronizar_envio_neo4j(id_envio)  # copia el estado nuevo a Neo4j (si falla, queda pendiente)
 
     except Exception as error:
         logger.exception("Error al registrar evento: %s", error)
