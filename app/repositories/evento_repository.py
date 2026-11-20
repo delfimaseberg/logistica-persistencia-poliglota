@@ -87,10 +87,9 @@ def tipos_registrados(id_envio):  # tipos de evento que ya tiene el envío; la u
     )
 
 
-# ------------------------------------------------------------------
 # Pendientes de sincronización PostgreSQL -> Neo4j
 # Se guardan de forma persistente para poder reintentarlos.
-# ------------------------------------------------------------------
+
 
 def registrar_pendiente_sync(id_envio, error):  # anota en MongoDB un envío que no se pudo copiar a Neo4j; la usa sincronizacion_service
     db = get_mongo_database()

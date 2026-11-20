@@ -718,11 +718,9 @@ def sincronizar_proyeccion_service():  # pendientes y resincronización con Neo4
 # ------------------------------------------------------------------
 
 def fecha_entrega_de_pendiente(pendiente):  # fecha de entrega de un estado pendiente; la usa la opción 6 (cambios de estado)
-    """Fecha real de entrega de un estado pendiente de aplicar.
 
-    Usa la guardada en el pendiente; si es un pendiente anterior que no la
-    tiene, la toma del evento ENTREGADO original en MongoDB.
-    """
+    #Usa la guardada en el pendiente; si es un pendiente anterior que no la tiene, la toma del evento ENTREGADO original en MongoDB.
+    
     if str(pendiente.get("estado", "")).strip().casefold() != "entregado":
         return None
     if pendiente.get("fecha_entrega") is not None:
@@ -736,13 +734,13 @@ def fecha_entrega_de_pendiente(pendiente):  # fecha de entrega de un estado pend
 
 
 def cliente_visible(sesion):  # a qué cliente se limitan los datos según el usuario; la usan las opciones 7 y 8 y el portal
-    """Cliente al que se restringen las consultas, o None si ve todo.
 
-    Depende de la PARTE del usuario, no de su nivel de permisos:
-    - Usuario de un cliente: solo los datos de su cliente.
-    - Usuario de proveedor u operador: no accede a datos de clientes.
-    - Usuario interno (sin parte): todos.
-    """
+    # Depende de la PARTE del usuario, no de su nivel de permisos:
+    # Usuario de un cliente: solo los datos de su cliente.
+    # Usuario de proveedor u operador: no accede a datos de clientes.
+    # Usuario interno (sin parte): todos.
+    
+
     if sesion is None:
         raise PermissionError("Debés iniciar sesión.")
 

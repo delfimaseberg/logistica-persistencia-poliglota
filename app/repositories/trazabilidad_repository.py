@@ -64,14 +64,8 @@ def _actualizar_estado(cursor, id_envio, estado, fecha_entrega, entregado):  # U
     return actualizado
 
 
-def registrar_evento_y_estado(documento, id_envio, estado, fecha_entrega=None):  # guarda el evento y el estado juntos (rollback si falla MongoDB, borra el evento si falla el commit); la usa registrar_evento_service
-    """Guarda el evento (MongoDB) y el estado del envío (PostgreSQL) juntos.
-
-    O quedan las dos cosas o ninguna:
-    - si falla MongoDB, PostgreSQL hace rollback;
-    - si falla el commit de PostgreSQL, se borra el evento de MongoDB.
-    Devuelve el id del evento.
-    """
+def registrar_evento_y_estado(documento, id_envio, estado, fecha_entrega=None):  # guarda el evento y el estado juntos, o ninguno de los dos
+  
     entregado = _es_entregado(estado, fecha_entrega)
     id_evento = None
 

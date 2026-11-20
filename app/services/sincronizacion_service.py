@@ -20,11 +20,7 @@ logger = obtener_logger("sincronizacion")  # los errores con Neo4j quedan en log
 
 
 def reconciliar_envio(id_envio):  # deja Neo4j igual a PostgreSQL para un envío; la usan todas las funciones de acá
-    """Deja Neo4j igual a PostgreSQL para un envío.
-
-    Si el envío existe en PostgreSQL lo proyecta; si no existe, lo
-    elimina del grafo. Lanza excepción si falla.
-    """
+    
     datos = obtener_datos_proyeccion(id_envio)  # lee el envío de PostgreSQL
 
     if datos is None:
@@ -51,12 +47,7 @@ def _marcar_pendiente(id_envio, error):  # guarda el fallo como pendiente en Mon
 
 
 def sincronizar_envio_neo4j(id_envio):  # copia el envío a Neo4j después de un cambio; la usan envíos, tramos, contenedores, eventos y la carga de ejemplo
-    """Proyecta el envío en Neo4j sin interrumpir la operación principal.
-
-    PostgreSQL ya confirmó el cambio. Si Neo4j falla, el error se guarda
-    como pendiente (persistente) para repararlo desde el menú de
-    trazabilidad. Nunca lanza excepciones. Devuelve True si sincronizó.
-    """
+    #si falla, queda como pendiente y no corta la operación
     try:
         reconciliar_envio(id_envio)
     except Exception as error:
@@ -106,11 +97,9 @@ def reparar_pendientes():  # reintenta los pendientes de MongoDB; opción 6 de t
 
 
 def resincronizar_envio(id_envio):  # vuelve a copiar un envío; opción 6 de trazabilidad (un envío)
-    """Igual que resincronizar_todos, para un solo envío.
 
-    Devuelve None si quedó sincronizado o el motivo del error (texto para
-    mostrar); en ese caso queda como pendiente para reintentar.
-    """
+    # Devuelve None si quedó sincronizado o el motivo del error; queda como pendiente para reintentar.
+
     try:
         reconciliar_envio(id_envio)
         resolver_pendientes_envio(id_envio)
@@ -123,10 +112,7 @@ def resincronizar_envio(id_envio):  # vuelve a copiar un envío; opción 6 de tr
 
 
 def resincronizar_todos():  # reconstruye el grafo con todos los envíos; opción 6 de trazabilidad (todos) y la carga de ejemplo
-    """Reconstruye la proyección de todos los envíos desde PostgreSQL.
-
-    Devuelve (cantidad_ok, lista_de_errores).
-    """
+    
     correctos = 0
     errores = []
 
