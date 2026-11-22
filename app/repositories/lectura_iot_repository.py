@@ -27,19 +27,12 @@ def _preparar(session, cql):  # prepara cada CQL una sola vez; la usan todas las
 
 
 def abrir_conexion():  # sesión de Cassandra compartida; la usan este archivo y recorrido_repository
-    """Devuelve (None, sesión compartida).
-
-    Se conserva la firma anterior (cluster, session) para los llamadores
-    existentes; el cluster es None porque la sesión no les pertenece.
-    """
+    
     return None, obtener_sesion_cassandra()
 
 
-def cerrar_conexion(cluster, session):  # no cierra la sesión compartida
-    """No cierra la sesión compartida (se cierra al terminar el proceso).
-
-    Solo cierra conexiones propias que alguien haya abierto aparte.
-    """
+def cerrar_conexion(cluster, session):  # no cierra la sesión compartida (se cierra al terminar el proceso)
+    
     if cluster is None:
         return
 
@@ -139,14 +132,8 @@ def registrar_lectura_db(  # guarda una lectura en las tres tablas; la usan carg
     return id_lectura
 
 
-def existe_lectura_sensor(id_sensor, fecha_hora):  # si ya hay una lectura en ese instante; la usa la carga de ejemplo para no duplicar
-    """True si el sensor ya tiene una lectura en esa fecha y hora exactas.
-
-    La clave de lecturas_por_sensor es ((sensor_id, anio_mes), fecha_hora,
-    id_lectura) e id_lectura es un UUID aleatorio, así que reinsertar la
-    misma lectura NO la sobrescribe: crearía otra fila. Esta consulta por
-    clave de partición + columna de clustering permite no duplicar.
-    """
+def existe_lectura_sensor(id_sensor, fecha_hora):   # True si el sensor ya tiene una lectura en ese instante; como id_lectura es al azar, reinsertar duplicaría la fila
+    
     fecha_hora = fecha_hora.astimezone(timezone.utc)
     _, session = abrir_conexion()
     consulta = _preparar(session, """
@@ -220,11 +207,10 @@ def consultar_ultima_lectura_db(id_sensor):  # la última lectura de un sensor; 
     ).one()
 
 
-def ultimas_lecturas_sensor(id_sensor, cantidad, ahora=None):  # últimas N lecturas de un sensor; la usa la detección de fallas en incidentes
-    """Las últimas lecturas del sensor, de la más nueva a la más vieja.
+def ultimas_lecturas_sensor(id_sensor, cantidad, ahora=None):  # últimas N lecturas de un sensor de la mas nueva a la mas vieja; la usa la detección de fallas en incidentes
 
-    Busca en la partición del mes actual y, si faltan, en la del mes anterior.
-    """
+    # Busca en la partición del mes actual y, si faltan, en la del mes anterior.
+    
     ahora = (ahora or datetime.now(timezone.utc)).astimezone(timezone.utc)
     anterior = (ahora.replace(day=1) - timedelta(days=1))
     lecturas = []
@@ -236,7 +222,7 @@ def ultimas_lecturas_sensor(id_sensor, cantidad, ahora=None):  # últimas N lect
 
 
 def meses_entre(desde, hasta):  # lista de meses AAAA-MM de un período; la usa la consulta por período
-    """Particiones 'AAAA-MM' que cubren el intervalo [desde, hasta]."""
+    
     meses = []
     anio, mes = desde.year, desde.month
     while (anio, mes) <= (hasta.year, hasta.month):
@@ -246,11 +232,9 @@ def meses_entre(desde, hasta):  # lista de meses AAAA-MM de un período; la usa 
 
 
 def consultar_lecturas_contenedor_periodo(id_contenedor, desde, hasta):  # lecturas de un contenedor entre dos fechas; la usa el reporte cobrable de condiciones de carga
-    """Lecturas de un contenedor entre dos instantes (con zona horaria).
 
-    Consulta una partición (contenedor, mes) por cada mes del intervalo y
-    filtra por la columna de clustering fecha_hora.
-    """
+    # Consulta una partición (contenedor, mes) por cada mes del intervalo y filtra por la columna de clustering fecha_hora.
+    
     desde = desde.astimezone(timezone.utc)
     hasta = hasta.astimezone(timezone.utc)
     _, session = abrir_conexion()
