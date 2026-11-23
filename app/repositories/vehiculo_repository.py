@@ -12,7 +12,7 @@ _SELECT_VEHICULO = """
 """
 
 
-def crear_vehiculo(vehiculo):
+def crear_vehiculo(vehiculo):  # alta de vehículo; devuelve el ID nuevo
     # empresa_operadora ya no se escribe: el operador es id_operador.
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
@@ -31,14 +31,14 @@ def crear_vehiculo(vehiculo):
             return cursor.fetchone()[0]
 
 
-def listar_vehiculos():
+def listar_vehiculos():  # todos los vehículos con su operador; la usan el listado y asignar operador a un vehículo
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute(_SELECT_VEHICULO + " ORDER BY v.id_vehiculo")
             return cursor.fetchall()
 
 
-def buscar_vehiculo_por_id(id_vehiculo):
+def buscar_vehiculo_por_id(id_vehiculo):  # un vehículo por ID, o None
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute(
@@ -48,18 +48,18 @@ def buscar_vehiculo_por_id(id_vehiculo):
             return cursor.fetchone()
 
 
-def buscar_vehiculo_por_identificacion(identificacion):
+def buscar_vehiculo_por_identificacion(identificacion):  # busca por patente, IMO o matrícula; la usa pedir_identificacion para no repetir
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute(
                 _SELECT_VEHICULO
-                + " WHERE LOWER(v.identificacion) = LOWER(%s)",
+                + " WHERE LOWER(v.identificacion) = LOWER(%s)",  # sin distinguir mayúsculas
                 (identificacion,)
             )
             return cursor.fetchone()
 
 
-def actualizar_vehiculo(id_vehiculo, vehiculo):
+def actualizar_vehiculo(id_vehiculo, vehiculo):  # guarda los cambios de un vehículo; devuelve True si existía
     # No toca empresa_operadora: el texto histórico se conserva tal cual.
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
@@ -80,7 +80,7 @@ def actualizar_vehiculo(id_vehiculo, vehiculo):
             return cursor.rowcount > 0
 
 
-def eliminar_vehiculo_db(id_vehiculo):
+def eliminar_vehiculo_db(id_vehiculo):  # borra el vehículo; antes el servicio controla que no tenga tramos
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute("""
@@ -90,7 +90,7 @@ def eliminar_vehiculo_db(id_vehiculo):
             return cursor.rowcount > 0
 
 
-def contar_tramos_de_vehiculo(id_vehiculo):
+def contar_tramos_de_vehiculo(id_vehiculo):  # cuántos tramos usan el vehículo; impide borrarlo o cambiarle el tipo
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
             cursor.execute("""

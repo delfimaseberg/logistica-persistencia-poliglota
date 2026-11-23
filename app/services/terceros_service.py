@@ -63,7 +63,7 @@ _FUNCIONES = {
 
 # ------------------------------------------------------------ utilidades
 
-def pausar():
+def pausar():  
     input("\nPresioná Enter para continuar...")
 
 
@@ -79,7 +79,7 @@ def pedir(mensaje, validador, *args, valor_actual=None):
             print(f"Error: {mensaje_error(error)}")
 
 
-def pedir_id(mensaje):
+def pedir_id(mensaje):  # pide un ID entero positivo hasta que sea válido
     while True:
         valor = input(mensaje).strip()
         if valor.isdigit() and int(valor) > 0:
@@ -87,7 +87,7 @@ def pedir_id(mensaje):
         print("Error: ingresá un número entero positivo.")
 
 
-def pedir_fecha(mensaje, por_defecto=None):
+def pedir_fecha(mensaje, por_defecto=None):  # pide una fecha AAAA-MM-DD; Enter usa la fecha por defecto
     while True:
         texto = input(mensaje).strip()
         if not texto and por_defecto is not None:
@@ -98,20 +98,20 @@ def pedir_fecha(mensaje, por_defecto=None):
             print("Error: usá el formato AAAA-MM-DD.")
 
 
-def _texto_opcional(valor):
+def _texto_opcional(valor):  # texto vacío se guarda como None
     return valor.strip() or None
 
 
-def _dinero(valor):
+def _dinero(valor):  # importe con formato de moneda
     return formato.dinero(valor)
 
 
-def _id_usuario_actual():
+def _id_usuario_actual():  # usuario logueado, para guardar quién registró la factura o el pago
     sesion = obtener_sesion_actual()
     return sesion["id_usuario"] if sesion else None
 
 
-def mostrar_tercero(tipo, fila):
+def mostrar_tercero(tipo, fila):  # imprime los datos de un proveedor u operador
     print("-" * 45)
     print(f"ID: {fila[0]} | {fila[1]}")
     print(f"CUIT: {fila[2]} | Email: {fila[3]}")
@@ -122,7 +122,7 @@ def mostrar_tercero(tipo, fila):
     else:
         print(f"Rubro: {fila[7]}")
     estado = fila[8]
-    if estado == "INACTIVO" and fila[10]:
+    if estado == "INACTIVO" and fila[10]:  # fila[10] es la fecha de baja
         estado += f" (baja {fila[10]:%d/%m/%Y})"
     print(f"Estado: {estado}")
 
@@ -144,7 +144,7 @@ def seleccionar_tercero(tipo, solo_activos=False):
     return fila
 
 
-def _pedir_extra(tipo, actual=None):
+def _pedir_extra(tipo, actual=None):  # modalidades si es operador, rubro si es proveedor
     if tipo == "OPERADOR":
         return pedir(
             f"Modalidades ({', '.join(MEDIOS_TRANSPORTE)}; separadas por coma)"
@@ -163,7 +163,7 @@ def _pedir_extra(tipo, actual=None):
 def _pedir_datos(tipo, actual=None):
     """Pide los datos de alta o modificación (Enter conserva en modificación)."""
     sufijo = " [Enter = sin cambios]" if actual else ""
-    valor = (lambda i: actual[i]) if actual else (lambda i: None)
+    valor = (lambda i: actual[i]) if actual else (lambda i: None)  # en el alta no hay valores actuales que conservar
 
     datos = {
         "razon_social": pedir(
@@ -198,7 +198,7 @@ def _pedir_datos(tipo, actual=None):
 
 @requiere_permiso(3)
 @solo_internos
-def registrar_tercero_service(tipo):
+def registrar_tercero_service(tipo):  # alta de proveedor u operador; opción 1 de los dos menús
     print(f"\n--- REGISTRAR {NOMBRES[tipo].upper()} ---")
     try:
         datos = _pedir_datos(tipo)
@@ -215,7 +215,7 @@ def registrar_tercero_service(tipo):
 
 
 @requiere_permiso(3)
-def listar_terceros_service(tipo):
+def listar_terceros_service(tipo):  # muestra todos, activos e inactivos
     print(f"\n--- LISTADO DE {NOMBRES[tipo].upper()}ES ---"
           if tipo == "PROVEEDOR" else "\n--- LISTADO DE OPERADORES LOGÍSTICOS ---")
     try:
@@ -232,7 +232,7 @@ def listar_terceros_service(tipo):
 
 
 @requiere_permiso(3)
-def buscar_tercero_service(tipo):
+def buscar_tercero_service(tipo):  # busca un tercero por ID y lo muestra
     print(f"\n--- BUSCAR {NOMBRES[tipo].upper()} ---")
     try:
         fila = _FUNCIONES[tipo]["buscar"](pedir_id("ID: "))
@@ -248,7 +248,7 @@ def buscar_tercero_service(tipo):
 
 @requiere_permiso(3)
 @solo_internos
-def modificar_tercero_service(tipo):
+def modificar_tercero_service(tipo):  # modifica los datos; Enter conserva cada valor
     print(f"\n--- MODIFICAR {NOMBRES[tipo].upper()} ---")
     try:
         actual = _FUNCIONES[tipo]["buscar"](pedir_id("ID: "))
@@ -260,7 +260,7 @@ def modificar_tercero_service(tipo):
         datos = _pedir_datos(tipo, actual)
 
         otro = _FUNCIONES[tipo]["por_cuit"](datos["cuit"])
-        if otro is not None and otro[0] != actual[0]:
+        if otro is not None and otro[0] != actual[0]:  # puede quedar su propio CUIT, pero no el de otro
             print(f"\nYa existe otro {NOMBRES[tipo]} con ese CUIT.")
             return
 
@@ -277,7 +277,7 @@ def modificar_tercero_service(tipo):
 
 @requiere_permiso(3)
 @solo_internos
-def baja_tercero_service(tipo):
+def baja_tercero_service(tipo):  # baja lógica, con aviso si tiene facturas impagas
     print(f"\n--- DAR DE BAJA {NOMBRES[tipo].upper()} (baja lógica) ---")
     try:
         actual = _FUNCIONES[tipo]["buscar"](pedir_id("ID: "))
@@ -291,7 +291,7 @@ def baja_tercero_service(tipo):
 
         pendientes = cuentas.listar_facturas_pendientes(tipo, actual[0])
         if pendientes:
-            total = sum(f[6] for f in pendientes)
+            total = sum(f[6] for f in pendientes)  # f[6] es lo pendiente de cada factura
             print(
                 f"\nAviso: tiene {len(pendientes)} factura(s) impaga(s) por "
                 f"{_dinero(total)}. Se podrán seguir pagando."
@@ -317,7 +317,7 @@ def baja_tercero_service(tipo):
 
 @requiere_permiso(3)
 @solo_internos
-def reactivar_tercero_service(tipo):
+def reactivar_tercero_service(tipo):  # vuelve a activar un tercero dado de baja
     print(f"\n--- REACTIVAR {NOMBRES[tipo].upper()} ---")
     try:
         id_tercero = pedir_id("ID: ")
@@ -335,7 +335,7 @@ def reactivar_tercero_service(tipo):
 # ------------------------------------------------------- operador: tramos
 
 @requiere_permiso(3)
-def tramos_operador_service():
+def tramos_operador_service():  # tramos de un operador y si ya están facturados; opción 7 de operadores
     print("\n--- TRAMOS REALIZADOS POR UN OPERADOR ---")
     try:
         operador = seleccionar_tercero("OPERADOR")
@@ -359,7 +359,7 @@ def tramos_operador_service():
 
 @requiere_permiso(3)
 @solo_internos
-def asignar_operador_vehiculo_service():
+def asignar_operador_vehiculo_service():  # asigna o quita el operador de un vehículo; opción 8 de operadores
     print("\n--- ASIGNAR OPERADOR A UN VEHÍCULO ---")
     try:
         from app.repositories.vehiculo_repository import (
@@ -382,7 +382,7 @@ def asignar_operador_vehiculo_service():
         if not texto.isdigit():
             print("Valor inválido.")
             return
-        id_operador = int(texto) or None
+        id_operador = int(texto) or None  # 0 quita el operador
 
         repo.asignar_operador_vehiculo(vehiculo[0], id_operador)
         logger.info("Vehículo %s -> operador %s", vehiculo[0], id_operador)
@@ -396,7 +396,7 @@ def asignar_operador_vehiculo_service():
 
 @requiere_permiso(3)
 @solo_internos
-def asignar_operador_tramo_service():
+def asignar_operador_tramo_service():  # asigna operador a un tramo que no tiene; opción 9 de operadores
     print("\n--- ASIGNAR OPERADOR A UN TRAMO SIN OPERADOR ---")
     try:
         tramos = repo.listar_tramos_sin_operador()
@@ -426,7 +426,7 @@ def asignar_operador_tramo_service():
         id_envio = repo.asignar_operador_tramo(id_tramo, id_operador)
         logger.info("Tramo %s -> operador %s", id_tramo, id_operador)
         print("\nOperador asignado.")
-        sincronizar_envio_neo4j(id_envio)
+        sincronizar_envio_neo4j(id_envio)  # el operador del tramo también se guarda en Neo4j
     except Exception as error:
         print(f"\nError: {mensaje_error(error)}")
     finally:
@@ -437,10 +437,10 @@ def asignar_operador_tramo_service():
 
 @requiere_permiso(3)
 @solo_internos
-def registrar_factura_recibida_service(tipo):
+def registrar_factura_recibida_service(tipo):  # carga una factura que nos emitió un proveedor u operador
     print(f"\n--- REGISTRAR FACTURA RECIBIDA ({NOMBRES[tipo]}) ---")
     try:
-        titular = seleccionar_tercero(tipo, solo_activos=True)
+        titular = seleccionar_tercero(tipo, solo_activos=True)  # a un inactivo no se le registran facturas nuevas
         if titular is None:
             return
 
@@ -474,7 +474,7 @@ def registrar_factura_recibida_service(tipo):
         emision = pedir_fecha(
             f"Fecha de emisión AAAA-MM-DD [Enter = {hoy}]: ", hoy
         )
-        sugerido = date.fromordinal(emision.toordinal() + DIAS_VENCIMIENTO_DEFECTO)
+        sugerido = date.fromordinal(emision.toordinal() + DIAS_VENCIMIENTO_DEFECTO)  # emisión más los días de vencimiento por defecto
         vencimiento = pedir_fecha(
             f"Vencimiento AAAA-MM-DD [Enter = {sugerido}, 30 días]: ", sugerido
         )
@@ -495,7 +495,7 @@ def registrar_factura_recibida_service(tipo):
 
 @requiere_permiso(3)
 @solo_internos
-def registrar_pago_emitido_service(tipo):
+def registrar_pago_emitido_service(tipo):  # registra un pago nuestro a una factura recibida
     print(f"\n--- REGISTRAR PAGO A {NOMBRES[tipo].upper()} ---")
     try:
         # Se incluyen inactivos: su deuda se sigue pudiendo pagar.
@@ -532,7 +532,7 @@ def registrar_pago_emitido_service(tipo):
 
 
 @requiere_permiso(3)
-def consultar_cuenta_tercero_service(tipo):
+def consultar_cuenta_tercero_service(tipo):  # saldo, totales y facturas pendientes del titular
     print(f"\n--- CUENTA CORRIENTE ({NOMBRES[tipo]}) ---")
     try:
         titular = seleccionar_tercero(tipo)
@@ -554,7 +554,7 @@ def consultar_cuenta_tercero_service(tipo):
             print("\nFacturas pendientes:")
             hoy = hoy_contable()
             for f in pendientes:
-                marca = " VENCIDA" if f[3] < hoy else ""
+                marca = " VENCIDA" if f[3] < hoy else ""  # f[3] es el vencimiento
                 origen = f"tramo {f[8]}" if f[8] else (f[9] or "")
                 print(
                     f"  {f[0]} | Comp. {f[1]} | Emisión {f[2]:%d/%m/%Y} | "
@@ -568,7 +568,7 @@ def consultar_cuenta_tercero_service(tipo):
 
 
 @requiere_permiso(3)
-def movimientos_tercero_service(tipo):
+def movimientos_tercero_service(tipo):  # movimientos de la cuenta con el saldo acumulado
     print(f"\n--- MOVIMIENTOS DE CUENTA ({NOMBRES[tipo]}) ---")
     try:
         titular = seleccionar_tercero(tipo)
@@ -592,7 +592,7 @@ def movimientos_tercero_service(tipo):
 
 
 @requiere_permiso(3)
-def vencimientos_service():
+def vencimientos_service():  # facturas recibidas vencidas o por vencer, de todos los titulares
     print("\n--- FACTURAS RECIBIDAS VENCIDAS O POR VENCER ---")
     try:
         texto = input("Mostrar las que vencen en los próximos N días [Enter = 7]: ")
@@ -605,7 +605,7 @@ def vencimientos_service():
         for f in filas:
             total += f[8]
             situacion = (
-                f"VENCIDA hace {-f[6]} día(s)" if f[6] < 0
+                f"VENCIDA hace {-f[6]} día(s)" if f[6] < 0  # f[6] son los días hasta el vencimiento
                 else "vence HOY" if f[6] == 0
                 else f"vence en {f[6]} día(s)"
             )

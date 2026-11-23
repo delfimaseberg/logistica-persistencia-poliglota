@@ -34,7 +34,7 @@ _TITULARES = {
 }
 
 
-def _titular(tipo_titular):
+def _titular(tipo_titular):  # valida el tipo y devuelve la tabla y la columna del titular
     tipo = validar_tipo_titular(tipo_titular)
     tabla, columna = _TITULARES[tipo]
     return tipo, tabla, columna
@@ -112,7 +112,7 @@ def registrar_factura_recibida(
                         FROM tramo t
                         JOIN envio e ON e.id_envio = t.id_envio
                         WHERE t.id_tramo = %s
-                        FOR UPDATE OF t FOR SHARE OF e
+                        FOR UPDATE OF t FOR SHARE OF e  -- bloquea el tramo y deja leer el envío sin que cambie mientras tanto
                     """, (ZONA_CONTABLE, id_tramo))
                     tramo = cursor.fetchone()
                     if tramo is None:
@@ -149,7 +149,7 @@ def registrar_factura_recibida(
 
                 cursor.execute(f"""
                     SELECT 1 FROM factura_recibida
-                    WHERE {columna} = %s AND upper(numero_comprobante) = %s
+                    WHERE {columna} = %s AND upper(numero_comprobante) = %s  -- el mismo comprobante no se carga dos veces, sin importar mayúsculas
                 """, (id_titular, numero))
                 if cursor.fetchone() is not None:
                     raise ValueError(
@@ -228,7 +228,7 @@ def registrar_pago_emitido(
                 SELECT id_proveedor, id_operador, total, estado, moneda
                 FROM factura_recibida
                 WHERE id_factura_recibida = %s
-                FOR UPDATE
+                FOR UPDATE  -- bloquea la factura: dos pagos a la vez no pueden superar lo pendiente
             """, (id_factura_recibida,))
             factura = cursor.fetchone()
             if factura is None:
@@ -283,7 +283,7 @@ def registrar_pago_emitido(
             ))
             id_pago, fecha_contable = cursor.fetchone()
 
-            nuevo_estado = "Pagada" if monto == pendiente else "Parcial"
+            nuevo_estado = "Pagada" if monto == pendiente else "Parcial"  # si cubre todo lo pendiente, la factura queda Pagada
             cursor.execute("""
                 UPDATE factura_recibida SET estado = %s
                 WHERE id_factura_recibida = %s
@@ -336,7 +336,7 @@ def consultar_cuenta_tercero(tipo_titular, id_titular):
                 SELECT cc.saldo, cc.moneda, cc.fecha_actualizacion,
                        fa.cantidad, fa.total, pa.total
                 FROM cuenta_corriente_tercero cc
-                CROSS JOIN facturado fa
+                CROSS JOIN facturado fa  -- cada CTE devuelve una sola fila
                 CROSS JOIN pagado pa
                 WHERE cc.{columna} = %s
             """, (id_titular, id_titular, id_titular))
@@ -354,7 +354,7 @@ def consultar_cuenta_tercero(tipo_titular, id_titular):
     }
 
 
-def listar_facturas_pendientes(tipo_titular, id_titular):
+def listar_facturas_pendientes(tipo_titular, id_titular):  # facturas impagas del titular con lo pagado y lo pendiente; la usan pagos, baja y cuenta corriente
     _, _, columna = _titular(tipo_titular)
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
@@ -375,7 +375,7 @@ def listar_facturas_pendientes(tipo_titular, id_titular):
             return cursor.fetchall()
 
 
-def listar_movimientos_tercero(tipo_titular, id_titular):
+def listar_movimientos_tercero(tipo_titular, id_titular):  # movimientos de la cuenta del titular en orden; la usa ver movimientos de la cuenta
     _, _, columna = _titular(tipo_titular)
     with get_postgres_connection() as conexion:
         with conexion.cursor() as cursor:
@@ -411,7 +411,7 @@ def listar_vencimientos(dias=7, hoy=None):
                        COALESCE(pr.razon_social, op.razon_social) AS titular,
                        f.numero_comprobante, f.fecha_emision,
                        f.fecha_vencimiento,
-                       f.fecha_vencimiento - %s::date AS dias_restantes,
+                       f.fecha_vencimiento - %s::date AS dias_restantes,  -- resta de fechas: da días enteros
                        f.total,
                        f.total - COALESCE(SUM(p.monto), 0) AS pendiente,
                        f.estado

@@ -5,12 +5,12 @@ from app.services import terceros_service as servicio
 TIPO = "OPERADOR"
 
 
-def mostrar_menu_operadores():
+def mostrar_menu_operadores():  # menú de operadores logísticos; lo abre la opción 13 del menú principal
     if not verificar_permiso(3):
         return
 
     while True:
-        if not verificar_permiso(3):
+        if not verificar_permiso(3):  # la sesión puede haberse cerrado mientras tanto
             return
 
         print("\n==========================================")
@@ -48,7 +48,7 @@ def mostrar_menu_operadores():
             "12": servicio.consultar_cuenta_tercero_service,
             "13": servicio.movimientos_tercero_service,
         }
-        sin_tipo = {
+        sin_tipo = {  # pantallas propias de operadores, que no reciben el tipo
             "7": servicio.tramos_operador_service,
             "8": servicio.asignar_operador_vehiculo_service,
             "9": servicio.asignar_operador_tramo_service,

@@ -5,12 +5,12 @@ from app.services import terceros_service as servicio
 TIPO = "PROVEEDOR"
 
 
-def mostrar_menu_proveedores():
+def mostrar_menu_proveedores():  # menú de proveedores; lo abre la opción 12 del menú principal
     if not verificar_permiso(3):
         return
 
     while True:
-        if not verificar_permiso(3):
+        if not verificar_permiso(3):  # la sesión puede haberse cerrado mientras tanto
             return
 
         print("\n==========================================")
@@ -48,8 +48,8 @@ def mostrar_menu_proveedores():
         if opcion == "0":
             break
         elif opcion in acciones:
-            acciones[opcion](TIPO)
-        elif opcion == "11":
+            acciones[opcion](TIPO)  # las mismas pantallas sirven para proveedores y operadores
+        elif opcion == "11":  # vencimientos no depende del tipo: lista los de todos
             servicio.vencimientos_service()
         else:
             print("\nOpción inválida.")
