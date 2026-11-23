@@ -25,7 +25,7 @@ from app.utils.errores import mensaje_error
 from app.services.autenticacion import requiere_permiso
 
 
-def pedir(mensaje, funcion, *args):
+def pedir(mensaje, funcion, *args):  
     while True:
         try:
             return funcion(input(mensaje), *args)
@@ -33,11 +33,11 @@ def pedir(mensaje, funcion, *args):
             print(f"Error: {mensaje_error(error)}")
 
 
-def pausar():
+def pausar():  
     input("\nPresioná Enter para continuar...")
 
 
-def mostrar_vehiculo(vehiculo):
+def mostrar_vehiculo(vehiculo):  # imprime los datos del vehículo y su operador
     print("--------------------------------")
     print(f"ID vehículo: {vehiculo[0]}")
     print(f"Tipo: {vehiculo[1]}")
@@ -46,12 +46,12 @@ def mostrar_vehiculo(vehiculo):
         print(f"Operador logístico: {vehiculo[6]} (ID {vehiculo[5]})")
     else:
         print("Operador logístico: sin asignar")
-    if vehiculo[3]:
+    if vehiculo[3]:  # solo los vehículos viejos tienen empresa_operadora
         print(f"Empresa operadora (texto histórico): {vehiculo[3]}")
     print(f"Estado: {vehiculo[4]}")
 
 
-def mostrar_ayuda_identificacion(tipo):
+def mostrar_ayuda_identificacion(tipo):  # explica qué identificación corresponde según el tipo
     print("\n--- IDENTIFICACIÓN DEL VEHÍCULO ---")
 
     if tipo == "Terrestre":
@@ -67,7 +67,7 @@ def mostrar_ayuda_identificacion(tipo):
         print("Ejemplo: LV-ABC")
 
 
-def pedir_identificacion(id_vehiculo_actual=None):
+def pedir_identificacion(id_vehiculo_actual=None):  # pide una identificación que no use otro vehículo
     while True:
         identificacion = pedir(
             "Identificación del vehículo: ",
@@ -81,7 +81,7 @@ def pedir_identificacion(id_vehiculo_actual=None):
         if existente is None:
             return identificacion
 
-        if (
+        if (  # al modificar puede quedar la misma del vehículo
             id_vehiculo_actual is not None
             and existente[0] == id_vehiculo_actual
         ):
@@ -124,7 +124,7 @@ def pedir_operador(tipo):
 
 
 @requiere_permiso(1)
-def registrar_vehiculo():
+def registrar_vehiculo():  # alta de vehículo
     print("\n--- REGISTRAR VEHÍCULO ---")
 
     try:
@@ -151,7 +151,7 @@ def registrar_vehiculo():
         vehiculo = Vehiculo(
             tipo,
             identificacion,
-            None,
+            None,  # empresa_operadora ya no se carga
             estado,
             id_operador
         )
@@ -175,7 +175,7 @@ def registrar_vehiculo():
 
 
 @requiere_permiso(1)
-def listar_vehiculos_service():
+def listar_vehiculos_service():  # lista todos los vehículos
     print("\n--- LISTAR VEHÍCULOS ---")
 
     try:
@@ -198,7 +198,7 @@ def listar_vehiculos_service():
 
 
 @requiere_permiso(1)
-def buscar_vehiculo_service():
+def buscar_vehiculo_service():  # busca un vehículo por ID
     print("\n--- BUSCAR VEHÍCULO ---")
 
     try:
@@ -224,7 +224,7 @@ def buscar_vehiculo_service():
 
 
 @requiere_permiso(1)
-def modificar_vehiculo_service():
+def modificar_vehiculo_service():  # cambia un dato del vehículo a elección
     print("\n--- MODIFICAR VEHÍCULO ---")
 
     try:
@@ -317,7 +317,7 @@ def modificar_vehiculo_service():
         vehiculo_modificado = Vehiculo(
             tipo,
             identificacion,
-            actual[3],
+            actual[3],  # conserva el texto histórico
             estado,
             id_operador
         )
@@ -344,7 +344,7 @@ def modificar_vehiculo_service():
 
 
 @requiere_permiso(1)
-def eliminar_vehiculo_service():
+def eliminar_vehiculo_service():  # borra un vehículo sin tramos, con confirmación
     print("\n--- ELIMINAR VEHÍCULO ---")
 
     try:
